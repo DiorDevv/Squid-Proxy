@@ -1,0 +1,20 @@
+# Real-deployment override: points the backend at your actual Squid
+# access.log instead of the synthetic demo generator's volume.
+#
+# Usage (on the server where Squid itself runs, so the path below is a real
+# local path Docker can bind-mount):
+#
+#   cp docker-compose.override.yml.example docker-compose.override.yml
+#   # edit the host path below to match your Squid install
+#   docker compose up --build -d          # note: no --profile demo
+#
+# `docker-compose.override.yml` is picked up automatically by `docker
+# compose` (it merges on top of docker-compose.yml) and is gitignored, so
+# your real log path never gets committed.
+
+services:
+  backend:
+    volumes:
+      # Left side: the real path to Squid's log directory on this host.
+      # Common defaults: /var/log/squid (Debian/Ubuntu), /var/log/squid3.
+      - /var/log/squid:/data/squid-logs:ro

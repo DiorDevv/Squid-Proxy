@@ -1,0 +1,37 @@
+from fastapi import APIRouter, Depends
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.api.deps import get_db, require_admin
+from app.schemas.alerts import AlertSettingsOut, UpdateAlertSettingsRequest
+from app.services import alert_settings_service
+
+router = APIRouter(
+    prefix="/api/alert-settings", tags=["alert-settings"], dependencies=[Depends(require_admin)]
+)
+
+
+def _to_out(row) -> AlertSettingsOut:
+    return AlertSettingsOut(
+        sensitive_categories=sorted(
+            alert_settings_service.parse_sensitive_categories(row.sensitive_categories), key=lambda c: c.value
+        ),
+        non_work_minutes_threshold=row.non_work_minutes_threshold,
+        client_daily_byte_quota_bytes=row.client_daily_byte_quota_bytes,
+        updated_at=row.updated_at,
+    )
+
+
+@router.get("", response_model=AlertSettingsOut)
+async def read_alert_settings(db: AsyncSession = Depends(get_db)) -> AlertSettingsOut:
+    row = await alert_settings_service.get_settings_row(db)
+    return _to_out(row)
+
+
+@router.put("", response_model=AlertSettingsOut)
+async def update_alert_settings(
+    body: UpdateAlertSettingsRequest, db: AsyncSession = Depends(get_db)
+) -> AlertSettingsOut:
+    row = await alert_settings_service.update_settings(
+        db, body.sensitive_categories, body.non_work_minutes_threshold, body.client_daily_byte_quota_bytes
+    )
+    return _to_out(row)

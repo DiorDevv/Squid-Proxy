@@ -1,0 +1,289 @@
+/** Canonical English dictionary -- the source of truth for translation keys.
+ * `uz.ts` and `ru.ts` are typechecked against this file's key set (see
+ * `../index.ts`), so a missing/misspelled key in either is a build error,
+ * not a silent blank string at runtime. */
+export const en = {
+  // --- Navigation ---
+  'nav.dashboard': 'Dashboard',
+  'nav.clients': 'Clients',
+  'nav.blocked': 'Blocked',
+  'nav.domains': 'Domains',
+  'nav.settings': 'Settings',
+  'nav.blockedCount': '{{count}} recent blocked events',
+  'nav.primaryLandmark': 'Primary',
+
+  // --- Topbar page titles ---
+  'topbar.title.dashboard': 'Dashboard',
+  'topbar.title.clients': 'Clients',
+  'topbar.title.clientDetail': 'Client detail',
+  'topbar.title.blocked': 'Blocked events',
+  'topbar.title.domains': 'Domains',
+  'topbar.title.settings': 'Settings',
+  'topbar.title.default': 'Squid Watch',
+  'topbar.openMenu': 'Open navigation menu',
+  'topbar.timeRange': 'Time range',
+
+  // --- Connection status ---
+  'connection.live': 'Live',
+  'connection.polling': 'Polling',
+  'connection.disconnected': 'Disconnected',
+
+  // --- Log pipeline health banner ---
+  'health.parseFailure':
+    '{{rate}}% of recent Squid log lines failed to parse — check that access_log uses the "squid" logformat (see README).',
+  'health.tailerDown': 'The Squid log file is unreadable or missing — no new traffic is being recorded.',
+
+  // --- Account menu ---
+  'account.signedIn': 'Signed in',
+  'account.signOut': 'Sign out',
+  'account.signedOutToast': 'Signed out.',
+  'account.theme': 'Theme',
+  'account.themeAmber': 'Amber',
+  'account.themeAzure': 'Azure',
+  'account.themeViolet': 'Violet',
+  'account.language': 'Language',
+
+  // --- Login page ---
+  'login.brand': 'Squid Watch',
+  'login.tagline': 'Proxy log analytics — sign in to continue',
+  'login.email': 'Email',
+  'login.password': 'Password',
+  'login.signIn': 'Sign in',
+  'login.signingIn': 'Signing in…',
+  'login.genericError': 'Sign-in failed. Please try again.',
+
+  // --- Common states ---
+  'common.retry': 'Retry',
+  'common.previous': 'Previous',
+  'common.next': 'Next',
+  'common.previousPage': 'Previous page',
+  'common.nextPage': 'Next page',
+  'common.pageOf': 'Page {{page}} of {{totalPages}} · {{total}} total',
+  'common.rangeOf': '{{start}}–{{end}} of {{total}}',
+  'common.errorDefault': 'Could not reach the backend. The service may be unavailable.',
+  'common.emptyDefault': 'No events recorded for this period.',
+  'common.noDataForRange': 'No data found for the selected time range — try widening it.',
+  'common.blockedOnly': 'Blocked only',
+  'common.clearFilter': 'Clear filter',
+  'common.never': 'never',
+  'common.custom': 'Custom',
+  'common.from': 'From',
+  'common.to': 'To',
+  'common.apply': 'Apply',
+  'common.rangeIncomplete': 'Pick both a start and end date/time.',
+  'common.rangeInvalidOrder': '"From" must be earlier than "To".',
+  'common.save': 'Save',
+
+  // --- Status badge ---
+  'status.blocked': 'Blocked',
+  'status.allowed': 'Allowed',
+
+  // --- Dashboard page ---
+  'dashboard.totalRequests': 'Total requests',
+  'dashboard.blocked': 'Blocked',
+  'dashboard.allowed': 'Allowed',
+  'dashboard.activeClients': 'Active clients',
+  'dashboard.trafficOverTime': 'Traffic over time',
+  'dashboard.topBlockedDomains': 'Top blocked domains',
+  'dashboard.liveEvents': 'Live events',
+  'dashboard.insights': 'Insights',
+  'dashboard.trafficEmpty': 'No traffic recorded for this period.',
+  'dashboard.legendAllowed': 'Allowed',
+  'dashboard.legendBlocked': 'Blocked',
+  'dashboard.topBlockedEmpty': 'No blocked domains for this period.',
+  'dashboard.liveEventsEmpty': 'No events recorded yet. Waiting for traffic…',
+  'dashboard.insightsEmpty': 'No anomalies detected. Traffic looks normal.',
+  'insights.severityLow': 'Low',
+  'insights.severityMedium': 'Medium',
+  'insights.severityHigh': 'High',
+  'insights.severityCritical': 'Critical',
+
+  // --- Clients page ---
+  'clients.title': 'Clients',
+  'clients.filterPlaceholder': 'Filter by IP or user…',
+  'clients.filterAriaLabel': 'Filter clients by IP or user',
+  'clients.columnClientIp': 'Client IP',
+  'clients.columnUser': 'User',
+  'clients.columnTotalRequests': 'Total requests',
+  'clients.columnBlocked': 'Blocked',
+  'clients.columnDataUsed': 'Data used',
+  'clients.columnLastActivity': 'Last activity',
+  'clients.empty': 'No client activity recorded for this period.',
+
+  // --- Client detail page ---
+  'clientDetail.back': 'Back to clients',
+  'clientDetail.activityHistory': 'Activity history',
+  'clientDetail.empty': 'No activity recorded for this client in the selected range.',
+  'clientDetail.endOfHistory': 'End of history for this range',
+  'clientDetail.timeSpent': 'Time spent',
+  'clientDetail.byDomain': 'By domain',
+  'clientDetail.byCategory': 'By category',
+  'clientDetail.timeSpentEmpty': 'No time-spent data for this range.',
+  'clientDetail.totalRequests': 'Total requests',
+  'clientDetail.totalData': 'Total data',
+  'clientDetail.totalBlocked': 'Blocked',
+  'clientDetail.filterByDomain': 'Filter by domain…',
+  'clientDetail.methodFilter': 'Method',
+  'clientDetail.allMethods': 'All methods',
+  'clientDetail.matchingEvents': '{{count}} matching events in this range',
+
+  // --- Blocked page ---
+  'blocked.title': 'Blocked attempts',
+  'blocked.filterPlaceholder': 'Filter by IP, domain, user…',
+  'blocked.filterAriaLabel': 'Filter blocked attempts',
+  'blocked.noMatch': 'No blocked attempts match "{{search}}".',
+  'blocked.emptyDefault': 'No blocked requests recorded yet.',
+  'blocked.columnTime': 'Time',
+  'blocked.columnClientIp': 'Client IP',
+  'blocked.columnUser': 'User',
+  'blocked.columnDomain': 'Domain',
+  'blocked.columnStatus': 'Status',
+  'blocked.columnOutcome': 'Outcome',
+
+  // --- Domains page ---
+  'domains.mostVisited': 'Most visited domains',
+  'domains.mostBlocked': 'Most blocked domains',
+  'domains.mostDataUsage': 'Most data-using domains',
+  'domains.byCategory': 'Usage by category',
+  'domains.categoryFilter': 'Filter by category',
+  'domains.allCategories': 'All categories',
+
+  'category.uncategorized': 'Uncategorized',
+  'category.socialMedia': 'Social media',
+  'category.videoStreaming': 'Video streaming',
+  'category.musicStreaming': 'Music streaming',
+  'category.gaming': 'Gaming',
+  'category.workTools': 'Work tools',
+  'category.shopping': 'Shopping',
+  'category.news': 'News',
+  'category.gambling': 'Gambling',
+  'category.other': 'Other',
+  'domains.empty': 'No domain activity recorded for this period.',
+
+  // --- Domain detail page ---
+  'domainDetail.back': 'Back to domains',
+  'domainDetail.totalVisits': 'Total visits',
+  'domainDetail.distinctClients': 'Distinct clients',
+  'domainDetail.clientsTitle': 'Clients who visited this domain',
+  'domainDetail.matchingClients': '{{count}} matching clients in this range',
+  'domainDetail.noClients': 'No clients visited this domain in the selected range.',
+  'domainDetail.columnVisits': 'Visits',
+  'domainDetail.columnLastVisit': 'Last visit',
+
+  // --- Settings page ---
+  'settings.userManagement': 'User management',
+  'settings.auditLog': 'Audit log',
+  'settings.domainCategories': 'Domain categories',
+
+  'settings.alertSettings': 'Alert settings',
+  'settings.sensitiveCategories': 'Sensitive categories',
+  'settings.sensitiveCategoriesDescription':
+    'Flag a client the first time it visits a domain in any of these categories.',
+  'settings.nonWorkMinutesThreshold': 'Non-work time threshold (minutes/day)',
+  'settings.nonWorkMinutesDescription':
+    'Flag a client whose combined time in non-work categories exceeds this many minutes in a rolling 24h window. 0 disables this check.',
+  'settings.clientDailyQuota': 'Client daily data quota (GB)',
+  'settings.clientDailyQuotaPlaceholder': 'No limit',
+  'settings.clientDailyQuotaDescription':
+    'Flag a client whose data usage exceeds this many GB in a rolling 24h window. Leave blank to disable.',
+  'settings.alertSettingsSaved': 'Alert settings saved.',
+
+  'settings.reports': 'Scheduled reports',
+  'settings.reportSchedule': 'Schedule',
+  'settings.reportScheduleDisabled': 'Disabled',
+  'settings.reportScheduleDaily': 'Daily',
+  'settings.reportScheduleWeekly': 'Weekly',
+  'settings.reportLastSent': 'Last sent',
+  'settings.reportNeverSent': 'Never',
+  'settings.reportConfigured': 'Email configured',
+  'settings.reportConfiguredYes': 'Yes',
+  'settings.reportConfiguredNo': 'No',
+  'settings.reportSendNow': 'Send report now',
+  'settings.reportSending': 'Sending…',
+  'settings.reportSentToast': 'Report sent.',
+  'settings.reportSendErrorToast': 'Failed to send report.',
+  'settings.reportNotConfiguredNote':
+    'Schedule and recipients are set via REPORT_SCHEDULE/REPORT_RECIPIENTS and SMTP_* environment variables — see the backend README.',
+
+  'settings.liveUpdates': 'Live updates',
+  'settings.realtimeTransport': 'Real-time transport',
+  'settings.realtimeTransportValue': 'WebSocket (/ws/live), auto-reconnect',
+  'settings.pollingInterval': 'Polling fallback interval',
+  'settings.liveUpdatesDescription':
+    'When the WebSocket connection is unavailable, the dashboard automatically falls back to REST polling at the interval above — no data is lost, updates just arrive less frequently.',
+  'settings.exportEvents': 'Export events',
+  'settings.range': 'Range',
+  'settings.format': 'Format',
+  'settings.rangeLastHour': 'Last 1 hour',
+  'settings.rangeLast24Hours': 'Last 24 hours',
+  'settings.rangeLast7Days': 'Last 7 days',
+  'settings.download': 'Download export',
+  'settings.preparingExport': 'Preparing export…',
+  'settings.exportNote':
+    'Exports are limited to the most recent 100,000 matching events and require the admin role.',
+  'settings.exportSuccessToast': 'Export downloaded.',
+  'settings.exportErrorToast': 'Export failed.',
+
+  // --- User management panel ---
+  'userManagement.accountsCount_one':
+    '{{count}} account · admin can add, change roles, reset passwords, and remove access.',
+  'userManagement.accountsCount_other':
+    '{{count}} accounts · admin can add, change roles, reset passwords, and remove access.',
+  'userManagement.addUser': 'Add user',
+  'userManagement.columnEmail': 'Email',
+  'userManagement.columnRole': 'Role',
+  'userManagement.columnCreated': 'Created',
+  'userManagement.columnActions': 'Actions',
+  'userManagement.you': 'you',
+  'userManagement.changeRoleAria': 'Change role for {{email}}',
+  'userManagement.roleAdmin': 'Admin',
+  'userManagement.roleViewer': 'Viewer',
+  'userManagement.addUserTitle': 'Add user',
+  'userManagement.addUserDescription': 'Create a new dashboard account.',
+  'userManagement.newPassword': 'Password',
+  'userManagement.createUser': 'Create user',
+  'userManagement.creating': 'Creating…',
+  'userManagement.resetPasswordAria': 'Reset password for {{email}}',
+  'userManagement.resetPasswordTitle': 'Reset password',
+  'userManagement.resetPasswordDescription': 'Set a new password for {{email}}.',
+  'userManagement.newPasswordLabel': 'New password',
+  'userManagement.resetPassword': 'Reset password',
+  'userManagement.resetting': 'Resetting…',
+  'userManagement.deleteAria': 'Delete {{email}}',
+  'userManagement.deleteTitle': 'Delete {{email}}?',
+  'userManagement.deleteDescription':
+    'This permanently removes the account and signs it out everywhere. This cannot be undone.',
+  'userManagement.deleteAccount': 'Delete account',
+  'userManagement.deleting': 'Deleting…',
+  'userManagement.deleteDisabledTitle': "You can't delete your own account here",
+  'userManagement.toastRoleUpdated': '{{email}} is now {{role}}.',
+  'userManagement.toastRoleError': 'Could not update role.',
+  'userManagement.toastUserCreated': '{{email}} added as {{role}}.',
+  'userManagement.toastCreateError': 'Could not create user.',
+  'userManagement.toastPasswordReset': 'Password reset for {{email}}.',
+  'userManagement.toastPasswordError': 'Could not reset password.',
+  'userManagement.toastUserDeleted': '{{email}} removed.',
+  'userManagement.toastDeleteError': 'Could not delete user.',
+
+  // --- Audit log panel ---
+  'auditLog.columnTime': 'Time',
+  'auditLog.columnAction': 'Action',
+  'auditLog.columnActor': 'Actor',
+  'auditLog.columnTarget': 'Target',
+  'auditLog.columnDetail': 'Detail',
+  'auditLog.empty': 'No admin actions recorded yet.',
+  'auditLog.actionUserCreated': 'User created',
+  'auditLog.actionUserRoleChanged': 'Role changed',
+  'auditLog.actionUserPasswordReset': 'Password reset',
+  'auditLog.actionUserDeleted': 'User deleted',
+
+  // --- Not found page ---
+  'notFound.heading': 'Page not found',
+  'notFound.backToDashboard': 'Return to dashboard',
+
+  // --- Session ---
+  'session.verifying': 'Verifying session…',
+  'session.expired': 'Session expired. Please sign in again.',
+} as const
+
+export type TranslationKey = keyof typeof en

@@ -1,0 +1,221 @@
+import pytest
+from fastapi import HTTPException
+from httpx import AsyncClient
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.models.refresh_token import RefreshToken
+from app.models.user import User, UserRole
+from app.services import user_service
+
+
+async def test_list_users_requires_admin(app_client: AsyncClient, viewer_token, auth_headers):
+    response = await app_client.get("/api/users", headers=auth_headers(viewer_token))
+    assert response.status_code == 403
+
+
+async def test_list_users_returns_seeded_admin(app_client: AsyncClient, admin_token, auth_headers):
+    response = await app_client.get("/api/users", headers=auth_headers(admin_token))
+    assert response.status_code == 200
+    emails = [u["email"] for u in response.json()]
+    assert "admin@example.com" in emails
+
+
+async def test_create_user_succeeds(app_client: AsyncClient, admin_token, auth_headers):
+    response = await app_client.post(
+        "/api/users",
+        headers=auth_headers(admin_token),
+        json={"email": "new.viewer@example.com", "password": "supersecret1", "role": "viewer"},
+    )
+    assert response.status_code == 201
+    body = response.json()
+    assert body["email"] == "new.viewer@example.com"
+    assert body["role"] == "viewer"
+
+
+async def test_create_user_duplicate_email_returns_409(app_client: AsyncClient, admin_token, auth_headers):
+    payload = {"email": "dup@example.com", "password": "supersecret1", "role": "viewer"}
+    first = await app_client.post("/api/users", headers=auth_headers(admin_token), json=payload)
+    assert first.status_code == 201
+
+    second = await app_client.post("/api/users", headers=auth_headers(admin_token), json=payload)
+    assert second.status_code == 409
+
+
+async def test_create_user_requires_admin(app_client: AsyncClient, viewer_token, auth_headers):
+    response = await app_client.post(
+        "/api/users",
+        headers=auth_headers(viewer_token),
+        json={"email": "x@example.com", "password": "supersecret1", "role": "viewer"},
+    )
+    assert response.status_code == 403
+
+
+async def test_update_role_changes_viewer_to_admin(app_client: AsyncClient, admin_token, auth_headers):
+    create_response = await app_client.post(
+        "/api/users",
+        headers=auth_headers(admin_token),
+        json={"email": "promote.me@example.com", "password": "supersecret1", "role": "viewer"},
+    )
+    user_id = create_response.json()["id"]
+
+    response = await app_client.patch(
+        f"/api/users/{user_id}/role", headers=auth_headers(admin_token), json={"role": "admin"}
+    )
+    assert response.status_code == 200
+    assert response.json()["role"] == "admin"
+
+
+async def test_update_role_cannot_modify_self(
+    app_client: AsyncClient, admin_token, auth_headers, db_session: AsyncSession
+):
+    admin_row = (
+        await db_session.execute(select(User).where(User.email == "admin@example.com"))
+    ).scalar_one()
+
+    response = await app_client.patch(
+        f"/api/users/{admin_row.id}/role", headers=auth_headers(admin_token), json={"role": "viewer"}
+    )
+    assert response.status_code == 400
+
+
+async def test_reset_password_allows_new_login(app_client: AsyncClient, admin_token, auth_headers):
+    create_response = await app_client.post(
+        "/api/users",
+        headers=auth_headers(admin_token),
+        json={"email": "reset.me@example.com", "password": "old-password-1", "role": "viewer"},
+    )
+    user_id = create_response.json()["id"]
+
+    reset_response = await app_client.post(
+        f"/api/users/{user_id}/reset-password",
+        headers=auth_headers(admin_token),
+        json={"new_password": "brand-new-password-1"},
+    )
+    assert reset_response.status_code == 204
+
+    login_response = await app_client.post(
+        "/api/auth/login",
+        json={"email": "reset.me@example.com", "password": "brand-new-password-1"},
+    )
+    assert login_response.status_code == 200
+
+    old_login_response = await app_client.post(
+        "/api/auth/login",
+        json={"email": "reset.me@example.com", "password": "old-password-1"},
+    )
+    assert old_login_response.status_code == 401
+
+
+async def test_delete_user_succeeds_and_revokes_refresh_tokens(
+    app_client: AsyncClient, admin_token, auth_headers, db_session: AsyncSession
+):
+    create_response = await app_client.post(
+        "/api/users",
+        headers=auth_headers(admin_token),
+        json={"email": "delete.me@example.com", "password": "supersecret1", "role": "viewer"},
+    )
+    user_id = create_response.json()["id"]
+
+    login_response = await app_client.post(
+        "/api/auth/login", json={"email": "delete.me@example.com", "password": "supersecret1"}
+    )
+    assert login_response.status_code == 200
+    tokens_before = (
+        (await db_session.execute(select(RefreshToken).where(RefreshToken.user_id == user_id)))
+        .scalars()
+        .all()
+    )
+    assert len(tokens_before) == 1
+
+    delete_response = await app_client.delete(f"/api/users/{user_id}", headers=auth_headers(admin_token))
+    assert delete_response.status_code == 204
+
+    remaining_user = (
+        await db_session.execute(select(User).where(User.id == user_id))
+    ).scalar_one_or_none()
+    assert remaining_user is None
+    remaining_tokens = (
+        (await db_session.execute(select(RefreshToken).where(RefreshToken.user_id == user_id)))
+        .scalars()
+        .all()
+    )
+    assert remaining_tokens == []
+
+
+async def test_delete_user_cannot_delete_self(
+    app_client: AsyncClient, admin_token, auth_headers, db_session: AsyncSession
+):
+    admin_row = (
+        await db_session.execute(select(User).where(User.email == "admin@example.com"))
+    ).scalar_one()
+
+    response = await app_client.delete(f"/api/users/{admin_row.id}", headers=auth_headers(admin_token))
+    assert response.status_code == 400
+
+
+async def test_delete_user_requires_admin(app_client: AsyncClient, viewer_token, auth_headers):
+    response = await app_client.delete("/api/users/some-id", headers=auth_headers(viewer_token))
+    assert response.status_code == 403
+
+
+# --- Last-admin guard: exercised directly against the service layer, which
+# is far clearer than contorting the route-level self-modify guard (you
+# can't demote/delete "yourself" and "the last admin" in the same call) into
+# proving both guards independently through HTTP alone. ---
+
+
+async def test_service_update_role_blocks_demoting_the_last_admin(db_session: AsyncSession):
+    sole_admin = User(
+        id="sole-admin-1", email="sole.admin1@example.com", hashed_password="unused", role=UserRole.ADMIN
+    )
+    other_user = User(
+        id="other-actor-1", email="other.actor1@example.com", hashed_password="unused", role=UserRole.VIEWER
+    )
+    db_session.add_all([sole_admin, other_user])
+    await db_session.commit()
+
+    with pytest.raises(HTTPException) as exc_info:
+        await user_service.update_role(
+            db_session, sole_admin.id, UserRole.VIEWER, current_user_id=other_user.id
+        )
+    assert exc_info.value.status_code == 400
+    assert "last remaining admin" in exc_info.value.detail
+
+
+async def test_service_delete_user_blocks_deleting_the_last_admin(db_session: AsyncSession):
+    sole_admin = User(
+        id="sole-admin-2", email="sole.admin2@example.com", hashed_password="unused", role=UserRole.ADMIN
+    )
+    other_user = User(
+        id="other-actor-2", email="other.actor2@example.com", hashed_password="unused", role=UserRole.VIEWER
+    )
+    db_session.add_all([sole_admin, other_user])
+    await db_session.commit()
+
+    with pytest.raises(HTTPException) as exc_info:
+        await user_service.delete_user(db_session, sole_admin.id, current_user_id=other_user.id)
+    assert exc_info.value.status_code == 400
+    assert "last remaining admin" in exc_info.value.detail
+
+
+async def test_service_update_role_allows_demoting_when_multiple_admins_exist(db_session: AsyncSession):
+    first_admin = User(
+        id="first-admin-3", email="first.admin3@example.com", hashed_password="unused", role=UserRole.ADMIN
+    )
+    second_admin = User(
+        id="second-admin-3",
+        email="second.admin3@example.com",
+        hashed_password="unused",
+        role=UserRole.ADMIN,
+    )
+    other_user = User(
+        id="other-actor-3", email="other.actor3@example.com", hashed_password="unused", role=UserRole.VIEWER
+    )
+    db_session.add_all([first_admin, second_admin, other_user])
+    await db_session.commit()
+
+    updated = await user_service.update_role(
+        db_session, second_admin.id, UserRole.VIEWER, current_user_id=other_user.id
+    )
+    assert updated.role == UserRole.VIEWER

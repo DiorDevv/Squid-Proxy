@@ -1,0 +1,34 @@
+import enum
+import uuid
+from datetime import datetime
+
+from sqlalchemy import Enum, String, Text
+from sqlalchemy.orm import Mapped, mapped_column
+
+from app.models.db import Base
+from app.models.types import UTCDateTime
+
+
+class AnomalySeverity(str, enum.Enum):
+    LOW = "low"
+    MEDIUM = "medium"
+    HIGH = "high"
+    CRITICAL = "critical"
+
+
+class AnomalyEvent(Base):
+    """A detected anomaly, persisted so /api/insights/recent has a durable
+    history instead of only ever showing whatever the last aggregator flush
+    found. Written by app/services/insights_service.py, populated by
+    whichever app/insights/*.py provider is configured (see
+    app/insights/__init__.py:get_insights_provider)."""
+
+    __tablename__ = "anomaly_events"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    generated_at: Mapped[datetime] = mapped_column(UTCDateTime, index=True)
+    title: Mapped[str] = mapped_column(String(255))
+    description: Mapped[str] = mapped_column(Text)
+    severity: Mapped[AnomalySeverity] = mapped_column(Enum(AnomalySeverity), index=True)
+    client_ip: Mapped[str | None] = mapped_column(String(45), nullable=True, index=True)
+    domain: Mapped[str | None] = mapped_column(String(255), nullable=True, index=True)

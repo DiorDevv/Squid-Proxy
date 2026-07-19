@@ -1,0 +1,36 @@
+# Example systemd unit for running the backend directly on a server without
+# Docker. Install:
+#
+#   sudo cp deploy/systemd/squid-dashboard-backend.service /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now squid-dashboard-backend
+#
+# Assumes the app is checked out to /opt/squid-dashboard/backend with a venv
+# at /opt/squid-dashboard/backend/.venv (see README.md) and a populated
+# /opt/squid-dashboard/backend/.env. Adjust User/paths for your environment.
+
+[Unit]
+Description=Squid Proxy Log Analytics — backend
+After=network.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=squid-dashboard
+Group=squid-dashboard
+WorkingDirectory=/opt/squid-dashboard/backend
+EnvironmentFile=/opt/squid-dashboard/backend/.env
+ExecStart=/opt/squid-dashboard/backend/.venv/bin/uvicorn app.main:app --host 127.0.0.1 --port 8000 --workers 1
+Restart=on-failure
+RestartSec=5
+
+# The log tailer needs read access to Squid's access.log; the ProtectSystem
+# sandbox below still allows that since it only restricts writes.
+ProtectSystem=strict
+ReadWritePaths=/opt/squid-dashboard/backend
+ReadOnlyPaths=/var/log/squid
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

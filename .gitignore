@@ -1,0 +1,39 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.pytest_cache/
+.ruff_cache/
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+
+# Env
+.env
+!.env.example
+
+# Node / frontend
+node_modules/
+dist/
+dist-ssr/
+*.local
+.vite/
+
+# Logs
+*.log
+
+# Editors / OS
+.vscode/
+.idea/
+.DS_Store
+
+# Claude Code local settings/permissions (machine-specific, not project source)
+.claude/
+
+# Docker
+*.pid
+docker-compose.override.yml
+!docker-compose.override.yml.example

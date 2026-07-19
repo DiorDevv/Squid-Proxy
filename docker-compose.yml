@@ -1,0 +1,76 @@
+x-backend-common: &backend-common
+  build:
+    context: ./backend
+  environment:
+    ENVIRONMENT: production
+    DATABASE_URL: postgresql+asyncpg://squid:${POSTGRES_PASSWORD:-squid_dev_password}@postgres:5432/squid_dashboard
+    LOG_FILE_PATH: /data/squid-logs/access.log
+    JWT_SECRET: ${JWT_SECRET:?Set JWT_SECRET in your .env before starting}
+    ADMIN_EMAIL: ${ADMIN_EMAIL:-admin@example.com}
+    ADMIN_PASSWORD: ${ADMIN_PASSWORD:?Set ADMIN_PASSWORD in your .env before starting}
+    CORS_ORIGINS: '["http://localhost:8080"]'
+  volumes:
+    - squid_log_data:/data/squid-logs
+  depends_on:
+    postgres:
+      condition: service_healthy
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: squid
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-squid_dev_password}
+      POSTGRES_DB: squid_dashboard
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U squid -d squid_dashboard"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+  backend:
+    <<: *backend-common
+    ports:
+      - "${BACKEND_PORT:-8000}:8000"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/health')"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: ./frontend
+      args:
+        VITE_API_BASE_URL: ""
+        VITE_WS_URL: ""
+    ports:
+      - "${FRONTEND_PORT:-8080}:80"
+    depends_on:
+      - backend
+    restart: unless-stopped
+
+  # Optional: generates synthetic Squid access.log traffic so the dashboard
+  # can be exercised end-to-end without a real Squid deployment.
+  #   docker compose --profile demo up
+  demo-log-generator:
+    build:
+      context: ./backend
+    profiles: ["demo"]
+    volumes:
+      - squid_log_data:/data/squid-logs
+    command:
+      [
+        "python", "scripts/generate_demo_log.py",
+        "--output", "/data/squid-logs/access.log",
+        "--rate", "30",
+      ]
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
+  squid_log_data:

@@ -1,0 +1,234 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+
+@import "@fontsource-variable/inter";
+@import "@fontsource/jetbrains-mono/400.css";
+@import "@fontsource/jetbrains-mono/500.css";
+@import "@fontsource/jetbrains-mono/600.css";
+@import "@fontsource/jetbrains-mono/700.css";
+
+@custom-variant dark (&:is(.dark *));
+
+/*
+ * "Network Operations Center" design tokens.
+ * This is a security operations tool, not a marketing site: the app commits
+ * to a single dark, data-dense theme rather than toggling light/dark, and
+ * uses exactly one sharp accent color (amber) for emphasis/warnings/blocked
+ * state, plus emerald for healthy/allowed state. Red is reserved for
+ * critical errors only, to keep it meaningful when it does appear.
+ */
+@theme inline {
+  --font-sans: 'Inter Variable', 'Segoe UI', system-ui, sans-serif;
+  --font-heading: var(--font-sans);
+  --font-mono: 'JetBrains Mono', ui-monospace, 'IBM Plex Mono', monospace;
+
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-success: var(--success);
+  --color-success-foreground: var(--success-foreground);
+  --color-warning: var(--warning);
+  --color-warning-foreground: var(--warning-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-border: var(--sidebar-border);
+
+  /* Extended accent palette (see ARCHITECTURE.md's "Frontend design
+     commitments" for why these exist): amber/emerald still carry their
+     original blocked/allowed semantics everywhere they already appeared.
+     Blue and violet are additive -- used only for neutral-info metrics
+     (traffic volume, active clients) that never meant "warning" or
+     "success" in the first place, so introducing color there doesn't
+     dilute the meaning amber/emerald/red already carry. */
+  --color-info: var(--info);
+  --color-info-foreground: var(--info-foreground);
+  --color-accent-purple: var(--accent-purple);
+  --color-accent-purple-foreground: var(--accent-purple-foreground);
+
+  --radius-sm: calc(var(--radius) * 0.6);
+  --radius-md: calc(var(--radius) * 0.8);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) * 1.4);
+}
+
+:root {
+  --background: #0b1120;
+  --foreground: #e4e9f5;
+  --card: #141b2d;
+  --card-foreground: #e4e9f5;
+  --popover: #141b2d;
+  --popover-foreground: #e4e9f5;
+
+  /* Single signature accent: amber, used for primary actions, focus rings,
+     and blocked/warning semantics. */
+  --primary: #f5a524;
+  --primary-foreground: #17120a;
+
+  --secondary: #1c2438;
+  --secondary-foreground: #e4e9f5;
+
+  --muted: #1a2233;
+  --muted-foreground: #8b93a7;
+
+  --accent: #1c2438;
+  --accent-foreground: #f5a524;
+
+  --destructive: #ef4444;
+  --destructive-foreground: #fff5f5;
+
+  --success: #22c55e;
+  --success-foreground: #06210f;
+
+  --warning: #f5a524;
+  --warning-foreground: #17120a;
+
+  /* Additive info/accent colors -- traffic volume and client counts are
+     neutral metrics, not warnings or successes, so they get their own hues
+     instead of borrowing amber/emerald's meaning. */
+  --info: #3b82f6;
+  --info-foreground: #061021;
+  --accent-purple: #a855f7;
+  --accent-purple-foreground: #1a0b26;
+
+  --border: #232c42;
+  --input: #232c42;
+  --ring: #f5a524;
+
+  /* Second gradient stop for .gradient-warning / .text-gradient-brand --
+     shifts together with --primary/--warning per brand theme below, so the
+     logo/buttons/active-nav read as one consistent hue, never a rainbow. */
+  --brand-2: #f97316;
+
+  --sidebar: #0e1424;
+  --sidebar-foreground: #c7cede;
+  --sidebar-border: #1e2740;
+
+  --radius: 0.5rem;
+
+  color-scheme: dark;
+}
+
+/* Brand theme picker (see lib/theme-store.ts): swaps the single shared
+ * primary-action/warning/blocked accent to a different hue. success (allowed)
+ * and destructive (real failures) intentionally never change -- those stay
+ * meaningful regardless of which brand theme is active (see
+ * ARCHITECTURE.md's "Frontend design commitments").
+ */
+:root[data-brand='azure'] {
+  --primary: #3b82f6;
+  --primary-foreground: #061021;
+  --warning: #3b82f6;
+  --warning-foreground: #061021;
+  --accent-foreground: #3b82f6;
+  --ring: #3b82f6;
+  --brand-2: #6366f1;
+}
+
+:root[data-brand='violet'] {
+  --primary: #a855f7;
+  --primary-foreground: #1a0b26;
+  --warning: #a855f7;
+  --warning-foreground: #1a0b26;
+  --accent-foreground: #a855f7;
+  --ring: #a855f7;
+  --brand-2: #d946ef;
+}
+
+/* The app is intentionally dark-only; `.dark` mirrors :root so any
+   shadcn component relying on the class variant still resolves correctly. */
+.dark {
+  --background: #0b1120;
+  --foreground: #e4e9f5;
+  --card: #141b2d;
+  --card-foreground: #e4e9f5;
+  --border: #232c42;
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  html {
+    @apply font-sans;
+    color-scheme: dark;
+  }
+  body {
+    @apply bg-background text-foreground;
+    font-feature-settings: "cv11", "ss01";
+  }
+  ::selection {
+    background: color-mix(in oklab, var(--primary) 35%, transparent);
+  }
+  :focus-visible {
+    outline: 2px solid var(--ring);
+    outline-offset: 2px;
+  }
+}
+
+@layer utilities {
+  .font-data {
+    font-family: var(--font-mono);
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* Gradient accents for the "bright accented modern" pass: used sparingly
+     on icon badges, the brand mark, and the primary CTA -- never on body
+     text or data values, which stay flat/legible per the mono-data rule. */
+  .gradient-info {
+    background-image: linear-gradient(135deg, var(--info), #6366f1);
+  }
+  .gradient-purple {
+    background-image: linear-gradient(135deg, var(--accent-purple), #d946ef);
+  }
+  .gradient-success {
+    background-image: linear-gradient(135deg, var(--success), #14b8a6);
+  }
+  .gradient-warning {
+    background-image: linear-gradient(135deg, var(--warning), var(--brand-2));
+  }
+  .text-gradient-brand {
+    background-image: linear-gradient(135deg, var(--warning), var(--brand-2) 60%, var(--accent-purple));
+    background-clip: text;
+    -webkit-background-clip: text;
+    color: transparent;
+  }
+
+  /* Ranking/list panels (domain rankings, category breakdown, time-spent)
+     get a fixed height + this thin scrollbar instead of growing to fit
+     however many rows the data happens to have -- so panels sharing a grid
+     row always end up the same height, whether one has 3 rows and its
+     neighbor has 30. */
+  .scrollbar-thin {
+    scrollbar-width: thin;
+    scrollbar-color: var(--border) transparent;
+  }
+  .scrollbar-thin::-webkit-scrollbar {
+    width: 6px;
+  }
+  .scrollbar-thin::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  .scrollbar-thin::-webkit-scrollbar-thumb {
+    background-color: var(--border);
+    border-radius: 9999px;
+  }
+  .scrollbar-thin::-webkit-scrollbar-thumb:hover {
+    background-color: var(--muted-foreground);
+  }
+}

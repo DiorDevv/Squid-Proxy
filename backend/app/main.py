@@ -1,0 +1,161 @@
+import logging
+from contextlib import asynccontextmanager
+
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
+from slowapi import _rate_limit_exceeded_handler
+from slowapi.errors import RateLimitExceeded
+
+from app.api.routes import health
+from app.core.config import get_settings
+from app.core.exceptions import register_exception_handlers
+from app.core.logging import configure_logging
+from app.core.rate_limit import limiter
+
+logger = logging.getLogger(__name__)
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    settings = get_settings()
+    configure_logging(settings.LOG_LEVEL)
+    logger.info("Starting Squid Dashboard backend", extra={"environment": settings.ENVIRONMENT})
+
+    from app.models.db import init_db
+
+    await init_db()
+
+    from app.services.auth_bootstrap import bootstrap_admin_user
+
+    await bootstrap_admin_user()
+
+    from app.core.security import WsTicketStore
+    from app.services.event_store import RingBuffer
+    from app.services.log_tailer import LogTailer
+    from app.services.ws_manager import WebSocketManager
+
+    ring_buffer = RingBuffer(max_events=settings.RING_BUFFER_MAX_EVENTS)
+    ws_manager = WebSocketManager()
+    ws_ticket_store = WsTicketStore(ttl_seconds=settings.WS_TICKET_EXPIRE_SECONDS)
+    app.state.ring_buffer = ring_buffer
+    app.state.ws_manager = ws_manager
+    app.state.ws_ticket_store = ws_ticket_store
+
+    tailer = LogTailer(
+        path=settings.LOG_FILE_PATH,
+        on_event=lambda event: _handle_new_event(app, event),
+        poll_interval=settings.LOG_TAILER_POLL_INTERVAL_SECONDS,
+        backoff_max=settings.LOG_TAILER_BACKOFF_MAX_SECONDS,
+    )
+    app.state.log_tailer = tailer
+    tailer.start()
+
+    from app.services.aggregator import Aggregator
+
+    aggregator = Aggregator(ring_buffer=ring_buffer, interval_seconds=settings.AGGREGATION_INTERVAL_SECONDS)
+    app.state.aggregator = aggregator
+    aggregator.start()
+
+    from app.services.retention import RetentionJob
+
+    retention_job = RetentionJob(interval_seconds=settings.RETENTION_PURGE_INTERVAL_SECONDS)
+    app.state.retention_job = retention_job
+    retention_job.start()
+
+    from app.services.category_usage_monitor import CategoryUsageMonitorJob
+
+    category_usage_monitor = CategoryUsageMonitorJob(
+        interval_seconds=settings.CATEGORY_MONITOR_INTERVAL_SECONDS
+    )
+    app.state.category_usage_monitor = category_usage_monitor
+    category_usage_monitor.start()
+
+    from app.services.quota_monitor import QuotaMonitorJob
+
+    quota_monitor = QuotaMonitorJob(interval_seconds=settings.QUOTA_MONITOR_INTERVAL_SECONDS)
+    app.state.quota_monitor = quota_monitor
+    quota_monitor.start()
+
+    from app.services.report_scheduler import ReportScheduler
+
+    report_scheduler = ReportScheduler(interval_seconds=settings.REPORT_SCHEDULER_CHECK_INTERVAL_SECONDS)
+    app.state.report_scheduler = report_scheduler
+    report_scheduler.start()
+
+    try:
+        yield
+    finally:
+        logger.info("Shutting down Squid Dashboard backend")
+        await tailer.stop()
+        await aggregator.stop()
+        await retention_job.stop()
+        await category_usage_monitor.stop()
+        await quota_monitor.stop()
+        await report_scheduler.stop()
+
+
+def _handle_new_event(app: FastAPI, event) -> None:
+    stored = app.state.ring_buffer.append(event)
+    app.state.ws_manager.broadcast_nowait(stored)
+
+
+def create_app() -> FastAPI:
+    settings = get_settings()
+
+    app = FastAPI(
+        title="Squid Proxy Log Analytics API",
+        version="0.1.0",
+        lifespan=lifespan,
+    )
+
+    app.state.limiter = limiter
+    app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=settings.CORS_ORIGINS,
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
+
+    register_exception_handlers(app)
+
+    app.include_router(health.router)
+
+    from app.api.routes import (
+        alert_settings,
+        audit,
+        auth,
+        clients,
+        domain_categories,
+        domains,
+        events,
+        export,
+        insights,
+        reports,
+        summary,
+        timeseries,
+        users,
+        ws,
+    )
+
+    app.include_router(auth.router)
+    app.include_router(summary.router)
+    app.include_router(timeseries.router)
+    app.include_router(domains.router)
+    app.include_router(domain_categories.router)
+    app.include_router(clients.router)
+    app.include_router(events.router)
+    app.include_router(export.router)
+    app.include_router(users.router)
+    app.include_router(audit.router)
+    app.include_router(insights.router)
+    app.include_router(alert_settings.router)
+    app.include_router(reports.router)
+    app.include_router(ws.router)
+
+    return app
+
+
+app = create_app()

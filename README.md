@@ -132,7 +132,21 @@ ruff check .         # lint
 cd frontend
 npm run build         # strict TypeScript build
 npm run lint           # ESLint
+npm run test            # Vitest unit/component tests
 ```
+
+### End-to-end tests
+
+`frontend/e2e/` has a Playwright smoke suite (login, dashboard, Blocked, Clients) that drives the real, wired-together app in a real browser, unlike the unit tests above. It needs the **backend already running** with a bootstrapped admin user (Playwright only starts the frontend dev server):
+
+```bash
+# In one terminal: start the backend as in "Quick start" above.
+# In another:
+cd frontend
+npm run test:e2e
+```
+
+Defaults assume the backend at `http://localhost:8000` and the documented dev admin credentials (`admin@example.com` / `admin12345`); override with `E2E_API_BASE_URL`, `E2E_ADMIN_EMAIL`, `E2E_ADMIN_PASSWORD` if yours differ.
 
 ## Configuration reference
 

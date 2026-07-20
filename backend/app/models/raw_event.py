@@ -23,6 +23,10 @@ class RawEvent(Base):
         # range-only queries (e.g. retention's purge-by-age).
         Index("ix_raw_events_client_ts", "client_ip", "timestamp"),
         Index("ix_raw_events_ts_domain", "timestamp", "domain"),
+        # Serves get_events'/export's WHERE blocked = ? AND timestamp
+        # BETWEEN ? AND ? ORDER BY timestamp DESC (see migration
+        # 2b9c6a3ff517 for the measured rationale).
+        Index("ix_raw_events_ts_blocked", "timestamp", "blocked"),
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)

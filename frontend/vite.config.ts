@@ -1,7 +1,7 @@
 import path from 'node:path'
 import tailwindcss from '@tailwindcss/vite'
 import react from '@vitejs/plugin-react'
-import { defineConfig } from 'vitest/config'
+import { configDefaults, defineConfig } from 'vitest/config'
 
 export default defineConfig({
   plugins: [react(), tailwindcss()],
@@ -18,5 +18,9 @@ export default defineConfig({
     globals: true,
     setupFiles: ['./src/test/setup.ts'],
     css: false,
+    // e2e/ holds Playwright specs (real browser, its own `test`/`expect`) --
+    // Vitest's default include pattern would otherwise also pick these up
+    // and fail to run them under jsdom.
+    exclude: [...configDefaults.exclude, 'e2e/**'],
   },
 })

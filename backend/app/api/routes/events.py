@@ -15,9 +15,12 @@ async def read_recent_events(
     limit: int = Query(default=100, ge=1, le=1000),
     blocked_only: bool = Query(default=False),
     client_ip: str | None = Query(default=None),
+    branch: str | None = Query(default=None),
 ) -> list[EventDetail]:
     ring_buffer = request.app.state.ring_buffer
-    stored_events = ring_buffer.recent(limit=limit, blocked_only=blocked_only, client_ip=client_ip)
+    stored_events = ring_buffer.recent(
+        limit=limit, blocked_only=blocked_only, client_ip=client_ip, branch=branch
+    )
     return [EventDetail.from_parsed(stored.id, stored.event) for stored in stored_events]
 
 
@@ -32,6 +35,7 @@ async def read_events(
     method: str | None = Query(default=None, max_length=16),
     user: str | None = Query(default=None, max_length=255),
     search: str | None = Query(default=None, max_length=255),
+    branch: str | None = Query(default=None),
     db: AsyncSession = Depends(get_db),
 ) -> Page[EventDetail]:
     return await get_events(
@@ -46,4 +50,5 @@ async def read_events(
         method,
         user,
         search,
+        branch,
     )

@@ -19,10 +19,11 @@ async def read_clients(
     sort_by: str = Query(default="total_requests"),
     order: SortOrder = Query(default=SortOrder.DESC),
     search: str | None = Query(default=None, max_length=255),
+    branch: str | None = Query(default=None),
     db: AsyncSession = Depends(get_db),
 ) -> Page[ClientSummary]:
     return await list_clients(
-        db, effective_range.since, effective_range.until, limit, offset, sort_by, order, search
+        db, effective_range.since, effective_range.until, limit, offset, sort_by, order, search, branch
     )
 
 
@@ -34,9 +35,10 @@ async def read_clients(
 async def read_client_summary(
     client_ip: str,
     effective_range: EffectiveRange = Depends(resolve_range),
+    branch: str | None = Query(default=None),
     db: AsyncSession = Depends(get_db),
 ) -> ClientSummary:
-    return await get_client_summary(db, client_ip, effective_range.since, effective_range.until)
+    return await get_client_summary(db, client_ip, effective_range.since, effective_range.until, branch)
 
 
 @router.get(
@@ -52,6 +54,7 @@ async def read_client_activity(
     blocked_only: bool = Query(default=False),
     domain: str | None = Query(default=None, max_length=255),
     method: str | None = Query(default=None, max_length=16),
+    branch: str | None = Query(default=None),
     db: AsyncSession = Depends(get_db),
 ) -> Page[EventDetail]:
     return await get_client_activity(
@@ -64,6 +67,7 @@ async def read_client_activity(
         blocked_only,
         domain,
         method,
+        branch,
     )
 
 

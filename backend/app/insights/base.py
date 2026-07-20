@@ -32,6 +32,7 @@ class Anomaly(BaseModel):
     severity: AnomalySeverity
     client_ip: str | None = None
     domain: str | None = None
+    branch: str | None = None
     generated_at: datetime
 
 

@@ -10,26 +10,27 @@ from datetime import UTC, datetime
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import DEFAULT_BRANCH
 from app.models.alert_settings import AlertSettings
 from app.models.domain_category import DomainCategoryLabel
 
-SETTINGS_ROW_ID = 1
 DEFAULT_NON_WORK_MINUTES_THRESHOLD = 120
 
 
-async def get_settings_row(session: AsyncSession) -> AlertSettings:
-    """Read-only: returns the persisted row, or an unsaved, in-memory
-    default if no admin has configured anything yet -- a fresh install
-    shouldn't need a row inserted just to be read from, only the first
-    PUT actually creates one (see update_settings). `updated_at` is set
-    explicitly here since the column's `default=` only applies at INSERT
-    time, not on plain construction of a transient object."""
+async def get_settings_row(session: AsyncSession, branch: str = DEFAULT_BRANCH) -> AlertSettings:
+    """Read-only: returns the persisted row for `branch`, or an unsaved,
+    in-memory default if that branch hasn't been configured yet -- a fresh
+    install/new branch shouldn't need a row inserted just to be read from,
+    only the first PUT actually creates one (see update_settings).
+    `updated_at` is set explicitly here since the column's `default=` only
+    applies at INSERT time, not on plain construction of a transient
+    object."""
     row = (
-        await session.execute(select(AlertSettings).where(AlertSettings.id == SETTINGS_ROW_ID))
+        await session.execute(select(AlertSettings).where(AlertSettings.branch == branch))
     ).scalar_one_or_none()
     if row is None:
         row = AlertSettings(
-            id=SETTINGS_ROW_ID,
+            branch=branch,
             sensitive_categories="",
             non_work_minutes_threshold=DEFAULT_NON_WORK_MINUTES_THRESHOLD,
             client_daily_byte_quota_bytes=None,
@@ -58,12 +59,13 @@ async def update_settings(
     sensitive_categories: list[DomainCategoryLabel],
     non_work_minutes_threshold: int,
     client_daily_byte_quota_bytes: int | None,
+    branch: str = DEFAULT_BRANCH,
 ) -> AlertSettings:
     row = (
-        await session.execute(select(AlertSettings).where(AlertSettings.id == SETTINGS_ROW_ID))
+        await session.execute(select(AlertSettings).where(AlertSettings.branch == branch))
     ).scalar_one_or_none()
     if row is None:
-        row = AlertSettings(id=SETTINGS_ROW_ID)
+        row = AlertSettings(branch=branch)
         session.add(row)
 
     row.sensitive_categories = ",".join(category.value for category in sensitive_categories)

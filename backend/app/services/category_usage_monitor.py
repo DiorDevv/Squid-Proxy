@@ -85,32 +85,40 @@ class CategoryUsageMonitorJob:
         since = now - timedelta(hours=24)
 
         async with AsyncSessionLocal() as session:
-            settings_row = await alert_settings_service.get_settings_row(session)
-            threshold_minutes = settings_row.non_work_minutes_threshold
-            if threshold_minutes <= 0:
-                return
-
             # Distinct minute-buckets (across every non-exempt category
             # combined, not summed per-category) with any activity for that
             # client -- one query, one full scan of the aggregate table
             # regardless of client count, instead of one raw_events scan
-            # per client (see this module's docstring).
+            # per client (see this module's docstring). Grouped by branch
+            # too so each branch's clients are compared against that
+            # branch's own threshold, not a single global one.
             active_minutes = func.count(func.distinct(ClientCategoryMinuteAggregate.bucket_ts))
             candidates = (
                 await session.execute(
-                    select(ClientCategoryMinuteAggregate.client_ip, active_minutes)
+                    select(
+                        ClientCategoryMinuteAggregate.branch,
+                        ClientCategoryMinuteAggregate.client_ip,
+                        active_minutes,
+                    )
                     .where(
                         ClientCategoryMinuteAggregate.bucket_ts >= since,
                         ClientCategoryMinuteAggregate.category.notin_(_EXEMPT_CATEGORIES),
                     )
-                    .group_by(ClientCategoryMinuteAggregate.client_ip)
-                    .having(active_minutes >= threshold_minutes)
+                    .group_by(ClientCategoryMinuteAggregate.branch, ClientCategoryMinuteAggregate.client_ip)
                 )
             ).all()
 
             anomalies: list[Anomaly] = []
-            for client_ip, minute_count in candidates:
-                if await self._already_flagged_today(session, client_ip, since):
+            threshold_cache: dict[str, int] = {}
+            for branch, client_ip, minute_count in candidates:
+                if branch not in threshold_cache:
+                    settings_row = await alert_settings_service.get_settings_row(session, branch)
+                    threshold_cache[branch] = settings_row.non_work_minutes_threshold
+                threshold_minutes = threshold_cache[branch]
+                if threshold_minutes <= 0 or minute_count < threshold_minutes:
+                    continue
+
+                if await self._already_flagged_today(session, client_ip, branch, since):
                     continue
 
                 anomalies.append(
@@ -123,6 +131,7 @@ class CategoryUsageMonitorJob:
                         ),
                         severity=AnomalySeverity.MEDIUM,
                         client_ip=client_ip,
+                        branch=branch,
                         generated_at=now,
                     )
                 )
@@ -136,7 +145,9 @@ class CategoryUsageMonitorJob:
         for row in rows:
             await maybe_alert(row)
 
-    async def _already_flagged_today(self, session: AsyncSession, client_ip: str, since: datetime) -> bool:
+    async def _already_flagged_today(
+        self, session: AsyncSession, client_ip: str, branch: str, since: datetime
+    ) -> bool:
         """One alert per client per rolling 24h window -- otherwise an
         hourly check would re-flag the same ongoing violation every hour."""
         existing = (
@@ -145,6 +156,7 @@ class CategoryUsageMonitorJob:
                 .where(
                     AnomalyEvent.title == ANOMALY_TITLE,
                     AnomalyEvent.client_ip == client_ip,
+                    AnomalyEvent.branch == branch,
                     AnomalyEvent.generated_at >= since,
                 )
                 .limit(1)

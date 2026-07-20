@@ -23,6 +23,10 @@ export const en = {
   'topbar.openMenu': 'Open navigation menu',
   'topbar.timeRange': 'Time range',
 
+  // --- Branch filter ---
+  'branch.filter': 'Branch',
+  'branch.all': 'All branches',
+
   // --- Connection status ---
   'connection.live': 'Live',
   'connection.polling': 'Polling',

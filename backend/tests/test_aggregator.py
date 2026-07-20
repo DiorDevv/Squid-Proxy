@@ -93,6 +93,46 @@ async def test_flush_buckets_requests_by_client_and_category(db_engine, monkeypa
         assert by_client["10.0.0.6"].request_count == 1
 
 
+async def test_flush_keeps_two_branches_hitting_the_same_domain_in_the_same_minute_separate(
+    db_engine, monkeypatch
+):
+    """Same domain, same client_ip, same minute bucket, but two different
+    branches -- the aggregator must not merge them into one row (that would
+    silently mix two different sites' traffic together)."""
+    session_factory = async_sessionmaker(db_engine, expire_on_commit=False, class_=AsyncSession)
+    import app.services.aggregator as aggregator_module
+
+    monkeypatch.setattr(aggregator_module, "AsyncSessionLocal", session_factory)
+
+    ring_buffer = RingBuffer(max_events=100)
+    ring_buffer.append(parse_line(squid_line("example.com"), branch="hq"))
+    ring_buffer.append(parse_line(squid_line("example.com"), branch="hq"))
+    ring_buffer.append(parse_line(squid_line("example.com"), branch="branch-office"))
+
+    aggregator = Aggregator(ring_buffer=ring_buffer, interval_seconds=60)
+    result = await aggregator.flush()
+    assert result.events_flushed == 3
+
+    async with session_factory() as session:
+        minute_rows = {row.branch: row for row in (await session.execute(select(MinuteAggregate))).scalars()}
+        assert minute_rows["hq"].total_requests == 2
+        assert minute_rows["branch-office"].total_requests == 1
+
+        domain_rows = (await session.execute(select(DomainMinuteAggregate))).scalars().all()
+        assert len(domain_rows) == 2
+        by_branch = {row.branch: row for row in domain_rows}
+        assert by_branch["hq"].request_count == 2
+        assert by_branch["branch-office"].request_count == 1
+
+        client_rows = (await session.execute(select(ClientMinuteAggregate))).scalars().all()
+        assert len(client_rows) == 2
+
+        raw_branches = sorted(
+            row.branch for row in (await session.execute(select(RawEvent))).scalars().all()
+        )
+        assert raw_branches == ["branch-office", "hq", "hq"]
+
+
 async def test_flush_on_second_call_increments_existing_rows_rather_than_duplicating(db_engine, monkeypatch):
     session_factory = async_sessionmaker(db_engine, expire_on_commit=False, class_=AsyncSession)
     import app.services.aggregator as aggregator_module

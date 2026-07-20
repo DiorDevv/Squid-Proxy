@@ -78,8 +78,15 @@ class ReportScheduler:
                 return
 
             since = state.last_sent_at or (now - schedule_interval)
-            sent = await generate_and_send_report(session, since, now)
-            if not sent:
+            # One report per configured branch (see Settings.effective_log_sources)
+            # rather than one company-wide report -- reports are per-branch
+            # by design (same as alert thresholds), sent to the same
+            # REPORT_RECIPIENTS list as separate, clearly-labeled emails.
+            sent_any = False
+            for source in settings.effective_log_sources:
+                sent = await generate_and_send_report(session, since, now, source.branch)
+                sent_any = sent_any or sent
+            if not sent_any:
                 return
 
             state.last_sent_at = now

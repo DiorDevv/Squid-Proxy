@@ -5,18 +5,36 @@ from fastapi import APIRouter, Request
 router = APIRouter(tags=["health"])
 
 
-@router.get("/api/health")
-async def health(request: Request) -> dict:
-    tailer = getattr(request.app.state, "log_tailer", None)
-    tailer_alive = bool(tailer and tailer.is_alive)
-
-    lines_seen = tailer.lines_seen if tailer else 0
-    lines_parsed = tailer.lines_parsed if tailer else 0
+def _failure_rate(lines_seen: int, lines_parsed: int) -> float | None:
     # None (not 0.0) when nothing has been read yet -- "no data seen" and
     # "everything failed to parse" must stay distinguishable, since the
     # first one is just an idle/new install and the second is a real
     # logformat mismatch.
-    parse_failure_rate = None if lines_seen == 0 else round(1 - (lines_parsed / lines_seen), 3)
+    return None if lines_seen == 0 else round(1 - (lines_parsed / lines_seen), 3)
+
+
+@router.get("/api/health")
+async def health(request: Request) -> dict:
+    tailers = getattr(request.app.state, "log_tailers", {})
+
+    log_sources = [
+        {
+            "branch": branch,
+            "alive": tailer.is_alive,
+            "lines_seen": tailer.lines_seen,
+            "lines_parsed": tailer.lines_parsed,
+            "parse_failure_rate": _failure_rate(tailer.lines_seen, tailer.lines_parsed),
+        }
+        for branch, tailer in tailers.items()
+    ]
+
+    # Aggregate across every source -- kept as the top-level fields for
+    # backward compatibility with the existing single-source dashboard
+    # banner check; log_sources above is where a per-branch breakdown lives.
+    tailer_alive = bool(tailers) and all(tailer.is_alive for tailer in tailers.values())
+    lines_seen = sum(tailer.lines_seen for tailer in tailers.values())
+    lines_parsed = sum(tailer.lines_parsed for tailer in tailers.values())
+    parse_failure_rate = _failure_rate(lines_seen, lines_parsed)
 
     aggregator = getattr(request.app.state, "aggregator", None)
     backlog_ratio = round(aggregator.backlog_ratio, 3) if aggregator else 0.0
@@ -29,6 +47,7 @@ async def health(request: Request) -> dict:
         "log_lines_seen": lines_seen,
         "log_lines_parsed": lines_parsed,
         "log_parse_failure_rate": parse_failure_rate,
+        "log_sources": log_sources,
         # If the aggregator can't keep up with incoming traffic, the ring
         # buffer's eviction can drop events before they're ever persisted --
         # see Aggregator.events_likely_lost/backlog_ratio. Surfaced here so

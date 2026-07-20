@@ -48,12 +48,15 @@ class RingBuffer:
         limit: int = 100,
         blocked_only: bool = False,
         client_ip: str | None = None,
+        branch: str | None = None,
     ) -> list[StoredEvent]:
         results: list[StoredEvent] = []
         for stored in reversed(self._buffer):
             if blocked_only and not stored.event.blocked:
                 continue
             if client_ip and stored.event.client_ip != client_ip:
+                continue
+            if branch and stored.event.branch != branch:
                 continue
             results.append(stored)
             if len(results) >= limit:

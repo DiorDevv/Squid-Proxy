@@ -5,23 +5,44 @@ import { Checkbox } from '@/components/ui/checkbox'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Skeleton } from '@/components/ui/skeleton'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { ErrorState } from '@/components/common/ErrorState'
 import { useAlertSettings, useUpdateAlertSettings } from '@/hooks/useAlertSettings'
+import { useBranches } from '@/hooks/useBranches'
 import { CATEGORY_LABEL_KEYS, CATEGORY_OPTIONS } from '@/lib/categories'
 import { useTranslation } from '@/i18n'
 import type { DomainCategoryLabel } from '@/types/api'
 
 const BYTES_PER_GB = 1_000_000_000
+const DEFAULT_BRANCH = 'default'
 
 /** Admin-tunable thresholds for the category/quota anomaly checks (see
  * backend app/services/alert_settings_service.py) -- who gets flagged for
  * visiting a sensitive category for the first time, spending too long in
  * non-work categories per day, or exceeding a daily data quota. All three
- * are opt-in: empty/zero/unset means that check stays off. */
+ * are opt-in: empty/zero/unset means that check stays off.
+ *
+ * Thresholds are per-branch: this panel edits one branch's settings at a
+ * time (independent of the dashboard-wide branch filter in
+ * lib/filters-store.ts -- picking a branch here to *edit* shouldn't also
+ * change what data the rest of the app is *viewing*), defaulting to the
+ * first configured branch. */
 export function AlertSettingsPanel() {
   const { t } = useTranslation()
-  const query = useAlertSettings()
-  const updateSettings = useUpdateAlertSettings()
+  const branches = useBranches()
+  const branchItems = branches.data?.items ?? []
+
+  // Derived, not synced via effect: `manualBranch` is only the admin's
+  // explicit pick, if any and still valid; otherwise the first configured
+  // branch (or the single-branch default before the list has loaded).
+  const [manualBranch, setManualBranch] = useState<string | null>(null)
+  const branch =
+    manualBranch && branchItems.some((item) => item.slug === manualBranch)
+      ? manualBranch
+      : (branchItems[0]?.slug ?? DEFAULT_BRANCH)
+
+  const query = useAlertSettings(branch)
+  const updateSettings = useUpdateAlertSettings(branch)
 
   const [sensitiveCategories, setSensitiveCategories] = useState<Set<DomainCategoryLabel>>(new Set())
   const [nonWorkMinutes, setNonWorkMinutes] = useState('120')
@@ -86,6 +107,24 @@ export function AlertSettingsPanel() {
 
   return (
     <div className="flex flex-col gap-4">
+      {branchItems.length > 1 && (
+        <div className="flex flex-col gap-1.5">
+          <Label htmlFor="alert-settings-branch">{t('branch.filter')}</Label>
+          <Select value={branch} onValueChange={setManualBranch}>
+            <SelectTrigger id="alert-settings-branch" size="sm" className="w-48">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {branchItems.map((item) => (
+                <SelectItem key={item.slug} value={item.slug}>
+                  {item.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+      )}
+
       <div className="flex flex-col gap-2">
         <Label>{t('settings.sensitiveCategories')}</Label>
         <p className="text-xs text-muted-foreground">{t('settings.sensitiveCategoriesDescription')}</p>

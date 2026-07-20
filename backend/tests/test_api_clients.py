@@ -50,6 +50,41 @@ async def test_list_clients_sorted_by_blocked_requests_desc(
     assert response.json()["items"][0]["client_ip"] == "10.0.0.2"
 
 
+async def test_list_clients_branch_filter_excludes_other_branches(
+    app_client: AsyncClient, db_session: AsyncSession, admin_token, auth_headers
+):
+    bucket = datetime.now(UTC).replace(second=0, microsecond=0)
+    db_session.add_all(
+        [
+            ClientMinuteAggregate(
+                bucket_ts=bucket, client_ip="10.0.0.1", branch="hq", user="alice", request_count=100
+            ),
+            ClientMinuteAggregate(
+                bucket_ts=bucket,
+                client_ip="10.0.0.2",
+                branch="branch-office",
+                user="bob",
+                request_count=20,
+            ),
+        ]
+    )
+    await db_session.commit()
+
+    response = await app_client.get(
+        "/api/clients", params={"range": "1h", "branch": "hq"}, headers=auth_headers(admin_token)
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert body["total"] == 1
+    assert body["items"][0]["client_ip"] == "10.0.0.1"
+    assert body["items"][0]["branch"] == "hq"
+
+    response_all = await app_client.get(
+        "/api/clients", params={"range": "1h"}, headers=auth_headers(admin_token)
+    )
+    assert response_all.json()["total"] == 2
+
+
 async def test_list_clients_combines_minute_and_hourly_aggregates_across_the_rollup_boundary(
     app_client: AsyncClient, db_session: AsyncSession, admin_token, auth_headers
 ):

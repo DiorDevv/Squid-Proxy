@@ -13,3 +13,4 @@ class AnomalyEventOut(BaseModel):
     severity: AnomalySeverity
     client_ip: str | None
     domain: str | None
+    branch: str

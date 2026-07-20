@@ -3,6 +3,7 @@ import { Panel } from '@/components/common/Panel'
 import { ErrorState } from '@/components/common/ErrorState'
 import { SearchFilterInput } from '@/components/common/SearchFilterInput'
 import { RangeSelector } from '@/components/common/RangeSelector'
+import { BranchSelector } from '@/components/common/BranchSelector'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { BlockedEventsTable } from '@/components/blocked/BlockedEventsTable'
 import { EventDetailSheet } from '@/components/blocked/EventDetailSheet'
@@ -56,6 +57,7 @@ export default function BlockedPage() {
         title={t('blocked.title')}
         action={
           <div className="flex flex-wrap items-center gap-2">
+            <BranchSelector />
             <RangeSelector />
             <Select value={method} onValueChange={setMethod}>
               <SelectTrigger size="sm" className="w-28" aria-label={t('blocked.methodFilter')}>

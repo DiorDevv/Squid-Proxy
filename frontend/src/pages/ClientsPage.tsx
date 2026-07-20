@@ -4,6 +4,7 @@ import { Panel } from '@/components/common/Panel'
 import { ErrorState } from '@/components/common/ErrorState'
 import { SearchFilterInput } from '@/components/common/SearchFilterInput'
 import { RangeSelector } from '@/components/common/RangeSelector'
+import { BranchSelector } from '@/components/common/BranchSelector'
 import { ClientsTable } from '@/components/clients/ClientsTable'
 import { useClients } from '@/hooks/useClients'
 import { useDebouncedValue } from '@/hooks/useDebouncedValue'
@@ -51,6 +52,7 @@ export default function ClientsPage() {
         title={t('clients.title')}
         action={
           <div className="flex flex-wrap items-center gap-2">
+            <BranchSelector />
             <RangeSelector />
             <SearchFilterInput
               value={search}

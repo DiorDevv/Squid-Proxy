@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { Panel } from '@/components/common/Panel'
 import { ErrorState } from '@/components/common/ErrorState'
 import { RangeSelector } from '@/components/common/RangeSelector'
+import { BranchSelector } from '@/components/common/BranchSelector'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { DomainRankingTable } from '@/components/domains/DomainRankingTable'
 import { CategoryBreakdown } from '@/components/domains/CategoryBreakdown'
@@ -50,6 +51,7 @@ export default function DomainsPage() {
             ))}
           </SelectContent>
         </Select>
+        <BranchSelector />
         <RangeSelector />
       </div>
 

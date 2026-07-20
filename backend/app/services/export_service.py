@@ -15,6 +15,7 @@ _COLUMNS = [
     "id",
     "timestamp",
     "client_ip",
+    "branch",
     "user",
     "method",
     "url",
@@ -46,9 +47,9 @@ def _escape_csv_formula(value: object) -> object:
 
 
 async def _fetch_rows(
-    session: AsyncSession, since: datetime, until: datetime, blocked_only: bool
+    session: AsyncSession, since: datetime, until: datetime, blocked_only: bool, branch: str | None = None
 ) -> list[RawEvent]:
-    conditions = build_event_conditions(since, until, blocked_only=blocked_only)
+    conditions = build_event_conditions(since, until, blocked_only=blocked_only, branch=branch)
 
     query = (
         select(RawEvent)
@@ -64,6 +65,7 @@ def _row_to_dict(row: RawEvent) -> dict:
         "id": row.id,
         "timestamp": row.timestamp.isoformat() if isinstance(row.timestamp, datetime) else row.timestamp,
         "client_ip": row.client_ip,
+        "branch": row.branch,
         "user": row.user,
         "method": row.method,
         "url": row.url,
@@ -75,8 +77,10 @@ def _row_to_dict(row: RawEvent) -> dict:
     }
 
 
-async def export_as_csv(session: AsyncSession, since: datetime, until: datetime, blocked_only: bool) -> str:
-    rows = await _fetch_rows(session, since, until, blocked_only)
+async def export_as_csv(
+    session: AsyncSession, since: datetime, until: datetime, blocked_only: bool, branch: str | None = None
+) -> str:
+    rows = await _fetch_rows(session, since, until, blocked_only, branch)
     buffer = io.StringIO()
     writer = csv.DictWriter(buffer, fieldnames=_COLUMNS)
     writer.writeheader()
@@ -88,6 +92,8 @@ async def export_as_csv(session: AsyncSession, since: datetime, until: datetime,
     return buffer.getvalue()
 
 
-async def export_as_json(session: AsyncSession, since: datetime, until: datetime, blocked_only: bool) -> str:
-    rows = await _fetch_rows(session, since, until, blocked_only)
+async def export_as_json(
+    session: AsyncSession, since: datetime, until: datetime, blocked_only: bool, branch: str | None = None
+) -> str:
+    rows = await _fetch_rows(session, since, until, blocked_only, branch)
     return json.dumps([_row_to_dict(row) for row in rows])

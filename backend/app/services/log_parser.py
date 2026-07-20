@@ -18,6 +18,8 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from urllib.parse import urlsplit
 
+from app.core.config import DEFAULT_BRANCH
+
 logger = logging.getLogger(__name__)
 
 EXPECTED_FIELD_COUNT = 10
@@ -44,6 +46,10 @@ class ParsedEvent:
     peer: str | None
     content_type: str | None
     blocked: bool
+    # Which configured log source (branch/site) this event came from -- set
+    # by the caller (LogTailer knows its own configured branch; the parser
+    # itself has no notion of "which file" and just forwards this through.
+    branch: str
 
 
 def _parse_int(raw: str, field_name: str, line: str) -> int:
@@ -78,7 +84,7 @@ def _validate_client_ip(raw: str, line: str) -> str | None:
         return None
 
 
-def parse_line(line: str) -> ParsedEvent | None:
+def parse_line(line: str, branch: str = DEFAULT_BRANCH) -> ParsedEvent | None:
     """Parse a single Squid access.log line. Never raises; returns None on failure."""
     stripped = line.strip()
     if not stripped:
@@ -158,4 +164,5 @@ def parse_line(line: str) -> ParsedEvent | None:
         peer=peer,
         content_type=content_type,
         blocked=blocked,
+        branch=branch,
     )

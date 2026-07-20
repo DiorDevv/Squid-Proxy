@@ -19,19 +19,19 @@ from app.services.domain_category_service import get_overrides_map
 
 
 async def get_domain_summary(
-    session: AsyncSession, domain: str, since: datetime, until: datetime
+    session: AsyncSession, domain: str, since: datetime, until: datetime, branch: str | None = None
 ) -> DomainSummary:
     blocked_requests = func.coalesce(func.sum(case((RawEvent.blocked, 1), else_=0)), 0)
     total_bytes = func.coalesce(func.sum(RawEvent.bytes), 0)
     distinct_clients = func.count(func.distinct(RawEvent.client_ip))
 
+    conditions = [RawEvent.domain == domain, RawEvent.timestamp >= since, RawEvent.timestamp <= until]
+    if branch is not None:
+        conditions.append(RawEvent.branch == branch)
+
     total_requests, blocked_total, bytes_total, client_count = (
         await session.execute(
-            select(func.count(), blocked_requests, total_bytes, distinct_clients).where(
-                RawEvent.domain == domain,
-                RawEvent.timestamp >= since,
-                RawEvent.timestamp <= until,
-            )
+            select(func.count(), blocked_requests, total_bytes, distinct_clients).where(*conditions)
         )
     ).one()
 
@@ -56,10 +56,14 @@ async def get_domain_clients(
     offset: int,
     sort_by: str = "visit_count",
     order: SortOrder = SortOrder.DESC,
+    branch: str | None = None,
 ) -> Page[DomainClientStat]:
     """One row per client that hit this domain in range, with a `user` roll-up
     the same way get_client_summary rolls up users for one IP -- the most
-    recently seen value, for display only."""
+    recently seen value, for display only. `branch=None` rolls up every
+    branch (same rare cross-branch IP-collision caveat as client_service's
+    default, not worth a dedicated branch column on this already-narrow,
+    single-domain drill-down view)."""
     visit_count = func.count()
     blocked_count = func.coalesce(func.sum(case((RawEvent.blocked, 1), else_=0)), 0)
     total_bytes = func.coalesce(func.sum(RawEvent.bytes), 0)
@@ -67,6 +71,8 @@ async def get_domain_clients(
     latest_user = func.max(RawEvent.user)
 
     conditions = [RawEvent.domain == domain, RawEvent.timestamp >= since, RawEvent.timestamp <= until]
+    if branch is not None:
+        conditions.append(RawEvent.branch == branch)
 
     base_query = (
         select(

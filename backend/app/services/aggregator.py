@@ -68,7 +68,7 @@ class _CategoryTotals:
 @dataclass
 class FlushResult:
     events_flushed: int = 0
-    buckets_touched: set[datetime] = field(default_factory=set)
+    buckets_touched: set[tuple[datetime, str]] = field(default_factory=set)
 
 
 class Aggregator:
@@ -163,14 +163,14 @@ class Aggregator:
             return FlushResult()
         self._last_flushed_id = events[-1].id
 
-        minute_buckets: dict[datetime, _MinuteTotals] = defaultdict(_MinuteTotals)
-        domain_buckets: dict[tuple[datetime, str], _DomainTotals] = defaultdict(_DomainTotals)
-        client_buckets: dict[tuple[datetime, str, str | None], _ClientTotals] = defaultdict(
+        minute_buckets: dict[tuple[datetime, str], _MinuteTotals] = defaultdict(_MinuteTotals)
+        domain_buckets: dict[tuple[datetime, str, str], _DomainTotals] = defaultdict(_DomainTotals)
+        client_buckets: dict[tuple[datetime, str, str, str | None], _ClientTotals] = defaultdict(
             _ClientTotals
         )
-        category_buckets: dict[tuple[datetime, str, DomainCategoryLabel], _CategoryTotals] = (
-            defaultdict(_CategoryTotals)
-        )
+        category_buckets: dict[
+            tuple[datetime, str, str, DomainCategoryLabel], _CategoryTotals
+        ] = defaultdict(_CategoryTotals)
         raw_rows: list[RawEvent] = []
 
         async with AsyncSessionLocal() as session:
@@ -182,7 +182,7 @@ class Aggregator:
                 ev = stored.event
                 bucket = self._bucket(ev.timestamp)
 
-                mb = minute_buckets[bucket]
+                mb = minute_buckets[(bucket, ev.branch)]
                 mb.total += 1
                 mb.bytes_ += ev.bytes
                 if ev.blocked:
@@ -191,18 +191,18 @@ class Aggregator:
                     mb.allowed += 1
 
                 if ev.domain:
-                    db = domain_buckets[(bucket, ev.domain)]
+                    db = domain_buckets[(bucket, ev.domain, ev.branch)]
                     db.count += 1
                     db.bytes_ += ev.bytes
                     if ev.blocked:
                         db.blocked += 1
 
                     category = effective_category(ev.domain, overrides)
-                    ctb = category_buckets[(bucket, ev.client_ip, category)]
+                    ctb = category_buckets[(bucket, ev.client_ip, ev.branch, category)]
                     ctb.count += 1
                     ctb.bytes_ += ev.bytes
 
-                cb = client_buckets[(bucket, ev.client_ip, ev.user)]
+                cb = client_buckets[(bucket, ev.client_ip, ev.branch, ev.user)]
                 cb.count += 1
                 cb.bytes_ += ev.bytes
                 if ev.blocked:
@@ -213,6 +213,7 @@ class Aggregator:
                         timestamp=ev.timestamp,
                         duration_ms=ev.duration_ms,
                         client_ip=ev.client_ip,
+                        branch=ev.branch,
                         action=ev.action,
                         status_code=ev.status_code,
                         bytes=ev.bytes,
@@ -263,30 +264,33 @@ class Aggregator:
             await maybe_alert(row)
 
     async def _bulk_upsert_minute(
-        self, session: AsyncSession, minute_buckets: dict[datetime, _MinuteTotals]
+        self, session: AsyncSession, minute_buckets: dict[tuple[datetime, str], _MinuteTotals]
     ) -> None:
         if not minute_buckets:
             return
         rows = [
             {
                 "bucket_ts": bucket,
+                "branch": branch,
                 "total_requests": totals.total,
                 "blocked_requests": totals.blocked,
                 "allowed_requests": totals.allowed,
                 "total_bytes": totals.bytes_,
             }
-            for bucket, totals in minute_buckets.items()
+            for (bucket, branch), totals in minute_buckets.items()
         ]
         await bulk_upsert_sum(
             session,
             MinuteAggregate.__table__,
             rows,
-            index_elements=[MinuteAggregate.bucket_ts],
+            index_elements=[MinuteAggregate.bucket_ts, MinuteAggregate.branch],
             sum_columns=["total_requests", "blocked_requests", "allowed_requests", "total_bytes"],
         )
 
     async def _bulk_upsert_domain(
-        self, session: AsyncSession, domain_buckets: dict[tuple[datetime, str], _DomainTotals]
+        self,
+        session: AsyncSession,
+        domain_buckets: dict[tuple[datetime, str, str], _DomainTotals],
     ) -> None:
         if not domain_buckets:
             return
@@ -294,24 +298,31 @@ class Aggregator:
             {
                 "bucket_ts": bucket,
                 "domain": domain,
+                "branch": branch,
                 "request_count": totals.count,
                 "blocked_count": totals.blocked,
                 "total_bytes": totals.bytes_,
             }
-            for (bucket, domain), totals in domain_buckets.items()
+            for (bucket, domain, branch), totals in domain_buckets.items()
         ]
         await bulk_upsert_sum(
             session,
             DomainMinuteAggregate.__table__,
             rows,
-            index_elements=[DomainMinuteAggregate.bucket_ts, DomainMinuteAggregate.domain],
+            index_elements=[
+                DomainMinuteAggregate.bucket_ts,
+                DomainMinuteAggregate.domain,
+                DomainMinuteAggregate.branch,
+            ],
             sum_columns=["request_count", "blocked_count", "total_bytes"],
         )
 
     async def _bulk_upsert_category(
         self,
         session: AsyncSession,
-        category_buckets: dict[tuple[datetime, str, DomainCategoryLabel], _CategoryTotals],
+        category_buckets: dict[
+            tuple[datetime, str, str, DomainCategoryLabel], _CategoryTotals
+        ],
     ) -> None:
         if not category_buckets:
             return
@@ -319,11 +330,12 @@ class Aggregator:
             {
                 "bucket_ts": bucket,
                 "client_ip": client_ip,
+                "branch": branch,
                 "category": category,
                 "request_count": totals.count,
                 "total_bytes": totals.bytes_,
             }
-            for (bucket, client_ip, category), totals in category_buckets.items()
+            for (bucket, client_ip, branch, category), totals in category_buckets.items()
         ]
         await bulk_upsert_sum(
             session,
@@ -333,6 +345,7 @@ class Aggregator:
                 ClientCategoryMinuteAggregate.bucket_ts,
                 ClientCategoryMinuteAggregate.client_ip,
                 ClientCategoryMinuteAggregate.category,
+                ClientCategoryMinuteAggregate.branch,
             ],
             sum_columns=["request_count", "total_bytes"],
         )
@@ -340,7 +353,7 @@ class Aggregator:
     async def _bulk_upsert_client(
         self,
         session: AsyncSession,
-        client_buckets: dict[tuple[datetime, str, str | None], _ClientTotals],
+        client_buckets: dict[tuple[datetime, str, str, str | None], _ClientTotals],
     ) -> None:
         if not client_buckets:
             return
@@ -348,21 +361,22 @@ class Aggregator:
             {
                 "bucket_ts": bucket,
                 "client_ip": client_ip,
+                "branch": branch,
                 "user": user,
                 "request_count": totals.count,
                 "blocked_count": totals.blocked,
                 "total_bytes": totals.bytes_,
             }
-            for (bucket, client_ip, user), totals in client_buckets.items()
+            for (bucket, client_ip, branch, user), totals in client_buckets.items()
         ]
-        # The unique index on this table is (bucket_ts, client_ip,
+        # The unique index on this table is (bucket_ts, client_ip, branch,
         # coalesce(user, '')) -- see migration 466aaa85c9f3's docstring for
         # why: `user` is nullable, and plain SQL treats NULL as distinct
         # from itself, so the conflict target has to match that expression
-        # exactly rather than the plain (bucket_ts, client_ip, user) columns.
-        # The '' has to be a literal, not a bound parameter -- SQLite only
-        # recognizes an ON CONFLICT expression as matching an expression
-        # index when its constant subexpressions are literals too.
+        # exactly rather than the plain (bucket_ts, client_ip, branch, user)
+        # columns. The '' has to be a literal, not a bound parameter --
+        # SQLite only recognizes an ON CONFLICT expression as matching an
+        # expression index when its constant subexpressions are literals too.
         await bulk_upsert_sum(
             session,
             ClientMinuteAggregate.__table__,
@@ -370,6 +384,7 @@ class Aggregator:
             index_elements=[
                 ClientMinuteAggregate.bucket_ts,
                 ClientMinuteAggregate.client_ip,
+                ClientMinuteAggregate.branch,
                 func.coalesce(ClientMinuteAggregate.user, literal_column("''")),
             ],
             sum_columns=["request_count", "blocked_count", "total_bytes"],

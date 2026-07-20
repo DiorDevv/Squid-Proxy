@@ -16,6 +16,7 @@ async def read_top_domains(
     effective_range: EffectiveRange = Depends(resolve_range),
     limit: int = Query(default=10, ge=1, le=100),
     category: DomainCategoryLabel | None = Query(default=None),
+    branch: str | None = Query(default=None),
     db: AsyncSession = Depends(get_db),
 ) -> DomainStatsResponse:
     items = await get_top_domains(
@@ -26,6 +27,7 @@ async def read_top_domains(
         blocked_only=False,
         order_by="requests",
         category=category,
+        branch=branch,
     )
     return DomainStatsResponse(items=items)
 
@@ -35,6 +37,7 @@ async def read_top_blocked(
     effective_range: EffectiveRange = Depends(resolve_range),
     limit: int = Query(default=10, ge=1, le=100),
     category: DomainCategoryLabel | None = Query(default=None),
+    branch: str | None = Query(default=None),
     db: AsyncSession = Depends(get_db),
 ) -> DomainStatsResponse:
     items = await get_top_domains(
@@ -45,6 +48,7 @@ async def read_top_blocked(
         blocked_only=True,
         order_by="blocked",
         category=category,
+        branch=branch,
     )
     return DomainStatsResponse(items=items)
 
@@ -54,6 +58,7 @@ async def read_top_data_usage(
     effective_range: EffectiveRange = Depends(resolve_range),
     limit: int = Query(default=10, ge=1, le=100),
     category: DomainCategoryLabel | None = Query(default=None),
+    branch: str | None = Query(default=None),
     db: AsyncSession = Depends(get_db),
 ) -> DomainStatsResponse:
     items = await get_top_domains(
@@ -64,6 +69,7 @@ async def read_top_data_usage(
         blocked_only=False,
         order_by="bytes",
         category=category,
+        branch=branch,
     )
     return DomainStatsResponse(items=items)
 
@@ -75,9 +81,10 @@ async def read_top_data_usage(
 )
 async def read_usage_by_category(
     effective_range: EffectiveRange = Depends(resolve_range),
+    branch: str | None = Query(default=None),
     db: AsyncSession = Depends(get_db),
 ) -> CategoryStatsResponse:
-    items = await get_usage_by_category(db, effective_range.since, effective_range.until)
+    items = await get_usage_by_category(db, effective_range.since, effective_range.until, branch)
     return CategoryStatsResponse(items=items)
 
 
@@ -89,9 +96,10 @@ async def read_usage_by_category(
 async def read_domain_summary(
     domain: str,
     effective_range: EffectiveRange = Depends(resolve_range),
+    branch: str | None = Query(default=None),
     db: AsyncSession = Depends(get_db),
 ) -> DomainSummary:
-    return await get_domain_summary(db, domain, effective_range.since, effective_range.until)
+    return await get_domain_summary(db, domain, effective_range.since, effective_range.until, branch)
 
 
 @router.get(
@@ -106,8 +114,9 @@ async def read_domain_clients(
     offset: int = Query(default=0, ge=0),
     sort_by: str = Query(default="visit_count"),
     order: SortOrder = Query(default=SortOrder.DESC),
+    branch: str | None = Query(default=None),
     db: AsyncSession = Depends(get_db),
 ) -> Page[DomainClientStat]:
     return await get_domain_clients(
-        db, domain, effective_range.since, effective_range.until, limit, offset, sort_by, order
+        db, domain, effective_range.since, effective_range.until, limit, offset, sort_by, order, branch
     )

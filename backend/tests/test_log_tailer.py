@@ -10,7 +10,9 @@ def squid_line(domain: str = "example.com") -> str:
 
 def make_tailer(path: Path) -> tuple[LogTailer, list]:
     events = []
-    tailer = LogTailer(path=str(path), on_event=events.append, poll_interval=0.01, backoff_max=1.0)
+    tailer = LogTailer(
+        path=str(path), on_event=events.append, branch="default", poll_interval=0.01, backoff_max=1.0
+    )
     return tailer, events
 
 

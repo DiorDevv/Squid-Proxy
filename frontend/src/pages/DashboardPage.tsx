@@ -7,6 +7,7 @@ import { InsightsPanel } from '@/components/dashboard/InsightsPanel'
 import { Panel } from '@/components/common/Panel'
 import { ErrorState } from '@/components/common/ErrorState'
 import { RangeSelector } from '@/components/common/RangeSelector'
+import { BranchSelector } from '@/components/common/BranchSelector'
 import { useRangeSearchParams } from '@/lib/filters-store'
 import { useSummary } from '@/hooks/useSummary'
 import { useTimeseries } from '@/hooks/useTimeseries'
@@ -29,7 +30,8 @@ export default function DashboardPage() {
 
   return (
     <div className="flex flex-col gap-4">
-      <div className="flex justify-end">
+      <div className="flex justify-end gap-2">
+        <BranchSelector />
         <RangeSelector />
       </div>
 

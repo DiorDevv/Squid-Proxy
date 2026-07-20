@@ -19,6 +19,10 @@ export const ru = {
   'topbar.openMenu': 'Открыть меню навигации',
   'topbar.timeRange': 'Период времени',
 
+  // --- Branch filter ---
+  'branch.filter': 'Филиал',
+  'branch.all': 'Все филиалы',
+
   'connection.live': 'В сети',
   'connection.polling': 'Опрос',
   'connection.disconnected': 'Отключено',

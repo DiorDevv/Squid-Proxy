@@ -21,6 +21,7 @@ async def export_events(
     effective_range: EffectiveRange = Depends(resolve_range),
     format: ExportFormat = Query(default=ExportFormat.CSV),
     blocked_only: bool = Query(default=False),
+    branch: str | None = Query(default=None),
     db: AsyncSession = Depends(get_db),
 ) -> PlainTextResponse:
     # Custom from_ts/to_ts ranges have no RangeParam label -- fall back to a
@@ -30,11 +31,11 @@ async def export_events(
     else:
         range_label = effective_range.until.date().isoformat()
     if format == ExportFormat.CSV:
-        body = await export_as_csv(db, effective_range.since, effective_range.until, blocked_only)
+        body = await export_as_csv(db, effective_range.since, effective_range.until, blocked_only, branch)
         media_type = "text/csv"
         filename = f"squid-events-{range_label}.csv"
     else:
-        body = await export_as_json(db, effective_range.since, effective_range.until, blocked_only)
+        body = await export_as_json(db, effective_range.since, effective_range.until, blocked_only, branch)
         media_type = "application/json"
         filename = f"squid-events-{range_label}.json"
 

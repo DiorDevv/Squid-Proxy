@@ -54,25 +54,44 @@ class StatisticalAnomalyProvider(InsightsProvider):
         if not events:
             return []
 
-        window_start = min(e.timestamp for e in events)
-        generated_at = max(e.timestamp for e in events)
-        if generated_at - window_start > MAX_WINDOW_SPREAD:
-            window_start = generated_at - MAX_WINDOW_SPREAD
+        # A flush window can contain events from more than one branch (each
+        # branch has its own LogTailer, all feeding the same ring buffer --
+        # see ARCHITECTURE.md). Every check below is computed once per
+        # branch, scoped to that branch's own history/baseline, so one
+        # branch's traffic never masks or distorts another's.
+        by_branch: dict[str, list[ParsedEvent]] = defaultdict(list)
+        for event in events:
+            by_branch[event.branch].append(event)
 
         anomalies: list[Anomaly] = []
-        anomalies += await self._traffic_spike(events, session, window_start, generated_at)
-        anomalies += await self._new_blocked_domains(events, session, window_start, generated_at)
-        anomalies += self._client_blocked_ratio(events, generated_at)
-        anomalies += await self._sensitive_category_visit(events, session, window_start, generated_at)
+        for branch, branch_events in by_branch.items():
+            window_start = min(e.timestamp for e in branch_events)
+            generated_at = max(e.timestamp for e in branch_events)
+            if generated_at - window_start > MAX_WINDOW_SPREAD:
+                window_start = generated_at - MAX_WINDOW_SPREAD
+
+            anomalies += await self._traffic_spike(branch_events, session, window_start, generated_at, branch)
+            anomalies += await self._new_blocked_domains(
+                branch_events, session, window_start, generated_at, branch
+            )
+            anomalies += self._client_blocked_ratio(branch_events, generated_at, branch)
+            anomalies += await self._sensitive_category_visit(
+                branch_events, session, window_start, generated_at, branch
+            )
         return anomalies
 
     async def _traffic_spike(
-        self, events: list[ParsedEvent], session: AsyncSession, window_start: datetime, generated_at: datetime
+        self,
+        events: list[ParsedEvent],
+        session: AsyncSession,
+        window_start: datetime,
+        generated_at: datetime,
+        branch: str,
     ) -> list[Anomaly]:
         history = (
             await session.execute(
                 select(MinuteAggregate.total_requests)
-                .where(MinuteAggregate.bucket_ts < window_start)
+                .where(MinuteAggregate.bucket_ts < window_start, MinuteAggregate.branch == branch)
                 .order_by(MinuteAggregate.bucket_ts.desc())
                 .limit(TRAFFIC_SPIKE_BASELINE_WINDOWS)
             )
@@ -93,12 +112,18 @@ class StatisticalAnomalyProvider(InsightsProvider):
                     f"~{baseline:.0f} over the previous {len(history)} windows."
                 ),
                 severity=AnomalySeverity.HIGH,
+                branch=branch,
                 generated_at=generated_at,
             )
         ]
 
     async def _new_blocked_domains(
-        self, events: list[ParsedEvent], session: AsyncSession, window_start: datetime, generated_at: datetime
+        self,
+        events: list[ParsedEvent],
+        session: AsyncSession,
+        window_start: datetime,
+        generated_at: datetime,
+        branch: str,
     ) -> list[Anomaly]:
         blocked_domains = {e.domain for e in events if e.blocked and e.domain}
         if not blocked_domains:
@@ -110,6 +135,7 @@ class StatisticalAnomalyProvider(InsightsProvider):
                 .where(
                     DomainMinuteAggregate.domain.in_(blocked_domains),
                     DomainMinuteAggregate.bucket_ts < window_start,
+                    DomainMinuteAggregate.branch == branch,
                 )
                 .distinct()
             )
@@ -122,12 +148,15 @@ class StatisticalAnomalyProvider(InsightsProvider):
                 description=f"{domain} was blocked for the first time in this window.",
                 severity=AnomalySeverity.MEDIUM,
                 domain=domain,
+                branch=branch,
                 generated_at=generated_at,
             )
             for domain in sorted(new_domains)
         ]
 
-    def _client_blocked_ratio(self, events: list[ParsedEvent], generated_at: datetime) -> list[Anomaly]:
+    def _client_blocked_ratio(
+        self, events: list[ParsedEvent], generated_at: datetime, branch: str
+    ) -> list[Anomaly]:
         totals: dict[str, int] = defaultdict(int)
         blocked: dict[str, int] = defaultdict(int)
         for event in events:
@@ -151,22 +180,28 @@ class StatisticalAnomalyProvider(InsightsProvider):
                     ),
                     severity=AnomalySeverity.HIGH,
                     client_ip=client_ip,
+                    branch=branch,
                     generated_at=generated_at,
                 )
             )
         return anomalies
 
     async def _sensitive_category_visit(
-        self, events: list[ParsedEvent], session: AsyncSession, window_start: datetime, generated_at: datetime
+        self,
+        events: list[ParsedEvent],
+        session: AsyncSession,
+        window_start: datetime,
+        generated_at: datetime,
+        branch: str,
     ) -> list[Anomaly]:
         """Flags a client's first-ever visit to a domain whose effective
         category (admin override, else category_inference.infer_category)
         is on the admin-configured sensitive list (see
         alert_settings_service.py) -- e.g. "first time this client visited
         a gambling site". Off entirely when no sensitive categories are
-        configured (the common case), matching this file's other checks'
-        "no signal, no anomaly" default."""
-        settings_row = await alert_settings_service.get_settings_row(session)
+        configured for this branch (the common case), matching this file's
+        other checks' "no signal, no anomaly" default."""
+        settings_row = await alert_settings_service.get_settings_row(session, branch)
         sensitive = alert_settings_service.parse_sensitive_categories(settings_row.sensitive_categories)
         if not sensitive:
             return []
@@ -190,6 +225,7 @@ class StatisticalAnomalyProvider(InsightsProvider):
                         RawEvent.client_ip.in_(client_ips),
                         RawEvent.domain.in_(domains),
                         RawEvent.timestamp < window_start,
+                        RawEvent.branch == branch,
                     )
                     .distinct()
                 )
@@ -207,6 +243,7 @@ class StatisticalAnomalyProvider(InsightsProvider):
                 severity=AnomalySeverity.MEDIUM,
                 client_ip=client_ip,
                 domain=domain,
+                branch=branch,
                 generated_at=generated_at,
             )
             for client_ip, domain in sorted(new_pairs)

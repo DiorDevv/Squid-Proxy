@@ -23,6 +23,7 @@ def build_event_conditions(
     method: str | None = None,
     user: str | None = None,
     search: str | None = None,
+    branch: str | None = None,
 ) -> list:
     conditions = [RawEvent.timestamp >= since, RawEvent.timestamp <= until]
     if blocked_only:
@@ -35,6 +36,8 @@ def build_event_conditions(
         conditions.append(RawEvent.method == method)
     if user and user.strip():
         conditions.append(RawEvent.user.ilike(f"%{user.strip()}%"))
+    if branch:
+        conditions.append(RawEvent.branch == branch)
     if search and search.strip():
         needle = f"%{search.strip()}%"
         conditions.append(
@@ -60,9 +63,10 @@ async def get_events(
     method: str | None = None,
     user: str | None = None,
     search: str | None = None,
+    branch: str | None = None,
 ) -> Page[EventDetail]:
     conditions = build_event_conditions(
-        since, until, blocked_only, client_ip, domain, method, user, search
+        since, until, blocked_only, client_ip, domain, method, user, search, branch
     )
 
     query = (

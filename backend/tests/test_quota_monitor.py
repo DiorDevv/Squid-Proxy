@@ -128,6 +128,50 @@ async def test_check_is_noop_when_quota_not_configured(db_session: AsyncSession,
     assert anomalies == []
 
 
+async def test_check_compares_each_branch_against_its_own_quota(db_session: AsyncSession, monkeypatch):
+    """Same client_ip active in two branches: branch A has a quota configured
+    and is over it, branch B has no quota configured at all -- only branch
+    A's usage should be flagged, proving thresholds aren't shared globally
+    across branches."""
+    _patch_session(monkeypatch, db_session)
+    await alert_settings_service.update_settings(
+        db_session, [], non_work_minutes_threshold=120, client_daily_byte_quota_bytes=5 * ONE_GB, branch="hq"
+    )
+    now = datetime.now(UTC)
+    db_session.add_all(
+        [
+            ClientMinuteAggregate(
+                bucket_ts=now - timedelta(hours=1),
+                client_ip="10.0.0.50",
+                branch="hq",
+                user=None,
+                request_count=1,
+                blocked_count=0,
+                total_bytes=6 * ONE_GB,
+            ),
+            ClientMinuteAggregate(
+                bucket_ts=now - timedelta(hours=1),
+                client_ip="10.0.0.50",
+                branch="branch-office",
+                user=None,
+                request_count=1,
+                blocked_count=0,
+                total_bytes=6 * ONE_GB,
+            ),
+        ]
+    )
+    await db_session.commit()
+
+    job = QuotaMonitorJob()
+    await job.check()
+
+    anomalies = (
+        await db_session.execute(select(AnomalyEvent).where(AnomalyEvent.title == ANOMALY_TITLE))
+    ).scalars().all()
+    assert len(anomalies) == 1
+    assert anomalies[0].branch == "hq"
+
+
 async def test_check_does_not_re_flag_within_the_same_day(db_session: AsyncSession, monkeypatch):
     _patch_session(monkeypatch, db_session)
     await alert_settings_service.update_settings(

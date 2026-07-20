@@ -123,8 +123,8 @@ async def test_check_does_not_update_state_when_send_fails_noop(monkeypatch, db_
 
 
 def _fake_send(calls: list, result: bool):
-    async def _fake(session, since, until):
-        calls.append((since, until))
+    async def _fake(session, since, until, branch=None):
+        calls.append((since, until, branch))
         return result
 
     return _fake

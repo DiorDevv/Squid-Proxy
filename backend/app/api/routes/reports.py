@@ -1,6 +1,6 @@
 from datetime import UTC, datetime, timedelta
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -29,7 +29,9 @@ async def read_report_status(db: AsyncSession = Depends(get_db)) -> ReportStatus
 
 
 @router.post("/send-now", response_model=SendReportNowResponse)
-async def send_report_now(db: AsyncSession = Depends(get_db)) -> SendReportNowResponse:
+async def send_report_now(
+    branch: str | None = Query(default=None), db: AsyncSession = Depends(get_db)
+) -> SendReportNowResponse:
     settings = get_settings()
     if not settings.REPORT_RECIPIENTS:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "REPORT_RECIPIENTS is not configured.")
@@ -40,8 +42,12 @@ async def send_report_now(db: AsyncSession = Depends(get_db)) -> SendReportNowRe
 
     now = datetime.now(UTC)
     since = now - timedelta(hours=24)
+    # No branch given: send one report per configured branch, same as the
+    # scheduler (see report_scheduler.py), rather than a single combined one.
+    branches = [branch] if branch else [source.branch for source in settings.effective_log_sources]
     try:
-        await generate_and_send_report(db, since, now)
+        for target_branch in branches:
+            await generate_and_send_report(db, since, now, target_branch)
     except Exception as exc:
         raise HTTPException(status.HTTP_502_BAD_GATEWAY, f"Failed to send report: {exc}") from exc
 

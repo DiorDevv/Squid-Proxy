@@ -21,6 +21,10 @@ export const uz = {
   'topbar.openMenu': 'Navigatsiya menyusini ochish',
   'topbar.timeRange': 'Vaqt oraligʻi',
 
+  // --- Branch filter ---
+  'branch.filter': 'Filial',
+  'branch.all': 'Barcha filiallar',
+
   'connection.live': 'Jonli',
   'connection.polling': 'Soʻrov yuborilmoqda',
   'connection.disconnected': 'Uzildi',

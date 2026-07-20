@@ -29,11 +29,13 @@ class LogTailer:
         self,
         path: str,
         on_event: Callable[[ParsedEvent], None],
+        branch: str,
         poll_interval: float = 0.75,
         backoff_max: float = 30.0,
     ) -> None:
         self.path = path
         self.on_event = on_event
+        self.branch = branch
         self.poll_interval = poll_interval
         self.backoff_max = backoff_max
 
@@ -170,7 +172,7 @@ class LogTailer:
             if not line.strip():
                 continue
             self._lines_seen += 1
-            event = parse_line(line)
+            event = parse_line(line, branch=self.branch)
             if event is not None:
                 self._lines_parsed += 1
                 self.on_event(event)

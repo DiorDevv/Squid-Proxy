@@ -3,6 +3,7 @@ from datetime import datetime
 from sqlalchemy import Boolean, Index, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
+from app.core.config import DEFAULT_BRANCH
 from app.models.db import Base
 from app.models.types import UTCDateTime
 
@@ -27,12 +28,16 @@ class RawEvent(Base):
         # BETWEEN ? AND ? ORDER BY timestamp DESC (see migration
         # 2b9c6a3ff517 for the measured rationale).
         Index("ix_raw_events_ts_blocked", "timestamp", "blocked"),
+        # Serves a per-branch events/export view without scanning every
+        # branch's rows in the timestamp range first.
+        Index("ix_raw_events_branch_ts", "branch", "timestamp"),
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     timestamp: Mapped[datetime] = mapped_column(UTCDateTime, index=True)
     duration_ms: Mapped[int] = mapped_column(Integer)
     client_ip: Mapped[str] = mapped_column(String(45), index=True)
+    branch: Mapped[str] = mapped_column(String(64), default=DEFAULT_BRANCH)
     action: Mapped[str] = mapped_column(String(64))
     status_code: Mapped[int] = mapped_column(Integer)
     bytes: Mapped[int] = mapped_column(Integer)

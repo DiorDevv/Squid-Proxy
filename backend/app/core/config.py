@@ -2,10 +2,23 @@
 
 from functools import lru_cache
 
-from pydantic import Field, model_validator
+from pydantic import BaseModel, Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 INSECURE_DEFAULT_JWT_SECRET = "CHANGE_ME_INSECURE_DEV_SECRET"
+
+# Branch tag used when no LOG_SOURCES is configured -- keeps single-branch
+# deployments (the common case) working with zero config changes, since
+# LOG_FILE_PATH alone still produces one implicit branch under this name.
+DEFAULT_BRANCH = "default"
+
+
+class LogSource(BaseModel):
+    """One Squid access.log to tail, tagged with the branch/site it belongs
+    to. See Settings.effective_log_sources."""
+
+    branch: str
+    path: str
 
 
 class Settings(BaseSettings):
@@ -15,8 +28,15 @@ class Settings(BaseSettings):
     ENVIRONMENT: str = "development"
     LOG_LEVEL: str = "INFO"
 
-    # --- Squid log source ---
+    # --- Squid log source(s) ---
+    # LOG_FILE_PATH is the single-branch default. For multiple branches (each
+    # with its own Squid access.log already landing as a local file on this
+    # server -- e.g. shipped in via syslog centralization), set LOG_SOURCES
+    # instead: a JSON array of {"branch": "...", "path": "..."} objects, one
+    # per branch. LOG_FILE_PATH is then ignored in favor of LOG_SOURCES; see
+    # effective_log_sources for the fallback logic.
     LOG_FILE_PATH: str = "/var/log/squid/access.log"
+    LOG_SOURCES: list[LogSource] = Field(default_factory=list)
     LOG_TAILER_POLL_INTERVAL_SECONDS: float = 0.75
     LOG_TAILER_BACKOFF_MAX_SECONDS: float = 30.0
 
@@ -85,6 +105,15 @@ class Settings(BaseSettings):
     SMTP_PASSWORD: str | None = None
     SMTP_FROM_ADDRESS: str | None = None
     SMTP_USE_TLS: bool = True
+
+    @property
+    def effective_log_sources(self) -> list[LogSource]:
+        """LOG_SOURCES if configured; otherwise a single implicit source
+        built from LOG_FILE_PATH under DEFAULT_BRANCH, so existing
+        single-branch deployments don't need any config change."""
+        if self.LOG_SOURCES:
+            return self.LOG_SOURCES
+        return [LogSource(branch=DEFAULT_BRANCH, path=self.LOG_FILE_PATH)]
 
     @model_validator(mode="after")
     def _reject_insecure_production_secret(self) -> "Settings":

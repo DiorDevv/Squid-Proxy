@@ -22,15 +22,22 @@ from app.services.domain_category_service import get_overrides_map
 
 
 async def get_summary(
-    session: AsyncSession, since: datetime, until: datetime, range_param: RangeParam | None
+    session: AsyncSession,
+    since: datetime,
+    until: datetime,
+    range_param: RangeParam | None,
+    branch: str | None = None,
 ) -> SummaryResponse:
+    conditions = [MinuteAggregate.bucket_ts >= since, MinuteAggregate.bucket_ts <= until]
+    if branch is not None:
+        conditions.append(MinuteAggregate.branch == branch)
     totals_row = (
         await session.execute(
             select(
                 func.coalesce(func.sum(MinuteAggregate.total_requests), 0),
                 func.coalesce(func.sum(MinuteAggregate.blocked_requests), 0),
                 func.coalesce(func.sum(MinuteAggregate.allowed_requests), 0),
-            ).where(MinuteAggregate.bucket_ts >= since, MinuteAggregate.bucket_ts <= until)
+            ).where(*conditions)
         )
     ).one()
     total_requests, blocked_requests, allowed_requests = totals_row
@@ -40,7 +47,7 @@ async def get_summary(
     # (retention.py) would otherwise silently undercount, since older
     # activity has been compressed into the hourly table and the source
     # minute rows deleted.
-    combined = client_bucket_rows(since, until)
+    combined = client_bucket_rows(since, until, branch=branch)
 
     active_clients = (
         await session.execute(select(func.count(func.distinct(combined.c.client_ip))))
@@ -65,36 +72,56 @@ async def get_summary(
 
 
 async def get_timeseries(
-    session: AsyncSession, since: datetime, until: datetime, granularity: Granularity
+    session: AsyncSession,
+    since: datetime,
+    until: datetime,
+    granularity: Granularity,
+    branch: str | None = None,
 ) -> TimeseriesResponse:
+    # Grouped by bucket_ts (summing across branches) rather than selecting
+    # MinuteAggregate rows directly: that table is now unique per
+    # (bucket_ts, branch), so a `branch=None` ("all branches") request can
+    # have more than one row per minute, and returning them ungrouped would
+    # produce duplicate/incorrect points instead of one combined total per
+    # minute. When `branch` is given this is equivalent to the old
+    # row-per-minute behavior, just expressed the same way for both cases.
+    conditions = [MinuteAggregate.bucket_ts >= since, MinuteAggregate.bucket_ts <= until]
+    if branch is not None:
+        conditions.append(MinuteAggregate.branch == branch)
     rows = (
         await session.execute(
-            select(MinuteAggregate)
-            .where(MinuteAggregate.bucket_ts >= since, MinuteAggregate.bucket_ts <= until)
+            select(
+                MinuteAggregate.bucket_ts,
+                func.sum(MinuteAggregate.total_requests),
+                func.sum(MinuteAggregate.blocked_requests),
+                func.sum(MinuteAggregate.allowed_requests),
+            )
+            .where(*conditions)
+            .group_by(MinuteAggregate.bucket_ts)
             .order_by(MinuteAggregate.bucket_ts)
         )
-    ).scalars().all()
+    ).all()
 
     if granularity == Granularity.MINUTE:
         points = [
             TimeseriesPoint(
-                bucket_ts=row.bucket_ts,
-                total_requests=row.total_requests,
-                blocked_requests=row.blocked_requests,
-                allowed_requests=row.allowed_requests,
+                bucket_ts=bucket_ts,
+                total_requests=total_requests,
+                blocked_requests=blocked_requests,
+                allowed_requests=allowed_requests,
             )
-            for row in rows
+            for bucket_ts, total_requests, blocked_requests, allowed_requests in rows
         ]
         return TimeseriesResponse(granularity=granularity, points=points)
 
     # Hour granularity: re-bucket in Python for SQLite/Postgres portability
     # (no shared date-truncation function across both dialects).
     hourly: dict[datetime, dict[str, int]] = defaultdict(lambda: {"total": 0, "blocked": 0, "allowed": 0})
-    for row in rows:
-        hour_bucket = row.bucket_ts.replace(minute=0, second=0, microsecond=0)
-        hourly[hour_bucket]["total"] += row.total_requests
-        hourly[hour_bucket]["blocked"] += row.blocked_requests
-        hourly[hour_bucket]["allowed"] += row.allowed_requests
+    for bucket_ts, total_requests, blocked_requests, allowed_requests in rows:
+        hour_bucket = bucket_ts.replace(minute=0, second=0, microsecond=0)
+        hourly[hour_bucket]["total"] += total_requests
+        hourly[hour_bucket]["blocked"] += blocked_requests
+        hourly[hour_bucket]["allowed"] += allowed_requests
 
     points = [
         TimeseriesPoint(
@@ -114,13 +141,13 @@ async def _domains_in_category(
     until: datetime,
     category: DomainCategoryLabel,
     overrides: dict[str, DomainCategoryLabel],
+    branch: str | None = None,
 ) -> set[str]:
+    conditions = [DomainMinuteAggregate.bucket_ts >= since, DomainMinuteAggregate.bucket_ts <= until]
+    if branch is not None:
+        conditions.append(DomainMinuteAggregate.branch == branch)
     domains = (
-        await session.execute(
-            select(DomainMinuteAggregate.domain)
-            .where(DomainMinuteAggregate.bucket_ts >= since, DomainMinuteAggregate.bucket_ts <= until)
-            .distinct()
-        )
+        await session.execute(select(DomainMinuteAggregate.domain).where(*conditions).distinct())
     ).scalars().all()
     return {domain for domain in domains if effective_category(domain, overrides) == category}
 
@@ -133,6 +160,7 @@ async def get_top_domains(
     blocked_only: bool = False,
     order_by: Literal["requests", "blocked", "bytes"] | None = None,
     category: DomainCategoryLabel | None = None,
+    branch: str | None = None,
 ) -> list[DomainStat]:
     """`order_by` defaults to "blocked" when `blocked_only` is set (matching
     /api/top-blocked's intent) and "requests" otherwise, but can be
@@ -155,8 +183,10 @@ async def get_top_domains(
     overrides = await get_overrides_map(session)
 
     conditions = [DomainMinuteAggregate.bucket_ts >= since, DomainMinuteAggregate.bucket_ts <= until]
+    if branch is not None:
+        conditions.append(DomainMinuteAggregate.branch == branch)
     if category is not None:
-        matching_domains = await _domains_in_category(session, since, until, category, overrides)
+        matching_domains = await _domains_in_category(session, since, until, category, overrides, branch)
         if not matching_domains:
             return []
         conditions.append(DomainMinuteAggregate.domain.in_(matching_domains))
@@ -184,13 +214,16 @@ async def get_top_domains(
 
 
 async def get_usage_by_category(
-    session: AsyncSession, since: datetime, until: datetime
+    session: AsyncSession, since: datetime, until: datetime, branch: str | None = None
 ) -> list[CategoryStat]:
     """Every domain in `domain_minute_aggregates` gets bucketed under its
     effective category (admin override, else the auto-inferred guess --
     see category_inference.effective_category) rather than a flat "uncategorized", so a fresh
     deployment with no admin-assigned categories yet still shows a useful
     breakdown instead of one giant uncategorized bucket."""
+    conditions = [DomainMinuteAggregate.bucket_ts >= since, DomainMinuteAggregate.bucket_ts <= until]
+    if branch is not None:
+        conditions.append(DomainMinuteAggregate.branch == branch)
     rows = (
         await session.execute(
             select(
@@ -199,7 +232,7 @@ async def get_usage_by_category(
                 func.sum(DomainMinuteAggregate.blocked_count),
                 func.sum(DomainMinuteAggregate.total_bytes),
             )
-            .where(DomainMinuteAggregate.bucket_ts >= since, DomainMinuteAggregate.bucket_ts <= until)
+            .where(*conditions)
             .group_by(DomainMinuteAggregate.domain)
         )
     ).all()

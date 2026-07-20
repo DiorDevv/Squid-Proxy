@@ -81,13 +81,29 @@ async def _ensure_aggregate_unique_indexes(bind_engine=None) -> None:
     """
     bind_engine = bind_engine if bind_engine is not None else engine
     statements = [
+        # branch joined every one of these keys (see migration
+        # a4f7c2e9b1d6_branch_dimension) -- an existing install that only
+        # ever runs create_all (never Alembic) still won't have the `branch`
+        # column itself without that migration (create_all never ALTERs an
+        # existing table), so these DBAPIErrors on such installs are
+        # expected and handled by the try/except below, same as pre-existing
+        # duplicate rows always were.
         "DROP INDEX IF EXISTS ix_domain_bucket_domain",
         "CREATE UNIQUE INDEX IF NOT EXISTS ix_domain_bucket_domain "
-        "ON domain_minute_aggregates (bucket_ts, domain)",
+        "ON domain_minute_aggregates (bucket_ts, domain, branch)",
+        "DROP INDEX IF EXISTS ix_client_bucket_ip_user_unique",
         "CREATE UNIQUE INDEX IF NOT EXISTS ix_client_bucket_ip_user_unique "
-        'ON client_minute_aggregates (bucket_ts, client_ip, COALESCE("user", \'\'))',
+        'ON client_minute_aggregates (bucket_ts, client_ip, branch, COALESCE("user", \'\'))',
+        "DROP INDEX IF EXISTS ix_client_hourly_bucket_ip_user_unique",
         "CREATE UNIQUE INDEX IF NOT EXISTS ix_client_hourly_bucket_ip_user_unique "
-        'ON client_hourly_aggregates (bucket_ts, client_ip, COALESCE("user", \'\'))',
+        'ON client_hourly_aggregates (bucket_ts, client_ip, branch, COALESCE("user", \'\'))',
+        "DROP INDEX IF EXISTS ix_client_category_bucket_ip_category",
+        "CREATE UNIQUE INDEX IF NOT EXISTS ix_client_category_bucket_ip_category "
+        "ON client_category_minute_aggregates (bucket_ts, client_ip, category, branch)",
+        "DROP INDEX IF EXISTS ix_minute_aggregates_bucket_ts",
+        "CREATE INDEX IF NOT EXISTS ix_minute_aggregates_bucket_ts ON minute_aggregates (bucket_ts)",
+        "CREATE UNIQUE INDEX IF NOT EXISTS ix_minute_bucket_branch "
+        "ON minute_aggregates (bucket_ts, branch)",
     ]
     for statement in statements:
         try:

@@ -5,6 +5,7 @@ from datetime import datetime
 from sqlalchemy import Enum, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
+from app.core.config import DEFAULT_BRANCH
 from app.models.db import Base
 from app.models.types import UTCDateTime
 
@@ -32,3 +33,4 @@ class AnomalyEvent(Base):
     severity: Mapped[AnomalySeverity] = mapped_column(Enum(AnomalySeverity), index=True)
     client_ip: Mapped[str | None] = mapped_column(String(45), nullable=True, index=True)
     domain: Mapped[str | None] = mapped_column(String(255), nullable=True, index=True)
+    branch: Mapped[str] = mapped_column(String(64), default=DEFAULT_BRANCH, index=True)

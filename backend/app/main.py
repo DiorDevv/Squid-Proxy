@@ -42,14 +42,22 @@ async def lifespan(app: FastAPI):
     app.state.ws_manager = ws_manager
     app.state.ws_ticket_store = ws_ticket_store
 
-    tailer = LogTailer(
-        path=settings.LOG_FILE_PATH,
-        on_event=lambda event: _handle_new_event(app, event),
-        poll_interval=settings.LOG_TAILER_POLL_INTERVAL_SECONDS,
-        backoff_max=settings.LOG_TAILER_BACKOFF_MAX_SECONDS,
-    )
-    app.state.log_tailer = tailer
-    tailer.start()
+    # One LogTailer per configured branch/log source (see
+    # Settings.effective_log_sources) -- all feed the same, single, shared
+    # ring buffer, since this stays a single-process deployment (see
+    # ARCHITECTURE.md); only the ingestion side fans out.
+    log_tailers: dict[str, LogTailer] = {}
+    for source in settings.effective_log_sources:
+        log_tailers[source.branch] = LogTailer(
+            path=source.path,
+            on_event=lambda event: _handle_new_event(app, event),
+            branch=source.branch,
+            poll_interval=settings.LOG_TAILER_POLL_INTERVAL_SECONDS,
+            backoff_max=settings.LOG_TAILER_BACKOFF_MAX_SECONDS,
+        )
+    app.state.log_tailers = log_tailers
+    for tailer in log_tailers.values():
+        tailer.start()
 
     from app.services.aggregator import Aggregator
 
@@ -87,7 +95,8 @@ async def lifespan(app: FastAPI):
         yield
     finally:
         logger.info("Shutting down Squid Dashboard backend")
-        await tailer.stop()
+        for tailer in log_tailers.values():
+            await tailer.stop()
         await aggregator.stop()
         await retention_job.stop()
         await category_usage_monitor.stop()
@@ -139,6 +148,7 @@ def create_app() -> FastAPI:
         alert_settings,
         audit,
         auth,
+        branches,
         clients,
         domain_categories,
         domains,
@@ -153,6 +163,7 @@ def create_app() -> FastAPI:
     )
 
     app.include_router(auth.router)
+    app.include_router(branches.router)
     app.include_router(summary.router)
     app.include_router(timeseries.router)
     app.include_router(domains.router)

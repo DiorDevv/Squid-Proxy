@@ -3,6 +3,7 @@ from datetime import datetime
 from sqlalchemy import BigInteger, Integer, String
 from sqlalchemy.orm import Mapped, mapped_column
 
+from app.core.config import DEFAULT_BRANCH
 from app.models.db import Base
 from app.models.types import UTCDateTime
 
@@ -22,8 +23,8 @@ class ClientHourlyAggregate(Base):
     client count and retention both grow.
 
     No plain (bucket_ts, client_ip) index: the unique index created in the
-    migration (bucket_ts, client_ip, coalesce(user, '')) already leads with
-    those same two columns.
+    migration (bucket_ts, client_ip, branch, coalesce(user, '')) already
+    leads with those same columns.
     """
 
     __tablename__ = "client_hourly_aggregates"
@@ -31,6 +32,7 @@ class ClientHourlyAggregate(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     bucket_ts: Mapped[datetime] = mapped_column(UTCDateTime, index=True)
     client_ip: Mapped[str] = mapped_column(String(45), index=True)
+    branch: Mapped[str] = mapped_column(String(64), default=DEFAULT_BRANCH, index=True)
     user: Mapped[str | None] = mapped_column(String(255), nullable=True, index=True)
     request_count: Mapped[int] = mapped_column(Integer, default=0)
     blocked_count: Mapped[int] = mapped_column(Integer, default=0)

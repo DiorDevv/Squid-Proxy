@@ -96,7 +96,7 @@ async def test_app(db_engine, monkeypatch):
         _app.state.ring_buffer = RingBuffer(max_events=1000)
         _app.state.ws_manager = WebSocketManager()
         _app.state.ws_ticket_store = WsTicketStore(ttl_seconds=30)
-        _app.state.log_tailer = _NullTailer()
+        _app.state.log_tailers = {"default": _NullTailer()}
         yield
 
     fastapi_app.router.lifespan_context = test_lifespan

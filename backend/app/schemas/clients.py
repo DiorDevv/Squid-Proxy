@@ -8,6 +8,7 @@ from app.models.domain_category import DomainCategoryLabel
 class ClientSummary(BaseModel):
     client_ip: str
     user: str | None
+    branch: str | None = None
     total_requests: int
     blocked_requests: int
     total_bytes: int

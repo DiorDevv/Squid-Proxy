@@ -70,11 +70,13 @@ def render_report_html(
     top_blocked: list[DomainStat],
     by_category: list[CategoryStat],
     anomalies: list[AnomalyEventOut],
+    branch: str | None = None,
 ) -> str:
+    title = f"Squid Watch report &mdash; {html.escape(branch)}" if branch else "Squid Watch report"
     return f"""\
 <html>
 <body style="font-family: -apple-system, Arial, sans-serif; color: #1a1a1a;">
-  <h2>Squid Watch report</h2>
+  <h2>{title}</h2>
   <p>{since.isoformat()} &ndash; {until.isoformat()}</p>
 
   <h3>Summary</h3>
@@ -103,19 +105,29 @@ def render_report_html(
 """
 
 
-async def generate_report(session: AsyncSession, since: datetime, until: datetime) -> str:
-    summary = await stats_service.get_summary(session, since, until, range_param=None)
-    top_domains = await stats_service.get_top_domains(session, since, until, limit=_TOP_DOMAINS_LIMIT)
-    top_blocked = await stats_service.get_top_domains(
-        session, since, until, limit=_TOP_DOMAINS_LIMIT, blocked_only=True, order_by="blocked"
+async def generate_report(
+    session: AsyncSession, since: datetime, until: datetime, branch: str | None = None
+) -> str:
+    summary = await stats_service.get_summary(session, since, until, range_param=None, branch=branch)
+    top_domains = await stats_service.get_top_domains(
+        session, since, until, limit=_TOP_DOMAINS_LIMIT, branch=branch
     )
-    by_category = await stats_service.get_usage_by_category(session, since, until)
+    top_blocked = await stats_service.get_top_domains(
+        session,
+        since,
+        until,
+        limit=_TOP_DOMAINS_LIMIT,
+        blocked_only=True,
+        order_by="blocked",
+        branch=branch,
+    )
+    by_category = await stats_service.get_usage_by_category(session, since, until, branch)
     recent_anomalies = await insights_service.list_recent(
-        session, limit=_RECENT_ANOMALIES_LIMIT, offset=0
+        session, limit=_RECENT_ANOMALIES_LIMIT, offset=0, branch=branch
     )
 
     return render_report_html(
-        since, until, summary, top_domains, top_blocked, by_category, recent_anomalies.items
+        since, until, summary, top_domains, top_blocked, by_category, recent_anomalies.items, branch
     )
 
 
@@ -147,16 +159,24 @@ def send_report_email(
         server.sendmail(settings.SMTP_FROM_ADDRESS, recipients, message.as_string())
 
 
-async def generate_and_send_report(session: AsyncSession, since: datetime, until: datetime) -> bool:
+async def generate_and_send_report(
+    session: AsyncSession, since: datetime, until: datetime, branch: str | None = None
+) -> bool:
     """Returns False (no-op) if REPORT_RECIPIENTS isn't configured -- mirrors
-    alerting.maybe_alert's "no config, no-op" shape."""
+    alerting.maybe_alert's "no config, no-op" shape. `branch=None` reports on
+    every branch combined; report_scheduler.py calls this once per
+    configured branch instead so each branch gets its own, clearly labeled
+    report."""
     settings = get_settings()
     if not settings.REPORT_RECIPIENTS:
         return False
 
-    html_body = await generate_report(session, since, until)
-    csv_attachment = await export_service.export_as_csv(session, since, until, blocked_only=False)
-    subject = f"Squid Watch report: {since.date()} to {until.date()}"
+    html_body = await generate_report(session, since, until, branch)
+    csv_attachment = await export_service.export_as_csv(
+        session, since, until, blocked_only=False, branch=branch
+    )
+    branch_suffix = f" ({branch})" if branch else ""
+    subject = f"Squid Watch report{branch_suffix}: {since.date()} to {until.date()}"
 
     await asyncio.to_thread(
         send_report_email, settings.REPORT_RECIPIENTS, subject, html_body, csv_attachment

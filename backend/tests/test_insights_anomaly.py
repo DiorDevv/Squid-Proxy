@@ -38,6 +38,7 @@ def _event(
         peer=None,
         content_type=None,
         blocked=blocked,
+        branch="default",
     )
 
 

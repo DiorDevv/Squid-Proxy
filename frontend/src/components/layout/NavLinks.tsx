@@ -46,7 +46,8 @@ export function NavLinks({ onNavigate }: NavLinksProps) {
               <span className="flex-1">{t(labelKey)}</span>
               {to === '/blocked' && blockedCount > 0 && (
                 <span
-                  className="font-data flex h-4.5 min-w-4.5 shrink-0 items-center justify-center rounded-full bg-warning/15 px-1 text-[10px] font-semibold text-warning"
+                  key={blockedCount}
+                  className="font-data flex h-4.5 min-w-4.5 shrink-0 items-center justify-center rounded-full bg-warning/15 px-1 text-[10px] font-semibold text-warning animate-in zoom-in-75 duration-150"
                   aria-label={t('nav.blockedCount', { count: blockedCount })}
                 >
                   {blockedCount > 99 ? '99+' : blockedCount}

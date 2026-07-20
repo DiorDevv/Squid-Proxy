@@ -1,19 +1,27 @@
 from datetime import datetime
 
-from sqlalchemy import BigInteger, Integer
+from sqlalchemy import BigInteger, Index, Integer, String
 from sqlalchemy.orm import Mapped, mapped_column
 
+from app.core.config import DEFAULT_BRANCH
 from app.models.db import Base
 from app.models.types import UTCDateTime
 
 
 class MinuteAggregate(Base):
-    """Global per-minute traffic totals. Backs /api/summary and /api/timeseries."""
+    """Per-minute traffic totals, per branch. Backs /api/summary and /api/timeseries."""
 
     __tablename__ = "minute_aggregates"
+    __table_args__ = (
+        # bucket_ts alone used to be unique (one branch, one global total per
+        # minute); now one row per (bucket_ts, branch) so different branches'
+        # totals for the same minute don't collide into a single row.
+        Index("ix_minute_bucket_branch", "bucket_ts", "branch", unique=True),
+    )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    bucket_ts: Mapped[datetime] = mapped_column(UTCDateTime, unique=True, index=True)
+    bucket_ts: Mapped[datetime] = mapped_column(UTCDateTime, index=True)
+    branch: Mapped[str] = mapped_column(String(64), default=DEFAULT_BRANCH)
     total_requests: Mapped[int] = mapped_column(Integer, default=0)
     blocked_requests: Mapped[int] = mapped_column(Integer, default=0)
     allowed_requests: Mapped[int] = mapped_column(Integer, default=0)

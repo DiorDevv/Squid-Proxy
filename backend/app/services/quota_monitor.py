@@ -67,24 +67,28 @@ class QuotaMonitorJob:
         since = now - timedelta(hours=24)
 
         async with AsyncSessionLocal() as session:
-            settings_row = await alert_settings_service.get_settings_row(session)
-            quota = settings_row.client_daily_byte_quota_bytes
-            if not quota:
-                return
-
+            # Grouped by branch too so each branch's clients are compared
+            # against that branch's own quota, not a single global one.
             bytes_by_client = func.sum(ClientMinuteAggregate.total_bytes)
-            over_quota = (
+            usage = (
                 await session.execute(
-                    select(ClientMinuteAggregate.client_ip, bytes_by_client)
+                    select(ClientMinuteAggregate.branch, ClientMinuteAggregate.client_ip, bytes_by_client)
                     .where(ClientMinuteAggregate.bucket_ts >= since)
-                    .group_by(ClientMinuteAggregate.client_ip)
-                    .having(bytes_by_client >= quota)
+                    .group_by(ClientMinuteAggregate.branch, ClientMinuteAggregate.client_ip)
                 )
             ).all()
 
             anomalies: list[Anomaly] = []
-            for client_ip, total_bytes in over_quota:
-                if await self._already_flagged_today(session, client_ip, since):
+            quota_cache: dict[str, int | None] = {}
+            for branch, client_ip, total_bytes in usage:
+                if branch not in quota_cache:
+                    settings_row = await alert_settings_service.get_settings_row(session, branch)
+                    quota_cache[branch] = settings_row.client_daily_byte_quota_bytes
+                quota = quota_cache[branch]
+                if not quota or total_bytes < quota:
+                    continue
+
+                if await self._already_flagged_today(session, client_ip, branch, since):
                     continue
                 severity = (
                     AnomalySeverity.CRITICAL
@@ -100,6 +104,7 @@ class QuotaMonitorJob:
                         ),
                         severity=severity,
                         client_ip=client_ip,
+                        branch=branch,
                         generated_at=now,
                     )
                 )
@@ -113,7 +118,9 @@ class QuotaMonitorJob:
         for row in rows:
             await maybe_alert(row)
 
-    async def _already_flagged_today(self, session: AsyncSession, client_ip: str, since: datetime) -> bool:
+    async def _already_flagged_today(
+        self, session: AsyncSession, client_ip: str, branch: str, since: datetime
+    ) -> bool:
         """One alert per client per rolling 24h window -- otherwise an
         hourly check would re-flag the same ongoing violation every hour."""
         existing = (
@@ -122,6 +129,7 @@ class QuotaMonitorJob:
                 .where(
                     AnomalyEvent.title == ANOMALY_TITLE,
                     AnomalyEvent.client_ip == client_ip,
+                    AnomalyEvent.branch == branch,
                     AnomalyEvent.generated_at >= since,
                 )
                 .limit(1)

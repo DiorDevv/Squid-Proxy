@@ -13,6 +13,7 @@ router = APIRouter(prefix="/api", tags=["timeseries"])
 async def read_timeseries(
     effective_range: EffectiveRange = Depends(resolve_range),
     granularity: Granularity = Query(default=Granularity.MINUTE),
+    branch: str | None = Query(default=None),
     db: AsyncSession = Depends(get_db),
 ) -> TimeseriesResponse:
-    return await get_timeseries(db, effective_range.since, effective_range.until, granularity)
+    return await get_timeseries(db, effective_range.since, effective_range.until, granularity, branch)

@@ -3,6 +3,7 @@ from datetime import datetime
 from sqlalchemy import BigInteger, Enum, Index, Integer, String
 from sqlalchemy.orm import Mapped, mapped_column
 
+from app.core.config import DEFAULT_BRANCH
 from app.models.db import Base
 from app.models.domain_category import DomainCategoryLabel
 from app.models.types import UTCDateTime
@@ -34,6 +35,7 @@ class ClientCategoryMinuteAggregate(Base):
             "bucket_ts",
             "client_ip",
             "category",
+            "branch",
             unique=True,
         ),
     )
@@ -41,6 +43,7 @@ class ClientCategoryMinuteAggregate(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     bucket_ts: Mapped[datetime] = mapped_column(UTCDateTime, index=True)
     client_ip: Mapped[str] = mapped_column(String(45), index=True)
+    branch: Mapped[str] = mapped_column(String(64), default=DEFAULT_BRANCH, index=True)
     category: Mapped[DomainCategoryLabel] = mapped_column(Enum(DomainCategoryLabel))
     request_count: Mapped[int] = mapped_column(Integer, default=0)
     total_bytes: Mapped[int] = mapped_column(BigInteger, default=0)

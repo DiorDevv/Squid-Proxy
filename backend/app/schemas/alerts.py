@@ -6,6 +6,7 @@ from app.models.domain_category import DomainCategoryLabel
 
 
 class AlertSettingsOut(BaseModel):
+    branch: str
     sensitive_categories: list[DomainCategoryLabel]
     non_work_minutes_threshold: int
     client_daily_byte_quota_bytes: int | None

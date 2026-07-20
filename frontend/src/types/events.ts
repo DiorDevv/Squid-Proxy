@@ -2,6 +2,7 @@ export interface LiveEvent {
   id: number
   timestamp: string
   client_ip: string
+  branch: string
   action: string
   status_code: number
   method: string

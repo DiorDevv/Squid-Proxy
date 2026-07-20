@@ -40,6 +40,7 @@ def _event(client_ip: str = "10.0.0.1") -> StoredEvent:
         peer=None,
         content_type=None,
         blocked=False,
+        branch="default",
     )
     return StoredEvent(id=1, event=parsed)
 

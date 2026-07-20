@@ -4,6 +4,7 @@ InsightsProvider (see app/insights/__init__.py, app/services/aggregator.py)."""
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import DEFAULT_BRANCH
 from app.insights.base import Anomaly
 from app.models.anomaly_event import AnomalyEvent
 from app.schemas.common import Page
@@ -19,6 +20,7 @@ def persist(session: AsyncSession, anomalies: list[Anomaly]) -> list[AnomalyEven
             severity=anomaly.severity,
             client_ip=anomaly.client_ip,
             domain=anomaly.domain,
+            branch=anomaly.branch or DEFAULT_BRANCH,
         )
         for anomaly in anomalies
     ]
@@ -26,12 +28,21 @@ def persist(session: AsyncSession, anomalies: list[Anomaly]) -> list[AnomalyEven
     return rows
 
 
-async def list_recent(session: AsyncSession, limit: int, offset: int) -> Page[AnomalyEventOut]:
+async def list_recent(
+    session: AsyncSession, limit: int, offset: int, branch: str | None = None
+) -> Page[AnomalyEventOut]:
+    conditions = [AnomalyEvent.branch == branch] if branch is not None else []
     query = (
-        select(AnomalyEvent).order_by(AnomalyEvent.generated_at.desc()).limit(limit).offset(offset)
+        select(AnomalyEvent)
+        .where(*conditions)
+        .order_by(AnomalyEvent.generated_at.desc())
+        .limit(limit)
+        .offset(offset)
     )
     rows = (await session.execute(query)).scalars().all()
-    total = (await session.execute(select(func.count()).select_from(AnomalyEvent))).scalar_one()
+    total = (
+        await session.execute(select(func.count()).select_from(AnomalyEvent).where(*conditions))
+    ).scalar_one()
 
     items = [
         AnomalyEventOut(
@@ -42,6 +53,7 @@ async def list_recent(session: AsyncSession, limit: int, offset: int) -> Page[An
             severity=row.severity,
             client_ip=row.client_ip,
             domain=row.domain,
+            branch=row.branch,
         )
         for row in rows
     ]

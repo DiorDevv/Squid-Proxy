@@ -75,7 +75,17 @@ export interface CategoryStatsResponse {
   items: CategoryStat[]
 }
 
+export interface Branch {
+  slug: string
+  label: string
+}
+
+export interface BranchesResponse {
+  items: Branch[]
+}
+
 export interface AlertSettingsOut {
+  branch: string
   sensitive_categories: DomainCategoryLabel[]
   non_work_minutes_threshold: number
   client_daily_byte_quota_bytes: number | null
@@ -92,10 +102,19 @@ export interface ReportStatus {
 export interface ClientSummary {
   client_ip: string
   user: string | null
+  branch: string | null
   total_requests: number
   blocked_requests: number
   total_bytes: number
   last_activity: string | null
+}
+
+export interface LogSourceHealth {
+  branch: string
+  alive: boolean
+  lines_seen: number
+  lines_parsed: number
+  parse_failure_rate: number | null
 }
 
 export interface HealthResponse {
@@ -105,6 +124,7 @@ export interface HealthResponse {
   log_lines_seen: number
   log_lines_parsed: number
   log_parse_failure_rate: number | null
+  log_sources: LogSourceHealth[]
 }
 
 export interface DomainSummary {
@@ -154,4 +174,5 @@ export interface AnomalyEvent {
   severity: AnomalySeverity
   client_ip: string | null
   domain: string | null
+  branch: string
 }

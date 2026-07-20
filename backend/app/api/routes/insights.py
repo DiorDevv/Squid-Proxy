@@ -13,6 +13,7 @@ router = APIRouter(prefix="/api", tags=["insights"], dependencies=[Depends(requi
 async def read_recent_insights(
     limit: int = Query(default=50, ge=1, le=1000),
     offset: int = Query(default=0, ge=0),
+    branch: str | None = Query(default=None),
     db: AsyncSession = Depends(get_db),
 ) -> Page[AnomalyEventOut]:
-    return await insights_service.list_recent(db, limit, offset)
+    return await insights_service.list_recent(db, limit, offset, branch)

@@ -15,6 +15,7 @@ class EventDetail(BaseModel):
     id: int
     timestamp: datetime
     client_ip: str
+    branch: str
     user: str | None
     method: str
     url: str
@@ -34,6 +35,7 @@ class EventDetail(BaseModel):
             id=event_id,
             timestamp=event.timestamp,
             client_ip=event.client_ip,
+            branch=event.branch,
             user=event.user,
             method=event.method,
             url=event.url,
@@ -54,6 +56,7 @@ class EventDetail(BaseModel):
             id=row.id,
             timestamp=row.timestamp,
             client_ip=row.client_ip,
+            branch=row.branch,
             user=row.user,
             method=row.method,
             url=row.url,

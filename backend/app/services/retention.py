@@ -127,19 +127,19 @@ class RetentionJob:
         if not rows:
             return
 
-        hourly_totals: dict[tuple[datetime, str, str | None], dict[str, int]] = defaultdict(
+        hourly_totals: dict[tuple[datetime, str, str, str | None], dict[str, int]] = defaultdict(
             lambda: {"request_count": 0, "blocked_count": 0, "total_bytes": 0}
         )
         for row in rows:
             hour_bucket = row.bucket_ts.replace(minute=0, second=0, microsecond=0)
-            totals = hourly_totals[(hour_bucket, row.client_ip, row.user)]
+            totals = hourly_totals[(hour_bucket, row.client_ip, row.branch, row.user)]
             totals["request_count"] += row.request_count
             totals["blocked_count"] += row.blocked_count
             totals["total_bytes"] += row.total_bytes
 
         hourly_rows = [
-            {"bucket_ts": bucket_ts, "client_ip": client_ip, "user": user, **totals}
-            for (bucket_ts, client_ip, user), totals in hourly_totals.items()
+            {"bucket_ts": bucket_ts, "client_ip": client_ip, "branch": branch, "user": user, **totals}
+            for (bucket_ts, client_ip, branch, user), totals in hourly_totals.items()
         ]
         await bulk_upsert_sum(
             session,
@@ -148,6 +148,7 @@ class RetentionJob:
             index_elements=[
                 ClientHourlyAggregate.bucket_ts,
                 ClientHourlyAggregate.client_ip,
+                ClientHourlyAggregate.branch,
                 func.coalesce(ClientHourlyAggregate.user, literal_column("''")),
             ],
             sum_columns=["request_count", "blocked_count", "total_bytes"],

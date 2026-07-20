@@ -13,6 +13,7 @@ import logging
 
 from fastapi import WebSocket
 
+from app.schemas.events import EventDetail
 from app.services.event_store import StoredEvent
 
 logger = logging.getLogger(__name__)
@@ -60,19 +61,7 @@ class WebSocketManager:
 
     @staticmethod
     def _serialize(stored: StoredEvent) -> dict:
-        return {
-            "id": stored.id,
-            "timestamp": stored.event.timestamp.isoformat(),
-            "client_ip": stored.event.client_ip,
-            "action": stored.event.action,
-            "status_code": stored.event.status_code,
-            "method": stored.event.method,
-            "domain": stored.event.domain,
-            "url": stored.event.url,
-            "user": stored.event.user,
-            "bytes": stored.event.bytes,
-            "blocked": stored.event.blocked,
-        }
+        return EventDetail.from_parsed(stored.id, stored.event).model_dump(mode="json")
 
     async def _flush_after_delay(self) -> None:
         await asyncio.sleep(self.BATCH_WINDOW_SECONDS)

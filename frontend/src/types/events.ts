@@ -10,4 +10,8 @@ export interface LiveEvent {
   user: string | null
   bytes: number
   blocked: boolean
+  duration_ms?: number | null
+  hierarchy?: string | null
+  peer?: string | null
+  content_type?: string | null
 }

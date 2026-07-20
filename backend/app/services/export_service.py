@@ -9,6 +9,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.raw_event import RawEvent
+from app.services.event_query_service import build_event_conditions
 
 _COLUMNS = [
     "id",
@@ -47,9 +48,7 @@ def _escape_csv_formula(value: object) -> object:
 async def _fetch_rows(
     session: AsyncSession, since: datetime, until: datetime, blocked_only: bool
 ) -> list[RawEvent]:
-    conditions = [RawEvent.timestamp >= since, RawEvent.timestamp <= until]
-    if blocked_only:
-        conditions.append(RawEvent.blocked.is_(True))
+    conditions = build_event_conditions(since, until, blocked_only=blocked_only)
 
     query = (
         select(RawEvent)

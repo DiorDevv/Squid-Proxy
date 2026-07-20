@@ -152,6 +152,15 @@ export const en = {
   'blocked.columnDomain': 'Domain',
   'blocked.columnStatus': 'Status',
   'blocked.columnOutcome': 'Outcome',
+  'blocked.methodFilter': 'Method',
+  'blocked.allMethods': 'All methods',
+  'blocked.detailTitle': 'Event detail',
+  'blocked.detailUrl': 'Full URL',
+  'blocked.detailBytes': 'Bytes',
+  'blocked.detailDuration': 'Duration',
+  'blocked.detailHierarchy': 'Hierarchy',
+  'blocked.detailPeer': 'Peer',
+  'blocked.detailContentType': 'Content type',
 
   // --- Domains page ---
   'domains.mostVisited': 'Most visited domains',

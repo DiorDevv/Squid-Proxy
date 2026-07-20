@@ -8,11 +8,25 @@ import type { LiveEvent } from '@/types/events'
 
 interface BlockedEventsTableProps {
   items: LiveEvent[]
+  total: number
+  limit: number
+  offset: number
+  onOffsetChange: (offset: number) => void
   isLoading: boolean
+  onRowClick?: (event: LiveEvent) => void
   emptyMessage?: string
 }
 
-export function BlockedEventsTable({ items, isLoading, emptyMessage }: BlockedEventsTableProps) {
+export function BlockedEventsTable({
+  items,
+  total,
+  limit,
+  offset,
+  onOffsetChange,
+  isLoading,
+  onRowClick,
+  emptyMessage,
+}: BlockedEventsTableProps) {
   const { t } = useTranslation()
 
   const columns = useMemo<ColumnDef<LiveEvent>[]>(
@@ -63,11 +77,12 @@ export function BlockedEventsTable({ items, isLoading, emptyMessage }: BlockedEv
     <DataTable
       columns={columns}
       data={items}
-      total={items.length}
-      limit={Math.max(items.length, 1)}
-      offset={0}
-      onOffsetChange={() => {}}
+      total={total}
+      limit={limit}
+      offset={offset}
+      onOffsetChange={onOffsetChange}
       isLoading={isLoading}
+      onRowClick={onRowClick}
       emptyMessage={emptyMessage ?? t('blocked.emptyDefault')}
     />
   )

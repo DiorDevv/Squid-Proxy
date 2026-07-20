@@ -16,7 +16,12 @@ class RawEvent(Base):
 
     __tablename__ = "raw_events"
     __table_args__ = (
-        Index("ix_raw_events_ts_client", "timestamp", "client_ip"),
+        # Leads with client_ip (not timestamp) because every hot per-client
+        # query filters on client_ip equality first (see the migration
+        # 8a1d3f6c9b02_raw_events_client_ts_index docstring for the measured
+        # rationale) -- `timestamp` alone still has its own index below for
+        # range-only queries (e.g. retention's purge-by-age).
+        Index("ix_raw_events_client_ts", "client_ip", "timestamp"),
         Index("ix_raw_events_ts_domain", "timestamp", "domain"),
     )
 

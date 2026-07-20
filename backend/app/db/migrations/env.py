@@ -13,6 +13,8 @@ from app.models import (  # noqa: F401,E402
     anomaly_event,
     audit_log,
     client_aggregate,
+    client_category_aggregate,
+    client_hourly_aggregate,
     domain_aggregate,
     domain_category,
     minute_aggregate,

@@ -130,6 +130,39 @@ async def test_refresh_reuse_revokes_the_token_row_as_a_theft_signal(
     assert row.revoked is True
 
 
+async def test_refresh_reuse_revokes_every_other_active_session_for_the_user(
+    app_client: AsyncClient, db_session: AsyncSession
+):
+    """Reuse of an already-rotated refresh token is a theft signal -- every
+    other still-active session for that user must be revoked too, not just
+    the replayed token, since an attacker who stole and already rotated a
+    token forward would otherwise keep a valid descendant token."""
+    login_a = await app_client.post(
+        "/api/auth/login",
+        json={"email": "admin@example.com", "password": "admin-test-password-123"},
+    )
+    cookie_a = login_a.cookies["refresh_token"]
+
+    # A second, independent session for the same user (e.g. another device).
+    login_b = await app_client.post(
+        "/api/auth/login",
+        json={"email": "admin@example.com", "password": "admin-test-password-123"},
+    )
+    cookie_b = login_b.cookies["refresh_token"]
+
+    # Rotate session A forward once, then replay the pre-rotation cookie to
+    # trigger reuse detection.
+    app_client.cookies.set("refresh_token", cookie_a)
+    await app_client.post("/api/auth/refresh")
+    app_client.cookies.set("refresh_token", cookie_a)
+    await app_client.post("/api/auth/refresh")
+
+    # Session B, never touched directly, must now also be revoked.
+    app_client.cookies.set("refresh_token", cookie_b)
+    replayed_b = await app_client.post("/api/auth/refresh")
+    assert replayed_b.status_code == 401
+
+
 async def test_refresh_with_garbage_cookie_returns_401(app_client: AsyncClient):
     app_client.cookies.set("refresh_token", "not-a-valid-cookie-value")
     response = await app_client.post("/api/auth/refresh")

@@ -104,6 +104,73 @@ with `PRAGMA journal_mode=WAL` for concurrent reads while the aggregator writes)
 automatically on startup (`init_db()`); an Alembic baseline migration is also included for teams
 that want explicit, reviewed migrations going forward.
 
+## Scaling to a large client count: what's handled, what isn't yet
+
+A single-instance deployment (the only mode this app runs in today — see the next section) was
+measured and hardened to hold up at a much larger client count and data volume than the original
+demo scale, without changing the deployment model:
+
+- **Aggregator writes are bulk upserts, not per-row.** `Aggregator.flush()` used to
+  select-then-increment one row at a time per distinct (bucket, domain)/(bucket, client) key
+  touched in a flush window — fine for a handful of domains/clients per minute, not for thousands.
+  `app/services/db_upsert.py::bulk_upsert_sum` does one dialect-aware `INSERT ... ON CONFLICT DO
+  UPDATE` per table per flush instead, so the query count per flush no longer scales with how many
+  distinct clients/domains were active in that window.
+- **`raw_events` is indexed client-first.** The hot per-client queries (a client's detail view,
+  the sensitive-category anomaly check) filter `WHERE client_ip = ? AND timestamp >= ?`; the index
+  now leads with `client_ip` instead of `timestamp` so those queries seek straight to that
+  client's rows instead of scanning the timestamp range for every client.
+- **Category-based alerting reads a pre-aggregated table, not raw_events per client.**
+  `client_category_minute_aggregates` is populated inside `Aggregator.flush()` (one more bucket
+  alongside the existing minute/domain/client ones, at the same per-event cost).
+  `CategoryUsageMonitorJob` does one `GROUP BY` query across every client instead of looping over
+  each active client and re-scanning `raw_events` for it — the query cost no longer scales with
+  client count. The tradeoff: "time spent in category X" becomes a proxy (distinct minute-buckets
+  with activity), not exact session reconstruction. The precise, session-based per-domain
+  breakdown a human reviews for one specific client (`time_spent_service.py`) is unaffected — it's
+  a single-client, on-demand query, not a per-check full scan of everyone.
+- **Old per-minute client data is rolled up to hourly.** `client_minute_aggregates` rows older
+  than `CLIENT_ROLLUP_AFTER_HOURS` (default 48h) get compressed into `client_hourly_aggregates` and
+  the source minute rows deleted (`RetentionJob._rollup_client_minutes_to_hourly`) — otherwise a
+  "last 30 days" query would mean `GROUP BY` over one row per client per minute for the whole
+  window. `client_service.client_bucket_rows` reads both tables via `UNION ALL`, relying on the
+  rollup's delete-in-the-same-transaction behavior to guarantee the two tables never cover the
+  same instant for the same client, so nothing is double-counted or missed.
+- **The ring buffer surfaces when it's falling behind.** If the aggregator can't flush fast enough
+  to keep up with incoming events, `deque(maxlen=RING_BUFFER_MAX_EVENTS)` silently drops the
+  oldest ones — previously an invisible failure mode. `Aggregator.backlog_ratio`/
+  `events_likely_lost` and `/api/health`'s `aggregator_backlog_ratio`/
+  `aggregator_events_likely_lost` fields make this observable instead of a silent data loss.
+- **`/ws/live` broadcasts are batched.** Every parsed event used to schedule its own asyncio task
+  and its own `send_json` per connected viewer; `WebSocketManager` now coalesces events arriving
+  within a short window (`BATCH_WINDOW_SECONDS`, default 0.2s, or immediately at
+  `MAX_BATCH_SIZE`) into one array per send, so cost no longer scales as (events × viewers) with
+  zero batching.
+
+## Not yet built: running more than one backend instance
+
+None of the above changes the deployment model: this app still only runs as **one process**
+(`Dockerfile`'s `CMD` has no `--workers`, deliberately). That's because several pieces of state
+live only in that process's memory and assume there's exactly one of them running:
+
+- `RingBuffer` and `WebSocketManager` (in-process, per `app.state`)
+- `LogTailer` (if two instances both tailed the same log file, every line would be ingested twice)
+- `WsTicketStore` (see the ticket-auth section above — already called out as needing a shared
+  store like Redis for multi-instance)
+- The periodic jobs (`Aggregator`, `RetentionJob`, `CategoryUsageMonitorJob`, `QuotaMonitorJob`,
+  `ReportScheduler`) — two instances would double-flush, double-purge, and double-send report
+  emails
+
+This is a deliberate scope boundary, not an oversight: making this horizontally scalable would
+require splitting the ingestion/background-job singleton out from the request-serving tier (so
+only the *serving* tier runs N replicas behind a load balancer), and introducing a shared
+pub/sub layer (Redis, or Postgres `LISTEN`/`NOTIFY`) so `/ws/live` broadcasts and the ticket store
+work across replicas. That's a real new infrastructure dependency, which this project has
+deliberately avoided adding without a concrete reason to — a single, well-tuned instance handles a
+large client count and traffic volume (see above), and going multi-instance should be a deliberate
+decision made against real capacity numbers from a real deployment, not spec work done in advance
+of needing it.
+
 ## Log tailer: rotation-safe, never crashes the process
 
 `app/services/log_tailer.py` polls the log file's `stat()` on a fixed interval rather than using

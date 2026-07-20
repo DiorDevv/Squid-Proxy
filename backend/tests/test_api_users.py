@@ -107,6 +107,46 @@ async def test_reset_password_allows_new_login(app_client: AsyncClient, admin_to
     assert old_login_response.status_code == 401
 
 
+async def test_reset_password_revokes_existing_refresh_tokens(
+    app_client: AsyncClient, admin_token, auth_headers, db_session: AsyncSession
+):
+    """A password reset is often a response to a compromised account -- a
+    refresh cookie issued before the reset must stop working, not just the
+    password itself."""
+    create_response = await app_client.post(
+        "/api/users",
+        headers=auth_headers(admin_token),
+        json={"email": "reset.revoke.me@example.com", "password": "old-password-1", "role": "viewer"},
+    )
+    user_id = create_response.json()["id"]
+
+    login_response = await app_client.post(
+        "/api/auth/login", json={"email": "reset.revoke.me@example.com", "password": "old-password-1"}
+    )
+    assert login_response.status_code == 200
+    refresh_cookie = login_response.cookies.get("refresh_token")
+    assert refresh_cookie is not None
+
+    reset_response = await app_client.post(
+        f"/api/users/{user_id}/reset-password",
+        headers=auth_headers(admin_token),
+        json={"new_password": "brand-new-password-1"},
+    )
+    assert reset_response.status_code == 204
+
+    tokens = (
+        (await db_session.execute(select(RefreshToken).where(RefreshToken.user_id == user_id)))
+        .scalars()
+        .all()
+    )
+    assert len(tokens) == 1
+    assert tokens[0].revoked is True
+
+    app_client.cookies.set("refresh_token", refresh_cookie)
+    refresh_response = await app_client.post("/api/auth/refresh")
+    assert refresh_response.status_code == 401
+
+
 async def test_delete_user_succeeds_and_revokes_refresh_tokens(
     app_client: AsyncClient, admin_token, auth_headers, db_session: AsyncSession
 ):

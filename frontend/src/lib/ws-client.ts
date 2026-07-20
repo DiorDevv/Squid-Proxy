@@ -44,8 +44,15 @@ export function connectLiveEvents(handlers: LiveEventSocketHandlers): () => void
     socket.onopen = () => handlers.onStateChange('open')
     socket.onmessage = (event) => {
       try {
-        const parsed = JSON.parse(event.data) as LiveEvent
-        handlers.onEvent(parsed)
+        // The backend coalesces events arriving within a short window into
+        // one array per message (see ws_manager.py) instead of one message
+        // per event -- fall back to treating a bare object as a
+        // single-element batch in case that ever changes.
+        const parsed = JSON.parse(event.data) as LiveEvent | LiveEvent[]
+        const batch = Array.isArray(parsed) ? parsed : [parsed]
+        for (const item of batch) {
+          handlers.onEvent(item)
+        }
       } catch {
         // ignore malformed frames
       }

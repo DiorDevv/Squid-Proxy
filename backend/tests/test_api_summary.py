@@ -4,6 +4,7 @@ from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.client_aggregate import ClientMinuteAggregate
+from app.models.client_hourly_aggregate import ClientHourlyAggregate
 from app.models.domain_aggregate import DomainMinuteAggregate
 from app.models.minute_aggregate import MinuteAggregate
 
@@ -37,6 +38,32 @@ async def test_summary_reflects_seeded_aggregates(
     assert body["total_requests"] == 10
     assert body["blocked_requests"] == 3
     assert body["allowed_requests"] == 7
+    assert body["active_client_count"] == 1
+    assert body["active_user_count"] == 1
+
+
+async def test_summary_active_client_count_includes_rolled_up_hourly_clients(
+    app_client: AsyncClient, db_session: AsyncSession, admin_token, auth_headers
+):
+    """A client whose old activity has already been compressed into
+    client_hourly_aggregates (see retention.py) must still count as active
+    for a wide enough range -- get_summary reads both tables combined."""
+    now = datetime.now(UTC)
+    old_hour = (now - timedelta(days=10)).replace(minute=0, second=0, microsecond=0)
+    db_session.add(
+        ClientHourlyAggregate(
+            bucket_ts=old_hour, client_ip="10.0.0.20", user="erin", request_count=10, blocked_count=0, total_bytes=100
+        )
+    )
+    await db_session.commit()
+
+    response = await app_client.get(
+        "/api/summary",
+        params={"from_ts": (now - timedelta(days=30)).isoformat(), "to_ts": now.isoformat()},
+        headers=auth_headers(admin_token),
+    )
+    assert response.status_code == 200
+    body = response.json()
     assert body["active_client_count"] == 1
     assert body["active_user_count"] == 1
 

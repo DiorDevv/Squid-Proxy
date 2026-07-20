@@ -5,7 +5,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
 from app.models.client_aggregate import ClientMinuteAggregate
+from app.models.client_category_aggregate import ClientCategoryMinuteAggregate
+from app.models.client_hourly_aggregate import ClientHourlyAggregate
 from app.models.domain_aggregate import DomainMinuteAggregate
+from app.models.domain_category import DomainCategoryLabel
 from app.models.minute_aggregate import MinuteAggregate
 from app.models.raw_event import RawEvent
 from app.models.refresh_token import RefreshToken
@@ -96,6 +99,20 @@ async def test_purge_deletes_aggregates_past_aggregate_retention_window(
             ClientMinuteAggregate(
                 bucket_ts=recent_bucket, client_ip="10.0.0.2", user=None, request_count=1, blocked_count=0, total_bytes=1
             ),
+            ClientCategoryMinuteAggregate(
+                bucket_ts=old_bucket,
+                client_ip="10.0.0.1",
+                category=DomainCategoryLabel.VIDEO_STREAMING,
+                request_count=1,
+                total_bytes=1,
+            ),
+            ClientCategoryMinuteAggregate(
+                bucket_ts=recent_bucket,
+                client_ip="10.0.0.2",
+                category=DomainCategoryLabel.VIDEO_STREAMING,
+                request_count=1,
+                total_bytes=1,
+            ),
         ]
     )
     await db_session.commit()
@@ -106,10 +123,12 @@ async def test_purge_deletes_aggregates_past_aggregate_retention_window(
     minute_rows = (await db_session.execute(select(MinuteAggregate))).scalars().all()
     domain_rows = (await db_session.execute(select(DomainMinuteAggregate))).scalars().all()
     client_rows = (await db_session.execute(select(ClientMinuteAggregate))).scalars().all()
+    category_rows = (await db_session.execute(select(ClientCategoryMinuteAggregate))).scalars().all()
 
     assert [r.bucket_ts.replace(tzinfo=UTC) for r in minute_rows] == [recent_bucket]
     assert [r.domain for r in domain_rows] == ["new.com"]
     assert [r.client_ip for r in client_rows] == ["10.0.0.2"]
+    assert [r.client_ip for r in category_rows] == ["10.0.0.2"]
 
 
 async def test_purge_deletes_only_expired_refresh_tokens(db_session: AsyncSession, monkeypatch):
@@ -133,3 +152,110 @@ async def test_purge_deletes_only_expired_refresh_tokens(db_session: AsyncSessio
 
     remaining_jtis = {r.jti for r in (await db_session.execute(select(RefreshToken))).scalars().all()}
     assert remaining_jtis == {"revoked-jti", "active-jti"}
+
+
+async def test_purge_rolls_up_old_client_minutes_into_hourly_and_deletes_the_source_rows(
+    db_session: AsyncSession, monkeypatch
+):
+    import app.services.retention as retention_module
+
+    monkeypatch.setattr(retention_module, "AsyncSessionLocal", lambda: db_session)
+
+    settings = get_settings()
+    now = datetime.now(UTC)
+    old_hour = (now - timedelta(hours=settings.CLIENT_ROLLUP_AFTER_HOURS + 3)).replace(
+        minute=0, second=0, microsecond=0
+    )
+    recent_bucket = now.replace(second=0, microsecond=0)
+
+    # Two minute rows in the same old hour, same client -- should collapse
+    # into a single hourly row with summed counts.
+    db_session.add_all(
+        [
+            ClientMinuteAggregate(
+                bucket_ts=old_hour + timedelta(minutes=5),
+                client_ip="10.0.0.40",
+                user=None,
+                request_count=3,
+                blocked_count=1,
+                total_bytes=300,
+            ),
+            ClientMinuteAggregate(
+                bucket_ts=old_hour + timedelta(minutes=40),
+                client_ip="10.0.0.40",
+                user=None,
+                request_count=2,
+                blocked_count=0,
+                total_bytes=200,
+            ),
+            # Recent, within the rollup window -- must survive untouched.
+            ClientMinuteAggregate(
+                bucket_ts=recent_bucket, client_ip="10.0.0.41", user=None, request_count=1, blocked_count=0, total_bytes=1
+            ),
+        ]
+    )
+    await db_session.commit()
+
+    job = RetentionJob()
+    await job.purge()
+
+    minute_rows = (await db_session.execute(select(ClientMinuteAggregate))).scalars().all()
+    assert [r.client_ip for r in minute_rows] == ["10.0.0.41"]
+
+    hourly_rows = (await db_session.execute(select(ClientHourlyAggregate))).scalars().all()
+    assert len(hourly_rows) == 1
+    assert hourly_rows[0].client_ip == "10.0.0.40"
+    assert hourly_rows[0].bucket_ts.replace(tzinfo=UTC) == old_hour
+    assert hourly_rows[0].request_count == 5
+    assert hourly_rows[0].blocked_count == 1
+    assert hourly_rows[0].total_bytes == 500
+
+
+async def test_purge_rollup_accumulates_into_an_existing_hourly_row_on_a_later_run(
+    db_session: AsyncSession, monkeypatch
+):
+    """A second purge run must add to an already-rolled-up hour, not
+    overwrite or duplicate it."""
+    import app.services.retention as retention_module
+
+    monkeypatch.setattr(retention_module, "AsyncSessionLocal", lambda: db_session)
+
+    settings = get_settings()
+    now = datetime.now(UTC)
+    old_hour = (now - timedelta(hours=settings.CLIENT_ROLLUP_AFTER_HOURS + 3)).replace(
+        minute=0, second=0, microsecond=0
+    )
+
+    db_session.add(
+        ClientMinuteAggregate(
+            bucket_ts=old_hour + timedelta(minutes=5),
+            client_ip="10.0.0.42",
+            user=None,
+            request_count=3,
+            blocked_count=0,
+            total_bytes=300,
+        )
+    )
+    await db_session.commit()
+    job = RetentionJob()
+    await job.purge()
+
+    # A second minute row lands in the same already-rolled-up hour before
+    # the next purge run.
+    db_session.add(
+        ClientMinuteAggregate(
+            bucket_ts=old_hour + timedelta(minutes=40),
+            client_ip="10.0.0.42",
+            user=None,
+            request_count=2,
+            blocked_count=0,
+            total_bytes=200,
+        )
+    )
+    await db_session.commit()
+    await job.purge()
+
+    hourly_rows = (await db_session.execute(select(ClientHourlyAggregate))).scalars().all()
+    assert len(hourly_rows) == 1
+    assert hourly_rows[0].request_count == 5
+    assert hourly_rows[0].total_bytes == 500

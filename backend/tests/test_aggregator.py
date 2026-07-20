@@ -12,7 +12,9 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from app.insights.base import Anomaly, AnomalySeverity, Insight, InsightsProvider
 from app.models.anomaly_event import AnomalyEvent
 from app.models.client_aggregate import ClientMinuteAggregate
+from app.models.client_category_aggregate import ClientCategoryMinuteAggregate
 from app.models.domain_aggregate import DomainMinuteAggregate
+from app.models.domain_category import DomainCategoryLabel
 from app.models.minute_aggregate import MinuteAggregate
 from app.models.raw_event import RawEvent
 from app.services.aggregator import Aggregator
@@ -60,6 +62,35 @@ async def test_flush_writes_minute_domain_and_client_aggregates(db_engine, monke
 
         raw_count = len((await session.execute(select(RawEvent))).scalars().all())
         assert raw_count == 3
+
+
+async def test_flush_buckets_requests_by_client_and_category(db_engine, monkeypatch):
+    """youtube.com is a known hostname (see category_inference.py) that
+    auto-infers to VIDEO_STREAMING with no admin override needed -- this
+    covers the per-event categorization added to flush() to populate
+    client_category_minute_aggregates (see category_usage_monitor.py, which
+    reads this table instead of re-scanning raw_events per client)."""
+    session_factory = async_sessionmaker(db_engine, expire_on_commit=False, class_=AsyncSession)
+    import app.services.aggregator as aggregator_module
+
+    monkeypatch.setattr(aggregator_module, "AsyncSessionLocal", session_factory)
+
+    ring_buffer = RingBuffer(max_events=100)
+    ring_buffer.append(parse_line(squid_line("youtube.com", client_ip="10.0.0.5")))
+    ring_buffer.append(parse_line(squid_line("youtube.com", client_ip="10.0.0.5")))
+    ring_buffer.append(parse_line(squid_line("youtube.com", client_ip="10.0.0.6")))
+
+    aggregator = Aggregator(ring_buffer=ring_buffer, interval_seconds=60)
+    await aggregator.flush()
+
+    async with session_factory() as session:
+        rows = (await session.execute(select(ClientCategoryMinuteAggregate))).scalars().all()
+        by_client = {row.client_ip: row for row in rows}
+
+        assert by_client["10.0.0.5"].category == DomainCategoryLabel.VIDEO_STREAMING
+        assert by_client["10.0.0.5"].request_count == 2
+        assert by_client["10.0.0.5"].total_bytes == 2048
+        assert by_client["10.0.0.6"].request_count == 1
 
 
 async def test_flush_on_second_call_increments_existing_rows_rather_than_duplicating(db_engine, monkeypatch):
@@ -166,3 +197,45 @@ async def test_flush_insights_failure_does_not_break_the_flush(db_engine, monkey
     # Must not raise even though the provider does.
     result = await aggregator.flush()
     assert result.events_flushed == 1
+
+
+def test_backlog_size_and_ratio_reflect_unflushed_events():
+    ring_buffer = RingBuffer(max_events=10)
+    for _ in range(4):
+        ring_buffer.append(parse_line(squid_line("example.com")))
+    aggregator = Aggregator(ring_buffer=ring_buffer, interval_seconds=60)
+
+    assert aggregator.backlog_size == 4
+    assert aggregator.backlog_ratio == 0.4
+    assert aggregator.events_likely_lost is False
+
+
+async def test_flush_resets_backlog_to_zero(db_engine, monkeypatch):
+    session_factory = async_sessionmaker(db_engine, expire_on_commit=False, class_=AsyncSession)
+    import app.services.aggregator as aggregator_module
+
+    monkeypatch.setattr(aggregator_module, "AsyncSessionLocal", session_factory)
+
+    ring_buffer = RingBuffer(max_events=10)
+    ring_buffer.append(parse_line(squid_line("example.com")))
+    aggregator = Aggregator(ring_buffer=ring_buffer, interval_seconds=60)
+
+    assert aggregator.backlog_size == 1
+    await aggregator.flush()
+    assert aggregator.backlog_size == 0
+
+
+def test_events_likely_lost_once_ring_buffer_evicts_past_last_flush():
+    """A ring buffer with a small maxlen simulates falling far enough
+    behind that eviction destroys events the aggregator never flushed --
+    events_since() can't see this on its own (it only returns whatever's
+    still physically present), which is exactly why this needs its own
+    check based on id arithmetic instead."""
+    ring_buffer = RingBuffer(max_events=3)
+    for _ in range(8):
+        ring_buffer.append(parse_line(squid_line("example.com")))
+    aggregator = Aggregator(ring_buffer=ring_buffer, interval_seconds=60)
+
+    assert len(ring_buffer) == 3
+    assert aggregator.backlog_size == 8
+    assert aggregator.events_likely_lost is True

@@ -1,6 +1,5 @@
 """Periodic check for clients spending too much time in non-work domain
-categories in a rolling 24h window (see time_spent_service.get_time_spent_by_category
-for the underlying per-category estimate, alert_settings_service.py for the
+categories in a rolling 24h window (alert_settings_service.py holds the
 admin-configurable threshold).
 
 This runs independently of the per-flush anomaly checks in
@@ -8,23 +7,35 @@ app/insights/anomaly.py: a meaningful "how many minutes in gaming/social
 media today" total can't be computed from a single ~60s aggregator window,
 so it needs its own longer-interval background job -- same start/stop/
 _run_forever shape as app/services/retention.py.
+
+Reads client_category_minute_aggregates (populated per-event inside
+Aggregator.flush(), see aggregator.py) rather than time_spent_service's
+session-based reconstruction over raw_events. That distinction matters at
+scale: the old version looped over every active client and re-scanned
+raw_events per client, i.e. one full-table scan per client per check --
+fine for a handful of clients, not for a real deployment's client count.
+This version is a single GROUP BY query regardless of how many clients
+there are. The tradeoff is "time spent" becomes a coarser proxy: distinct
+minute-buckets with non-work activity, not exact session dwell time. A
+single client's precise per-domain breakdown (time_spent_service.py, shown
+when an admin opens one client's detail view) is unaffected -- that's an
+on-demand, single-client query, not a per-check full scan of everyone.
 """
 
 import asyncio
 import logging
 from datetime import UTC, datetime, timedelta
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.insights.base import Anomaly, AnomalySeverity
 from app.models.anomaly_event import AnomalyEvent
-from app.models.client_aggregate import ClientMinuteAggregate
+from app.models.client_category_aggregate import ClientCategoryMinuteAggregate
 from app.models.db import AsyncSessionLocal
 from app.models.domain_category import DomainCategoryLabel
 from app.services import alert_settings_service, insights_service
 from app.services.alerting import maybe_alert
-from app.services.time_spent_service import get_time_spent_by_category
 
 logger = logging.getLogger(__name__)
 
@@ -75,37 +86,40 @@ class CategoryUsageMonitorJob:
 
         async with AsyncSessionLocal() as session:
             settings_row = await alert_settings_service.get_settings_row(session)
-            threshold_seconds = settings_row.non_work_minutes_threshold * 60
-            if threshold_seconds <= 0:
+            threshold_minutes = settings_row.non_work_minutes_threshold
+            if threshold_minutes <= 0:
                 return
 
-            client_ips = (
+            # Distinct minute-buckets (across every non-exempt category
+            # combined, not summed per-category) with any activity for that
+            # client -- one query, one full scan of the aggregate table
+            # regardless of client count, instead of one raw_events scan
+            # per client (see this module's docstring).
+            active_minutes = func.count(func.distinct(ClientCategoryMinuteAggregate.bucket_ts))
+            candidates = (
                 await session.execute(
-                    select(ClientMinuteAggregate.client_ip)
-                    .where(ClientMinuteAggregate.bucket_ts >= since)
-                    .distinct()
+                    select(ClientCategoryMinuteAggregate.client_ip, active_minutes)
+                    .where(
+                        ClientCategoryMinuteAggregate.bucket_ts >= since,
+                        ClientCategoryMinuteAggregate.category.notin_(_EXEMPT_CATEGORIES),
+                    )
+                    .group_by(ClientCategoryMinuteAggregate.client_ip)
+                    .having(active_minutes >= threshold_minutes)
                 )
-            ).scalars().all()
+            ).all()
 
             anomalies: list[Anomaly] = []
-            for client_ip in client_ips:
+            for client_ip, minute_count in candidates:
                 if await self._already_flagged_today(session, client_ip, since):
-                    continue
-
-                category_items = await get_time_spent_by_category(session, client_ip, since, now)
-                non_work_seconds = sum(
-                    item.total_seconds for item in category_items if item.category not in _EXEMPT_CATEGORIES
-                )
-                if non_work_seconds < threshold_seconds:
                     continue
 
                 anomalies.append(
                     Anomaly(
                         title=ANOMALY_TITLE,
                         description=(
-                            f"{client_ip} spent {non_work_seconds // 60} minutes in non-work "
+                            f"{client_ip} spent {minute_count} minutes in non-work "
                             f"categories over the last 24h (threshold: "
-                            f"{settings_row.non_work_minutes_threshold} minutes)."
+                            f"{threshold_minutes} minutes)."
                         ),
                         severity=AnomalySeverity.MEDIUM,
                         client_ip=client_ip,

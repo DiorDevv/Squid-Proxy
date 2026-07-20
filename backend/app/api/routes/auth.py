@@ -2,7 +2,7 @@ import logging
 from datetime import UTC, datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import CurrentUser, get_current_user, get_db
@@ -104,10 +104,32 @@ async def refresh(
         or not verify_refresh_secret(raw_secret, token_row.token_hash)
     ):
         # Reuse of a revoked/expired/invalid token is treated as a possible
-        # theft signal -- revoke the whole chain for this user defensively.
+        # theft signal -- revoke every other still-active session for this
+        # user defensively, not just the one replayed token (a stolen token
+        # rotated forward by an attacker would otherwise leave the
+        # attacker-issued descendant token valid).
         if token_row is not None:
-            token_row.revoked = True
+            await db.execute(
+                update(RefreshToken)
+                .where(RefreshToken.user_id == token_row.user_id, RefreshToken.revoked.is_(False))
+                .values(revoked=True)
+            )
             await db.commit()
+        response.delete_cookie(REFRESH_COOKIE_NAME, path=REFRESH_COOKIE_PATH)
+        raise INVALID_REFRESH
+
+    # Rotate atomically: flip revoked False -> True in a single UPDATE gated
+    # on it still being False, so two concurrent requests replaying the same
+    # cookie can't both pass the `token_row.revoked` check above and both
+    # mint a new token from it. Only the request whose UPDATE actually
+    # matched a row proceeds; the other is treated as a reuse.
+    result = await db.execute(
+        update(RefreshToken)
+        .where(RefreshToken.jti == jti, RefreshToken.revoked.is_(False))
+        .values(revoked=True)
+    )
+    if result.rowcount == 0:
+        await db.rollback()
         response.delete_cookie(REFRESH_COOKIE_NAME, path=REFRESH_COOKIE_PATH)
         raise INVALID_REFRESH
 
@@ -115,8 +137,6 @@ async def refresh(
     if user is None:
         raise INVALID_REFRESH
 
-    # Rotate: revoke the used refresh token, issue a fresh one.
-    token_row.revoked = True
     await _issue_refresh_cookie(response, db, user.id)
 
     access_token = create_access_token(user_id=user.id, role=user.role.value)

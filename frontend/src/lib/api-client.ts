@@ -92,7 +92,10 @@ export async function apiFetch<T>(path: string, options: RequestOptions = {}): P
     let detail = response.statusText
     try {
       const errorBody = await response.json()
-      detail = errorBody.detail ?? detail
+      // FastAPI's own errors use "detail"; slowapi's rate-limit handler
+      // (429 responses) uses "error" instead -- check both rather than
+      // silently falling back to the generic HTTP status text.
+      detail = errorBody.detail ?? errorBody.error ?? detail
     } catch {
       // response had no JSON body
     }

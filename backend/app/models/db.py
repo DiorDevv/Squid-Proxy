@@ -46,6 +46,8 @@ async def init_db() -> None:
         anomaly_event,
         audit_log,
         client_aggregate,
+        client_category_aggregate,
+        client_hourly_aggregate,
         domain_aggregate,
         domain_category,
         minute_aggregate,
@@ -61,27 +63,35 @@ async def init_db() -> None:
     # runs in its own connection/transaction so a failure on one (or on a
     # database with pre-existing duplicate rows) can't poison the others or
     # roll back the schema that create_all just committed.
-    await _ensure_aggregate_unique_indexes()
+    await _ensure_aggregate_unique_indexes(engine)
 
 
-async def _ensure_aggregate_unique_indexes() -> None:
+async def _ensure_aggregate_unique_indexes(bind_engine=None) -> None:
     """Idempotently add the aggregate-table unique indexes for installs that
     only ever run `create_all` (never Alembic) -- see migration
     466aaa85c9f3_aggregate_unique_constraints for the full rationale.
     `create_all` alone won't add these to a table that already exists, and
     the expression-based client index can't be declared in the ORM model at
     all, so both are applied here as plain idempotent DDL.
+
+    Also called by tests (see conftest.py's db_engine fixture, passing its
+    own in-memory engine) so the ON CONFLICT target that
+    app/services/db_upsert.py relies on for client_minute_aggregates exists
+    against test databases too, not just real ones built via init_db().
     """
+    bind_engine = bind_engine if bind_engine is not None else engine
     statements = [
         "DROP INDEX IF EXISTS ix_domain_bucket_domain",
         "CREATE UNIQUE INDEX IF NOT EXISTS ix_domain_bucket_domain "
         "ON domain_minute_aggregates (bucket_ts, domain)",
         "CREATE UNIQUE INDEX IF NOT EXISTS ix_client_bucket_ip_user_unique "
         'ON client_minute_aggregates (bucket_ts, client_ip, COALESCE("user", \'\'))',
+        "CREATE UNIQUE INDEX IF NOT EXISTS ix_client_hourly_bucket_ip_user_unique "
+        'ON client_hourly_aggregates (bucket_ts, client_ip, COALESCE("user", \'\'))',
     ]
     for statement in statements:
         try:
-            async with engine.begin() as conn:
+            async with bind_engine.begin() as conn:
                 await conn.execute(text(statement))
         except DBAPIError:
             # Pre-existing duplicate rows (from before this constraint

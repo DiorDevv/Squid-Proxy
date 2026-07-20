@@ -16,16 +16,22 @@ from collections import defaultdict
 from dataclasses import dataclass, field
 from datetime import datetime
 
-from sqlalchemy import select
+from sqlalchemy import func, literal_column
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.insights import get_insights_provider
 from app.models.client_aggregate import ClientMinuteAggregate
+from app.models.client_category_aggregate import ClientCategoryMinuteAggregate
 from app.models.db import AsyncSessionLocal
 from app.models.domain_aggregate import DomainMinuteAggregate
+from app.models.domain_category import DomainCategoryLabel
 from app.models.minute_aggregate import MinuteAggregate
 from app.models.raw_event import RawEvent
 from app.services import insights_service
 from app.services.alerting import maybe_alert
+from app.services.category_inference import effective_category
+from app.services.db_upsert import bulk_upsert_sum
+from app.services.domain_category_service import get_overrides_map
 from app.services.event_store import RingBuffer, StoredEvent
 
 logger = logging.getLogger(__name__)
@@ -54,18 +60,52 @@ class _ClientTotals:
 
 
 @dataclass
+class _CategoryTotals:
+    count: int = 0
+    bytes_: int = 0
+
+
+@dataclass
 class FlushResult:
     events_flushed: int = 0
     buckets_touched: set[datetime] = field(default_factory=set)
 
 
 class Aggregator:
+    # If the unflushed backlog reaches this fraction of the ring buffer's
+    # capacity, eviction (deque(maxlen=...) silently dropping the oldest
+    # entries) is close enough to start losing events that it's worth
+    # warning about before that actually happens.
+    BACKLOG_WARNING_RATIO = 0.8
+
     def __init__(self, ring_buffer: RingBuffer, interval_seconds: int = 60) -> None:
         self.ring_buffer = ring_buffer
         self.interval_seconds = interval_seconds
         self._last_flushed_id = 0
         self._task: asyncio.Task | None = None
         self._stop_event = asyncio.Event()
+
+    @property
+    def backlog_size(self) -> int:
+        """How many events are waiting on the next flush, by id arithmetic
+        -- cheap (no list materialization), unlike counting
+        events_since()'s result."""
+        return max(0, self.ring_buffer.latest_id - self._last_flushed_id)
+
+    @property
+    def backlog_ratio(self) -> float:
+        max_events = self.ring_buffer.max_events
+        return 0.0 if max_events <= 0 else self.backlog_size / max_events
+
+    @property
+    def events_likely_lost(self) -> bool:
+        """True once the ring buffer's maxlen eviction has already
+        destroyed events between the aggregator's last flush point and what
+        it's currently holding. events_since() alone can't detect this --
+        it just returns whatever's still physically in the deque -- so this
+        compares the *expected* backlog (by id arithmetic) against what's
+        actually still present."""
+        return self.backlog_size > len(self.ring_buffer)
 
     def start(self) -> None:
         self._task = asyncio.create_task(self._run_forever(), name="aggregator")
@@ -101,6 +141,23 @@ class Aggregator:
         return ts.replace(second=0, microsecond=0)
 
     async def flush(self) -> FlushResult:
+        if self.events_likely_lost:
+            logger.error(
+                "Ring buffer overflowed before the aggregator could flush -- "
+                "some events were dropped without ever being persisted. "
+                "Raise RING_BUFFER_MAX_EVENTS or reduce AGGREGATION_INTERVAL_SECONDS.",
+                extra={"backlog_size": self.backlog_size, "buffered": len(self.ring_buffer)},
+            )
+        elif self.backlog_ratio >= self.BACKLOG_WARNING_RATIO:
+            logger.warning(
+                "Aggregator is falling behind: unflushed backlog is "
+                "approaching the ring buffer's capacity",
+                extra={
+                    "backlog_size": self.backlog_size,
+                    "backlog_ratio": round(self.backlog_ratio, 2),
+                },
+            )
+
         events = self.ring_buffer.events_since(self._last_flushed_id)
         if not events:
             return FlushResult()
@@ -111,59 +168,69 @@ class Aggregator:
         client_buckets: dict[tuple[datetime, str, str | None], _ClientTotals] = defaultdict(
             _ClientTotals
         )
+        category_buckets: dict[tuple[datetime, str, DomainCategoryLabel], _CategoryTotals] = (
+            defaultdict(_CategoryTotals)
+        )
         raw_rows: list[RawEvent] = []
 
-        for stored in events:
-            ev = stored.event
-            bucket = self._bucket(ev.timestamp)
-
-            mb = minute_buckets[bucket]
-            mb.total += 1
-            mb.bytes_ += ev.bytes
-            if ev.blocked:
-                mb.blocked += 1
-            else:
-                mb.allowed += 1
-
-            if ev.domain:
-                db = domain_buckets[(bucket, ev.domain)]
-                db.count += 1
-                db.bytes_ += ev.bytes
-                if ev.blocked:
-                    db.blocked += 1
-
-            cb = client_buckets[(bucket, ev.client_ip, ev.user)]
-            cb.count += 1
-            cb.bytes_ += ev.bytes
-            if ev.blocked:
-                cb.blocked += 1
-
-            raw_rows.append(
-                RawEvent(
-                    timestamp=ev.timestamp,
-                    duration_ms=ev.duration_ms,
-                    client_ip=ev.client_ip,
-                    action=ev.action,
-                    status_code=ev.status_code,
-                    bytes=ev.bytes,
-                    method=ev.method,
-                    url=ev.url,
-                    domain=ev.domain,
-                    user=ev.user,
-                    hierarchy=ev.hierarchy,
-                    peer=ev.peer,
-                    content_type=ev.content_type,
-                    blocked=ev.blocked,
-                )
-            )
-
         async with AsyncSessionLocal() as session:
-            for bucket, totals in minute_buckets.items():
-                await self._upsert_minute(session, bucket, totals)
-            for (bucket, domain), totals in domain_buckets.items():
-                await self._upsert_domain(session, bucket, domain, totals)
-            for (bucket, ip, user), totals in client_buckets.items():
-                await self._upsert_client(session, bucket, ip, user, totals)
+            # Loaded once per flush, not once per event -- every event in
+            # this window shares the same admin-override snapshot.
+            overrides = await get_overrides_map(session)
+
+            for stored in events:
+                ev = stored.event
+                bucket = self._bucket(ev.timestamp)
+
+                mb = minute_buckets[bucket]
+                mb.total += 1
+                mb.bytes_ += ev.bytes
+                if ev.blocked:
+                    mb.blocked += 1
+                else:
+                    mb.allowed += 1
+
+                if ev.domain:
+                    db = domain_buckets[(bucket, ev.domain)]
+                    db.count += 1
+                    db.bytes_ += ev.bytes
+                    if ev.blocked:
+                        db.blocked += 1
+
+                    category = effective_category(ev.domain, overrides)
+                    ctb = category_buckets[(bucket, ev.client_ip, category)]
+                    ctb.count += 1
+                    ctb.bytes_ += ev.bytes
+
+                cb = client_buckets[(bucket, ev.client_ip, ev.user)]
+                cb.count += 1
+                cb.bytes_ += ev.bytes
+                if ev.blocked:
+                    cb.blocked += 1
+
+                raw_rows.append(
+                    RawEvent(
+                        timestamp=ev.timestamp,
+                        duration_ms=ev.duration_ms,
+                        client_ip=ev.client_ip,
+                        action=ev.action,
+                        status_code=ev.status_code,
+                        bytes=ev.bytes,
+                        method=ev.method,
+                        url=ev.url,
+                        domain=ev.domain,
+                        user=ev.user,
+                        hierarchy=ev.hierarchy,
+                        peer=ev.peer,
+                        content_type=ev.content_type,
+                        blocked=ev.blocked,
+                    )
+                )
+
+            await self._bulk_upsert_minute(session, minute_buckets)
+            await self._bulk_upsert_domain(session, domain_buckets)
+            await self._bulk_upsert_client(session, client_buckets)
+            await self._bulk_upsert_category(session, category_buckets)
             session.add_all(raw_rows)
             await session.commit()
 
@@ -195,60 +262,115 @@ class Aggregator:
         for row in rows:
             await maybe_alert(row)
 
-    async def _upsert_minute(self, session, bucket: datetime, totals: _MinuteTotals) -> None:
-        row = (
-            await session.execute(select(MinuteAggregate).where(MinuteAggregate.bucket_ts == bucket))
-        ).scalar_one_or_none()
-        if row is None:
-            # Column defaults apply at flush time, not on construction, so
-            # zero these explicitly -- otherwise the += below hits None.
-            row = MinuteAggregate(
-                bucket_ts=bucket, total_requests=0, blocked_requests=0, allowed_requests=0, total_bytes=0
-            )
-            session.add(row)
-        row.total_requests += totals.total
-        row.blocked_requests += totals.blocked
-        row.allowed_requests += totals.allowed
-        row.total_bytes += totals.bytes_
-
-    async def _upsert_domain(
-        self, session, bucket: datetime, domain: str, totals: _DomainTotals
+    async def _bulk_upsert_minute(
+        self, session: AsyncSession, minute_buckets: dict[datetime, _MinuteTotals]
     ) -> None:
-        row = (
-            await session.execute(
-                select(DomainMinuteAggregate).where(
-                    DomainMinuteAggregate.bucket_ts == bucket,
-                    DomainMinuteAggregate.domain == domain,
-                )
-            )
-        ).scalar_one_or_none()
-        if row is None:
-            row = DomainMinuteAggregate(
-                bucket_ts=bucket, domain=domain, request_count=0, blocked_count=0, total_bytes=0
-            )
-            session.add(row)
-        row.request_count += totals.count
-        row.blocked_count += totals.blocked
-        row.total_bytes += totals.bytes_
+        if not minute_buckets:
+            return
+        rows = [
+            {
+                "bucket_ts": bucket,
+                "total_requests": totals.total,
+                "blocked_requests": totals.blocked,
+                "allowed_requests": totals.allowed,
+                "total_bytes": totals.bytes_,
+            }
+            for bucket, totals in minute_buckets.items()
+        ]
+        await bulk_upsert_sum(
+            session,
+            MinuteAggregate.__table__,
+            rows,
+            index_elements=[MinuteAggregate.bucket_ts],
+            sum_columns=["total_requests", "blocked_requests", "allowed_requests", "total_bytes"],
+        )
 
-    async def _upsert_client(
-        self, session, bucket: datetime, client_ip: str, user: str | None, totals: _ClientTotals
+    async def _bulk_upsert_domain(
+        self, session: AsyncSession, domain_buckets: dict[tuple[datetime, str], _DomainTotals]
     ) -> None:
-        row = (
-            await session.execute(
-                select(ClientMinuteAggregate).where(
-                    ClientMinuteAggregate.bucket_ts == bucket,
-                    ClientMinuteAggregate.client_ip == client_ip,
-                    ClientMinuteAggregate.user == user,
-                )
-            )
-        ).scalar_one_or_none()
-        if row is None:
-            row = ClientMinuteAggregate(
-                bucket_ts=bucket, client_ip=client_ip, user=user,
-                request_count=0, blocked_count=0, total_bytes=0,
-            )
-            session.add(row)
-        row.request_count += totals.count
-        row.blocked_count += totals.blocked
-        row.total_bytes += totals.bytes_
+        if not domain_buckets:
+            return
+        rows = [
+            {
+                "bucket_ts": bucket,
+                "domain": domain,
+                "request_count": totals.count,
+                "blocked_count": totals.blocked,
+                "total_bytes": totals.bytes_,
+            }
+            for (bucket, domain), totals in domain_buckets.items()
+        ]
+        await bulk_upsert_sum(
+            session,
+            DomainMinuteAggregate.__table__,
+            rows,
+            index_elements=[DomainMinuteAggregate.bucket_ts, DomainMinuteAggregate.domain],
+            sum_columns=["request_count", "blocked_count", "total_bytes"],
+        )
+
+    async def _bulk_upsert_category(
+        self,
+        session: AsyncSession,
+        category_buckets: dict[tuple[datetime, str, DomainCategoryLabel], _CategoryTotals],
+    ) -> None:
+        if not category_buckets:
+            return
+        rows = [
+            {
+                "bucket_ts": bucket,
+                "client_ip": client_ip,
+                "category": category,
+                "request_count": totals.count,
+                "total_bytes": totals.bytes_,
+            }
+            for (bucket, client_ip, category), totals in category_buckets.items()
+        ]
+        await bulk_upsert_sum(
+            session,
+            ClientCategoryMinuteAggregate.__table__,
+            rows,
+            index_elements=[
+                ClientCategoryMinuteAggregate.bucket_ts,
+                ClientCategoryMinuteAggregate.client_ip,
+                ClientCategoryMinuteAggregate.category,
+            ],
+            sum_columns=["request_count", "total_bytes"],
+        )
+
+    async def _bulk_upsert_client(
+        self,
+        session: AsyncSession,
+        client_buckets: dict[tuple[datetime, str, str | None], _ClientTotals],
+    ) -> None:
+        if not client_buckets:
+            return
+        rows = [
+            {
+                "bucket_ts": bucket,
+                "client_ip": client_ip,
+                "user": user,
+                "request_count": totals.count,
+                "blocked_count": totals.blocked,
+                "total_bytes": totals.bytes_,
+            }
+            for (bucket, client_ip, user), totals in client_buckets.items()
+        ]
+        # The unique index on this table is (bucket_ts, client_ip,
+        # coalesce(user, '')) -- see migration 466aaa85c9f3's docstring for
+        # why: `user` is nullable, and plain SQL treats NULL as distinct
+        # from itself, so the conflict target has to match that expression
+        # exactly rather than the plain (bucket_ts, client_ip, user) columns.
+        # The '' has to be a literal, not a bound parameter -- SQLite only
+        # recognizes an ON CONFLICT expression as matching an expression
+        # index when its constant subexpressions are literals too.
+        await bulk_upsert_sum(
+            session,
+            ClientMinuteAggregate.__table__,
+            rows,
+            index_elements=[
+                ClientMinuteAggregate.bucket_ts,
+                ClientMinuteAggregate.client_ip,
+                func.coalesce(ClientMinuteAggregate.user, literal_column("''")),
+            ],
+            sum_columns=["request_count", "blocked_count", "total_bytes"],
+        )

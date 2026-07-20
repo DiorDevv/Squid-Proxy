@@ -31,6 +31,11 @@ class Settings(BaseSettings):
     RETENTION_DAYS_AGGREGATES: int = 400
     AGGREGATION_INTERVAL_SECONDS: int = 60
     RETENTION_PURGE_INTERVAL_SECONDS: int = 3600
+    # client_minute_aggregates rows older than this get compressed into
+    # client_hourly_aggregates and deleted (see retention.py) -- otherwise
+    # minute-granular rows accumulate for the full RETENTION_DAYS_AGGREGATES
+    # window, which is what makes wide-range client queries slow at scale.
+    CLIENT_ROLLUP_AFTER_HOURS: int = 48
 
     # --- Time-spent-per-domain estimation ---
     # Consecutive requests to the same domain more than this many minutes

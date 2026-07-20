@@ -23,11 +23,25 @@ class RingBuffer:
     def __init__(self, max_events: int) -> None:
         self._buffer: deque[StoredEvent] = deque(maxlen=max_events)
         self._counter = itertools.count(1)
+        self._latest_id = 0
 
     def append(self, event: ParsedEvent) -> StoredEvent:
         stored = StoredEvent(id=next(self._counter), event=event)
         self._buffer.append(stored)
+        self._latest_id = stored.id
         return stored
+
+    @property
+    def latest_id(self) -> int:
+        """The most recently assigned event id, 0 if nothing's arrived yet.
+        Lets a consumer (see Aggregator.backlog_size) compute how far behind
+        it's fallen without materializing events_since()'s whole list just
+        to count it."""
+        return self._latest_id
+
+    @property
+    def max_events(self) -> int:
+        return self._buffer.maxlen or 0
 
     def recent(
         self,

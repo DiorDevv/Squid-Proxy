@@ -8,7 +8,7 @@ plus role/password/delete management the CLI script never had.
 """
 
 from fastapi import HTTPException, status
-from sqlalchemy import delete, func, select
+from sqlalchemy import delete, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.security import hash_password
@@ -96,6 +96,15 @@ async def update_role(session: AsyncSession, user_id: str, new_role: UserRole, c
 async def reset_password(session: AsyncSession, user_id: str, new_password: str, actor_user_id: str) -> None:
     user = await _get_user_or_404(session, user_id)
     user.hashed_password = hash_password(new_password)
+    # A password reset is often a response to a compromised account -- also
+    # revoke any refresh tokens already issued to this user, so a stolen
+    # refresh cookie can't keep minting access tokens past the reset (see
+    # delete_user, which already had to clean these up for its own reasons).
+    await session.execute(
+        update(RefreshToken)
+        .where(RefreshToken.user_id == user_id, RefreshToken.revoked.is_(False))
+        .values(revoked=True)
+    )
     await audit_service.record(
         session,
         action=AuditAction.USER_PASSWORD_RESET,

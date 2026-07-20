@@ -16,13 +16,15 @@ from app.core.rate_limit import limiter
 from app.core.security import hash_password
 from app.models import (  # noqa: F401
     client_aggregate,
+    client_category_aggregate,
+    client_hourly_aggregate,
     domain_aggregate,
     minute_aggregate,
     raw_event,
     refresh_token,
     user,
 )
-from app.models.db import Base
+from app.models.db import Base, _ensure_aggregate_unique_indexes
 from app.models.user import User, UserRole
 
 
@@ -39,6 +41,11 @@ async def db_engine():
     )
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+    # Mirrors init_db(): the client_minute_aggregates expression-based
+    # unique index can't be declared on the ORM model, so create_all alone
+    # doesn't add it -- without it, bulk_upsert_sum's ON CONFLICT target
+    # for that table wouldn't match any constraint on a fresh test DB.
+    await _ensure_aggregate_unique_indexes(engine)
     yield engine
     await engine.dispose()
 

@@ -1,4 +1,12 @@
-"""Tracks connected /ws/live clients and broadcasts new events to them."""
+"""Tracks connected /ws/live clients and broadcasts new events to them.
+
+Events are coalesced into arrays and sent at most every BATCH_WINDOW_SECONDS
+(or immediately once MAX_BATCH_SIZE accumulates) rather than one asyncio
+task + one `send_json` per event. At demo-scale traffic this didn't matter,
+but it doesn't hold up once either event throughput or connected-viewer
+count grows: N events x M viewers otherwise means N*M scheduled sends per
+broadcast window, with zero batching.
+"""
 
 import asyncio
 import logging
@@ -11,9 +19,14 @@ logger = logging.getLogger(__name__)
 
 
 class WebSocketManager:
+    BATCH_WINDOW_SECONDS = 0.2
+    MAX_BATCH_SIZE = 200
+
     def __init__(self) -> None:
         self._connections: set[WebSocket] = set()
         self._loop: asyncio.AbstractEventLoop | None = None
+        self._pending: list[dict] = []
+        self._flush_scheduled = False
 
     def bind_loop(self, loop: asyncio.AbstractEventLoop) -> None:
         self._loop = loop
@@ -32,13 +45,22 @@ class WebSocketManager:
         return len(self._connections)
 
     def broadcast_nowait(self, stored: StoredEvent) -> None:
-        """Schedule a broadcast from a synchronous context (the tailer's callback)."""
+        """Buffer `stored` for the next batched send. Called from the log
+        tailer's synchronous per-line callback, so this must never block or
+        await -- it only appends to a list and, at most, schedules a task."""
         if not self._connections or self._loop is None:
             return
-        self._loop.create_task(self._broadcast(stored))
+        self._pending.append(self._serialize(stored))
+        if len(self._pending) >= self.MAX_BATCH_SIZE:
+            self._loop.create_task(self._flush_pending())
+            return
+        if not self._flush_scheduled:
+            self._flush_scheduled = True
+            self._loop.create_task(self._flush_after_delay())
 
-    async def _broadcast(self, stored: StoredEvent) -> None:
-        payload = {
+    @staticmethod
+    def _serialize(stored: StoredEvent) -> dict:
+        return {
             "id": stored.id,
             "timestamp": stored.event.timestamp.isoformat(),
             "client_ip": stored.event.client_ip,
@@ -51,10 +73,25 @@ class WebSocketManager:
             "bytes": stored.event.bytes,
             "blocked": stored.event.blocked,
         }
+
+    async def _flush_after_delay(self) -> None:
+        await asyncio.sleep(self.BATCH_WINDOW_SECONDS)
+        await self._flush_pending()
+
+    async def _flush_pending(self) -> None:
+        # Reset here (not just at the call sites) so it's correct regardless
+        # of whether this run was triggered by the delay timer or by hitting
+        # MAX_BATCH_SIZE -- either way, the next event should be free to
+        # schedule a fresh flush.
+        self._flush_scheduled = False
+        if not self._pending:
+            return
+        batch, self._pending = self._pending, []
+
         dead: list[WebSocket] = []
         for connection in list(self._connections):
             try:
-                await connection.send_json(payload)
+                await connection.send_json(batch)
             except Exception:
                 logger.warning("Dropping /ws/live connection after send failure", exc_info=True)
                 dead.append(connection)

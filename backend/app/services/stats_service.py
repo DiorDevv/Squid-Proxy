@@ -9,7 +9,6 @@ from typing import Literal
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.client_aggregate import ClientMinuteAggregate
 from app.models.domain_aggregate import DomainMinuteAggregate
 from app.models.domain_category import DomainCategoryLabel
 from app.models.minute_aggregate import MinuteAggregate
@@ -18,6 +17,7 @@ from app.schemas.domains import CategoryStat, DomainStat
 from app.schemas.summary import SummaryResponse
 from app.schemas.timeseries import TimeseriesPoint, TimeseriesResponse
 from app.services.category_inference import effective_category
+from app.services.client_service import client_bucket_rows
 from app.services.domain_category_service import get_overrides_map
 
 
@@ -35,21 +35,20 @@ async def get_summary(
     ).one()
     total_requests, blocked_requests, allowed_requests = totals_row
 
+    # Reads client_minute_aggregates and client_hourly_aggregates combined
+    # (see client_bucket_rows) -- a range extending past the rollup cutoff
+    # (retention.py) would otherwise silently undercount, since older
+    # activity has been compressed into the hourly table and the source
+    # minute rows deleted.
+    combined = client_bucket_rows(since, until)
+
     active_clients = (
-        await session.execute(
-            select(func.count(func.distinct(ClientMinuteAggregate.client_ip))).where(
-                ClientMinuteAggregate.bucket_ts >= since, ClientMinuteAggregate.bucket_ts <= until
-            )
-        )
+        await session.execute(select(func.count(func.distinct(combined.c.client_ip))))
     ).scalar_one()
 
     active_users = (
         await session.execute(
-            select(func.count(func.distinct(ClientMinuteAggregate.user))).where(
-                ClientMinuteAggregate.bucket_ts >= since,
-                ClientMinuteAggregate.bucket_ts <= until,
-                ClientMinuteAggregate.user.is_not(None),
-            )
+            select(func.count(func.distinct(combined.c.user))).where(combined.c.user.is_not(None))
         )
     ).scalar_one()
 

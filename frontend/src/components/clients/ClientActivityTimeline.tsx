@@ -3,15 +3,17 @@ import { StatusBadge } from '@/components/common/StatusBadge'
 import { EmptyState } from '@/components/common/EmptyState'
 import { Skeleton } from '@/components/ui/skeleton'
 import { formatBytes, formatDateTime } from '@/lib/format'
+import { cn } from '@/lib/utils'
 import { useTranslation } from '@/i18n'
-import type { ClientActivityEvent } from '@/types/api'
+import type { LiveEvent } from '@/types/events'
 
 interface ClientActivityTimelineProps {
-  events: ClientActivityEvent[]
+  events: LiveEvent[]
   isLoading: boolean
+  onRowClick?: (event: LiveEvent) => void
 }
 
-export function ClientActivityTimeline({ events, isLoading }: ClientActivityTimelineProps) {
+export function ClientActivityTimeline({ events, isLoading, onRowClick }: ClientActivityTimelineProps) {
   const { t } = useTranslation()
 
   if (isLoading) {
@@ -33,7 +35,11 @@ export function ClientActivityTimeline({ events, isLoading }: ClientActivityTime
       {events.map((event, index) => (
         <li
           key={event.id}
-          className="flex flex-wrap items-center gap-x-4 gap-y-1 border-l-2 border-border py-2 pl-4 text-xs relative"
+          className={cn(
+            'flex flex-wrap items-center gap-x-4 gap-y-1 border-l-2 border-border py-2 pl-4 text-xs relative',
+            onRowClick && 'cursor-pointer hover:bg-secondary/40',
+          )}
+          onClick={() => onRowClick?.(event)}
         >
           <span
             className="absolute -left-[5px] top-3 h-2 w-2 rounded-full bg-border"

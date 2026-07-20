@@ -16,8 +16,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.client_aggregate import ClientMinuteAggregate
 from app.models.client_hourly_aggregate import ClientHourlyAggregate
 from app.models.raw_event import RawEvent
-from app.schemas.clients import ClientActivityEvent, ClientSummary
+from app.schemas.clients import ClientSummary
 from app.schemas.common import Page, SortOrder
+from app.schemas.events import EventDetail
+from app.services.event_query_service import build_event_conditions
 
 
 def client_bucket_rows(
@@ -177,18 +179,10 @@ async def get_client_activity(
     blocked_only: bool = False,
     domain: str | None = None,
     method: str | None = None,
-) -> Page[ClientActivityEvent]:
-    conditions = [
-        RawEvent.client_ip == client_ip,
-        RawEvent.timestamp >= since,
-        RawEvent.timestamp <= until,
-    ]
-    if blocked_only:
-        conditions.append(RawEvent.blocked.is_(True))
-    if domain and domain.strip():
-        conditions.append(RawEvent.domain.ilike(f"%{domain.strip()}%"))
-    if method:
-        conditions.append(RawEvent.method == method)
+) -> Page[EventDetail]:
+    conditions = build_event_conditions(
+        since, until, blocked_only=blocked_only, client_ip=client_ip, domain=domain, method=method
+    )
 
     query = (
         select(RawEvent).where(*conditions).order_by(RawEvent.timestamp.desc()).limit(limit).offset(offset)
@@ -198,18 +192,6 @@ async def get_client_activity(
     count_query = select(func.count()).select_from(RawEvent).where(*conditions)
     total = (await session.execute(count_query)).scalar_one()
 
-    items = [
-        ClientActivityEvent(
-            id=row.id,
-            timestamp=row.timestamp,
-            method=row.method,
-            url=row.url,
-            domain=row.domain,
-            action=row.action,
-            status_code=row.status_code,
-            bytes=row.bytes,
-            blocked=row.blocked,
-        )
-        for row in rows
+    items = [EventDetail.from_raw_event(row) for row in rows
     ]
     return Page(items=items, total=total, limit=limit, offset=offset)

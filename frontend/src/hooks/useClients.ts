@@ -1,7 +1,8 @@
 import { useQuery } from '@tanstack/react-query'
 import { apiFetch } from '@/lib/api-client'
 import { POLLING_FALLBACK_INTERVAL_MS } from '@/lib/constants'
-import type { ClientActivityEvent, ClientSummary, Page, SortOrder } from '@/types/api'
+import type { ClientSummary, Page, SortOrder } from '@/types/api'
+import type { LiveEvent } from '@/types/events'
 
 interface UseClientsParams {
   rangeParams: Record<string, string>
@@ -47,7 +48,7 @@ export function useClientActivity({
   return useQuery({
     queryKey: ['client-activity', clientIp, rangeParams, limit, offset, blockedOnly, domain, method],
     queryFn: () =>
-      apiFetch<Page<ClientActivityEvent>>(`/api/clients/${encodeURIComponent(clientIp!)}/activity`, {
+      apiFetch<Page<LiveEvent>>(`/api/clients/${encodeURIComponent(clientIp!)}/activity`, {
         searchParams: {
           ...rangeParams,
           limit,

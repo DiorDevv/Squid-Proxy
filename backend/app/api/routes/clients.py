@@ -2,13 +2,9 @@ from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_db, require_any_role
-from app.schemas.clients import (
-    CategoryTimeSpentResponse,
-    ClientActivityEvent,
-    ClientSummary,
-    TimeSpentResponse,
-)
+from app.schemas.clients import CategoryTimeSpentResponse, ClientSummary, TimeSpentResponse
 from app.schemas.common import EffectiveRange, Page, SortOrder, resolve_range
+from app.schemas.events import EventDetail
 from app.services.client_service import get_client_activity, get_client_summary, list_clients
 from app.services.time_spent_service import get_time_spent, get_time_spent_by_category
 
@@ -45,7 +41,7 @@ async def read_client_summary(
 
 @router.get(
     "/clients/{client_ip}/activity",
-    response_model=Page[ClientActivityEvent],
+    response_model=Page[EventDetail],
     dependencies=[Depends(require_any_role)],
 )
 async def read_client_activity(
@@ -57,7 +53,7 @@ async def read_client_activity(
     domain: str | None = Query(default=None, max_length=255),
     method: str | None = Query(default=None, max_length=16),
     db: AsyncSession = Depends(get_db),
-) -> Page[ClientActivityEvent]:
+) -> Page[EventDetail]:
     return await get_client_activity(
         db,
         client_ip,

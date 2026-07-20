@@ -14,18 +14,6 @@ class ClientSummary(BaseModel):
     last_activity: datetime | None
 
 
-class ClientActivityEvent(BaseModel):
-    id: int
-    timestamp: datetime
-    method: str
-    url: str
-    domain: str | None
-    action: str
-    status_code: int
-    bytes: int
-    blocked: bool
-
-
 class DomainTimeSpent(BaseModel):
     domain: str
     total_seconds: int

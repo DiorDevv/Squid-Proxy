@@ -11,12 +11,14 @@ import { ClientActivityTimeline } from '@/components/clients/ClientActivityTimel
 import { TimeSpentByDomain } from '@/components/clients/TimeSpentByDomain'
 import { TimeSpentByCategory } from '@/components/clients/TimeSpentByCategory'
 import { SummaryCard } from '@/components/dashboard/SummaryCard'
+import { EventDetailSheet } from '@/components/blocked/EventDetailSheet'
 import { useClientActivity } from '@/hooks/useClients'
 import { useClientSummary } from '@/hooks/useClientSummary'
 import { useRangeSearchParams } from '@/lib/filters-store'
 import { formatBytes, formatNumber } from '@/lib/format'
 import { cn } from '@/lib/utils'
 import { useTranslation } from '@/i18n'
+import type { LiveEvent } from '@/types/events'
 
 const LIMIT = 50
 const METHODS = ['GET', 'POST', 'HEAD', 'PUT', 'DELETE', 'CONNECT']
@@ -28,6 +30,7 @@ export default function ClientDetailPage() {
   const [offset, setOffset] = useState(0)
   const [blockedOnly, setBlockedOnly] = useState(false)
   const [domainFilter, setDomainFilter] = useState('')
+  const [selectedEvent, setSelectedEvent] = useState<LiveEvent | null>(null)
   const [method, setMethod] = useState(ALL_METHODS)
   const [timeSpentView, setTimeSpentView] = useState<'domain' | 'category'>('domain')
 
@@ -175,7 +178,11 @@ export default function ClientDetailPage() {
             <ErrorState message={query.error?.message} onRetry={() => query.refetch()} />
           ) : (
             <>
-              <ClientActivityTimeline events={query.data?.items ?? []} isLoading={query.isLoading} />
+              <ClientActivityTimeline
+                events={query.data?.items ?? []}
+                isLoading={query.isLoading}
+                onRowClick={setSelectedEvent}
+              />
               {query.data && query.data.total > LIMIT && (
                 <div className="flex items-center justify-between pt-3 text-xs text-muted-foreground">
                   <span className="font-data">
@@ -249,6 +256,7 @@ export default function ClientDetailPage() {
           )}
         </Panel>
       </div>
+      <EventDetailSheet event={selectedEvent} onOpenChange={(open) => !open && setSelectedEvent(null)} />
     </div>
   )
 }

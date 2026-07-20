@@ -125,17 +125,6 @@ export interface DomainClientStat {
   last_visit: string | null
 }
 
-export interface ClientActivityEvent {
-  id: number
-  timestamp: string
-  method: string
-  url: string
-  domain: string | null
-  action: string
-  status_code: number
-  bytes: number
-  blocked: boolean
-}
 
 export interface UserSummary {
   id: string

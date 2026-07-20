@@ -151,7 +151,9 @@ async def get_client_summary(
     latest_user = func.max(combined.c.user)
 
     row = (
-        await session.execute(select(total_requests, blocked_requests, total_bytes, last_activity, latest_user))
+        await session.execute(
+            select(total_requests, blocked_requests, total_bytes, last_activity, latest_user)
+        )
     ).one()
     requests_total, blocked_total, bytes_total, activity, user = row
 

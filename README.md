@@ -266,6 +266,33 @@ Scheduled email reports (a periodic summary + CSV attachment) are configured via
 secrets). **Settings → Scheduled reports** shows status and has a "Send report now" button for
 testing without waiting for the schedule.
 
+## Archiving raw event detail before it's purged
+
+Full per-request detail (`raw_events` — every URL, client, timestamp) is only kept for
+`RETENTION_DAYS_RAW_EVENTS` (default 7 days) before `RetentionJob` permanently deletes it; only
+the smaller per-minute/per-hour aggregates survive long-term (`RETENTION_DAYS_AGGREGATES`, default
+~400 days). That's the right tradeoff for the live database, but if your organization needs to
+keep the full detail longer (e.g. a compliance requirement), archive it externally before it ages
+out:
+
+```bash
+cd backend
+.venv/bin/python scripts/archive_weekly_export.py --output-dir /path/to/archive --keep-days 365
+```
+
+Writes one gzip-compressed CSV per configured branch (`squid-events-<branch>-<since>_<until>.csv.gz`)
+covering the last 7 days, streamed in batches rather than held in memory — unlike `GET
+/api/export`, which is capped at 100k rows for an admin's interactive download, this has no row
+limit, since a week of raw events at real traffic volumes is routinely millions of rows. `--keep-days`
+then prunes archive files older than that from `--output-dir` (the *archive's* own retention, separate
+from the database's).
+
+Run it weekly via cron or a systemd timer, before `RETENTION_DAYS_RAW_EVENTS` catches up to the data:
+
+```
+0 3 * * 0  cd /path/to/backend && .venv/bin/python scripts/archive_weekly_export.py --output-dir /var/backups/squid-watch
+```
+
 ## API surface
 
 All endpoints are under `/api`, JWT-protected except `/api/health`. See

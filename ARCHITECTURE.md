@@ -209,6 +209,46 @@ is reserved for actual failures (a disconnected backend), so it stays meaningful
 appears. All numeric/IP/timestamp values render in a monospace font (JetBrains Mono) site-wide so
 columns of numbers stay visually aligned and read as "data" rather than prose.
 
+## Going to production: what a demo `docker compose up` doesn't give you
+
+The default `--profile demo` setup runs the whole stack with zero external configuration, which
+is deliberately convenient for evaluating the project — but several of the defaults it ships with
+are demo-only and must be deliberately changed before a real deployment, not just deployed as-is:
+
+- **`JWT_SECRET` and `ADMIN_PASSWORD` are placeholders in `.env.example`.** Every security
+  property in the "Auth" sections above (short-lived access tokens, rotated refresh tokens)
+  assumes `JWT_SECRET` is an actual secret; shipping the example value would make every issued
+  token forgeable.
+- **Squid must log in the native `squid` logformat**, not `common`/`combined` — this is called out
+  in the README because it's the single most common go-live failure: the tailer stays "alive" and
+  `log_parse_failure_rate` (`/api/health`) goes to `1.0` with no crash, so it silently looks
+  connected while showing zero real traffic. Check that field immediately after pointing at a real
+  Squid instance, before trusting anything else the dashboard shows.
+- **SQLite is fine for evaluating the project, not for a real multi-branch deployment.** It's the
+  zero-dependency default (see "SQLite by default" above) specifically so `uvicorn app.main:app`
+  works with nothing else running; a real deployment with concurrent writers across branches
+  should set `DATABASE_URL` to Postgres, which is what `docker-compose.yml`'s non-demo path
+  already wires up.
+- **Multi-branch log shipping needs TLS end-to-end, not just `LOG_SOURCES` pointed at a path.**
+  `LOG_SOURCES` only tells the backend which *local* files to tail — getting each branch's
+  `access.log` onto that machine securely is the separate rsyslog-over-TLS setup in
+  `deploy/rsyslog/` (see the README's "Multi-branch deployment" section). Skipping the TLS
+  configuration there means branch traffic logs — which include every client IP and every domain
+  visited — cross the network in the clear.
+- **Capacity settings (`RING_BUFFER_MAX_EVENTS`, `RETENTION_DAYS_RAW_EVENTS`, disk space) need
+  sizing against the real deployment's request volume**, not left at defaults tuned for the
+  original demo scale — see "Ring buffer sizing is a real capacity tradeoff" above. The failure
+  mode when these are undersized (silently dropped ring-buffer events, prematurely purged raw
+  events) is observable via `/api/health` but easy to miss if nobody's watching it.
+- **This still runs as one process** (see "Not yet built: running more than one backend instance"
+  above) — that's a real ceiling on how far a single deployment scales, not something more RAM or
+  a bigger database fixes.
+
+None of this is code that needs to change — it's configuration and infrastructure decisions that
+have to be made deliberately for a specific deployment, which is why `/api/health` exists: it's
+the one place that tells you, after go-live, whether the choices above were actually made
+correctly.
+
 ## Testing strategy
 
 Backend tests exercise real code paths against a real (in-memory SQLite, `StaticPool`) database

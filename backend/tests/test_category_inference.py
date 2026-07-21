@@ -40,6 +40,15 @@ def test_keyword_fallback_for_descriptive_unknown_domains():
     assert infer_category("gambling-paradise.bet") == DomainCategoryLabel.GAMBLING
 
 
+def test_adult_content_tld_is_recognized_even_for_unknown_hostnames():
+    assert infer_category("adult-content-site.xxx") == DomainCategoryLabel.ADULT_CONTENT
+
+
+def test_adult_content_keyword_fallback():
+    assert infer_category("totally-legit-porn.example") == DomainCategoryLabel.ADULT_CONTENT
+    assert infer_category("adult-videos.example") == DomainCategoryLabel.ADULT_CONTENT
+
+
 def test_unrecognized_domain_is_uncategorized():
     assert infer_category("free-crypto-miner.top") == DomainCategoryLabel.UNCATEGORIZED
     assert infer_category("internal-wiki.company.local") == DomainCategoryLabel.UNCATEGORIZED

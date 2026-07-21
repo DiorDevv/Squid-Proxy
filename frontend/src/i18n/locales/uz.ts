@@ -172,6 +172,7 @@ export const uz = {
   'category.shopping': 'Xarid',
   'category.news': 'Yangiliklar',
   'category.gambling': 'Qimor',
+  'category.adultContent': 'Kattalar uchun kontent',
   'category.other': 'Boshqa',
   'domains.empty': 'Ushbu davr uchun domen faolligi qayd etilmagan.',
 

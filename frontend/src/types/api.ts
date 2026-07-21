@@ -56,6 +56,7 @@ export type DomainCategoryLabel =
   | 'shopping'
   | 'news'
   | 'gambling'
+  | 'adult_content'
   | 'other'
 
 export interface DomainCategoryOut {

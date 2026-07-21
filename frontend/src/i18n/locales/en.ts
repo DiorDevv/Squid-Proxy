@@ -183,6 +183,7 @@ export const en = {
   'category.shopping': 'Shopping',
   'category.news': 'News',
   'category.gambling': 'Gambling',
+  'category.adultContent': 'Adult content',
   'category.other': 'Other',
   'domains.empty': 'No domain activity recorded for this period.',
 

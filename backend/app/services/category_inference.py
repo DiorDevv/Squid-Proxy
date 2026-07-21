@@ -22,6 +22,8 @@ an unrecognized domain is simply UNCATEGORIZED, the same as if an admin
 hadn't gotten to it yet.
 """
 
+from functools import lru_cache
+
 from app.models.domain_category import DomainCategoryLabel
 
 _KNOWN_HOSTNAMES: dict[str, DomainCategoryLabel] = {
@@ -127,11 +129,18 @@ _KNOWN_HOSTNAMES: dict[str, DomainCategoryLabel] = {
 }
 
 _GAMBLING_TLDS = (".bet", ".casino", ".poker")
+# .xxx is a real, IANA-registered gTLD reserved for adult content -- a much
+# stronger signal than any keyword, so it's checked the same way as the
+# gambling TLDs above (before the weaker keyword tier).
+_ADULT_CONTENT_TLDS = (".xxx",)
 
 _KEYWORD_HINTS: tuple[tuple[str, DomainCategoryLabel], ...] = (
     ("gambl", DomainCategoryLabel.GAMBLING),
     ("casino", DomainCategoryLabel.GAMBLING),
     ("poker", DomainCategoryLabel.GAMBLING),
+    ("porn", DomainCategoryLabel.ADULT_CONTENT),
+    ("xxx", DomainCategoryLabel.ADULT_CONTENT),
+    ("adult", DomainCategoryLabel.ADULT_CONTENT),
     ("music", DomainCategoryLabel.MUSIC_STREAMING),
     ("game", DomainCategoryLabel.GAMING),
     ("stream", DomainCategoryLabel.VIDEO_STREAMING),
@@ -143,6 +152,13 @@ _KEYWORD_HINTS: tuple[tuple[str, DomainCategoryLabel], ...] = (
 )
 
 
+# aggregator.py calls effective_category() (which falls back to this) once
+# per raw log event, not once per unique domain -- and real traffic is
+# heavily skewed toward a handful of repeat domains, so caching turns most
+# calls into an O(1) lookup instead of re-scanning every hostname/keyword
+# tier. Bounded so a flood of unique/attacker-controlled domains (e.g. DGA
+# traffic) can't grow this unboundedly.
+@lru_cache(maxsize=4096)
 def infer_category(domain: str | None) -> DomainCategoryLabel:
     if not domain:
         return DomainCategoryLabel.UNCATEGORIZED
@@ -159,6 +175,8 @@ def infer_category(domain: str | None) -> DomainCategoryLabel:
 
     if domain.endswith(_GAMBLING_TLDS):
         return DomainCategoryLabel.GAMBLING
+    if domain.endswith(_ADULT_CONTENT_TLDS):
+        return DomainCategoryLabel.ADULT_CONTENT
 
     for keyword, category in _KEYWORD_HINTS:
         if keyword in domain:

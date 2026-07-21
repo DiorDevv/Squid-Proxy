@@ -169,6 +169,7 @@ export const ru = {
   'category.shopping': 'Покупки',
   'category.news': 'Новости',
   'category.gambling': 'Азартные игры',
+  'category.adultContent': 'Контент для взрослых',
   'category.other': 'Другое',
   'domains.empty': 'За этот период активность доменов не зафиксирована.',
 

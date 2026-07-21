@@ -18,6 +18,7 @@ class DomainCategoryLabel(str, enum.Enum):
     SHOPPING = "shopping"
     NEWS = "news"
     GAMBLING = "gambling"
+    ADULT_CONTENT = "adult_content"
     OTHER = "other"
 
 

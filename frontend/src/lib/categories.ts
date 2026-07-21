@@ -15,6 +15,7 @@ export const CATEGORY_OPTIONS: DomainCategoryLabel[] = [
   'shopping',
   'news',
   'gambling',
+  'adult_content',
   'other',
 ]
 
@@ -28,5 +29,6 @@ export const CATEGORY_LABEL_KEYS: Record<DomainCategoryLabel, TranslationKey> = 
   shopping: 'category.shopping',
   news: 'category.news',
   gambling: 'category.gambling',
+  adult_content: 'category.adultContent',
   other: 'category.other',
 }

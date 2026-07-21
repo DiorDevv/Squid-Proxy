@@ -3,11 +3,13 @@
 import csv
 import io
 import json
+from collections.abc import AsyncIterator
 from datetime import datetime
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.models import db as db_module
 from app.models.raw_event import RawEvent
 from app.services.event_query_service import build_event_conditions
 
@@ -97,3 +99,99 @@ async def export_as_json(
 ) -> str:
     rows = await _fetch_rows(session, since, until, blocked_only, branch)
     return json.dumps([_row_to_dict(row) for row in rows])
+
+
+# --- Streaming, uncapped variants ---
+#
+# The two functions above are for report_service.py's emailed CSV attachment
+# (EXPORT_ROW_LIMIT and an in-memory string are both fine there -- nobody
+# wants a multi-hundred-MB email attachment anyway). GET /api/export and
+# scripts/archive_weekly_export.py need the opposite: the *complete* range
+# even when that's millions of rows (a real deployment's raw_events table
+# holds that much for even a single day), without ever holding the whole
+# thing in memory at once. Keyset pagination (by id, not OFFSET) keeps every
+# query O(batch size) regardless of how far into the range it is.
+
+_STREAM_BATCH_SIZE = 5_000
+
+
+async def _iter_batches(
+    session: AsyncSession, since: datetime, until: datetime, blocked_only: bool, branch: str | None = None
+) -> AsyncIterator[list[RawEvent]]:
+    conditions = build_event_conditions(since, until, blocked_only=blocked_only, branch=branch)
+    last_id = 0
+    while True:
+        query = (
+            select(RawEvent)
+            .where(*conditions, RawEvent.id > last_id)
+            .order_by(RawEvent.id)
+            .limit(_STREAM_BATCH_SIZE)
+        )
+        rows = (await session.execute(query)).scalars().all()
+        if not rows:
+            return
+        yield rows
+        last_id = rows[-1].id
+        if len(rows) < _STREAM_BATCH_SIZE:
+            return
+
+
+async def stream_csv(
+    session: AsyncSession, since: datetime, until: datetime, blocked_only: bool, branch: str | None = None
+) -> AsyncIterator[str]:
+    buffer = io.StringIO()
+    writer = csv.DictWriter(buffer, fieldnames=_COLUMNS)
+    writer.writeheader()
+    yield buffer.getvalue()
+
+    async for batch in _iter_batches(session, since, until, blocked_only, branch):
+        buffer.seek(0)
+        buffer.truncate(0)
+        for row in batch:
+            record = _row_to_dict(row)
+            for column in _FORMULA_RISK_COLUMNS:
+                record[column] = _escape_csv_formula(record[column])
+            writer.writerow(record)
+        yield buffer.getvalue()
+
+
+async def stream_json(
+    session: AsyncSession, since: datetime, until: datetime, blocked_only: bool, branch: str | None = None
+) -> AsyncIterator[str]:
+    yield "["
+    first = True
+    async for batch in _iter_batches(session, since, until, blocked_only, branch):
+        parts = []
+        for row in batch:
+            parts.append(("" if first else ",") + json.dumps(_row_to_dict(row)))
+            first = False
+        yield "".join(parts)
+    yield "]"
+
+
+async def download_csv(
+    since: datetime, until: datetime, blocked_only: bool, branch: str | None = None
+) -> AsyncIterator[str]:
+    """Route-facing entry point for GET /api/export: opens and holds its own
+    session for the whole streaming duration.
+
+    A FastAPI `Depends(get_db)` session is the wrong tool here -- its
+    cleanup runs right after the endpoint returns the StreamingResponse
+    object, *before* Starlette actually pulls this generator to send the
+    body, so a request-injected session would already be closed by the time
+    any of the query above ran. Opening a fresh session inside the
+    generator itself sidesteps that entirely.
+    """
+    async with db_module.AsyncSessionLocal() as session:
+        async for chunk in stream_csv(session, since, until, blocked_only, branch):
+            yield chunk
+
+
+async def download_json(
+    since: datetime, until: datetime, blocked_only: bool, branch: str | None = None
+) -> AsyncIterator[str]:
+    """download_csv's JSON counterpart -- see its docstring for why this
+    owns its own session instead of taking one via FastAPI's DI."""
+    async with db_module.AsyncSessionLocal() as session:
+        async for chunk in stream_json(session, since, until, blocked_only, branch):
+            yield chunk

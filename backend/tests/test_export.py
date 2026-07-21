@@ -8,7 +8,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.raw_event import RawEvent
 from app.schemas.common import RangeParam
-from app.services.export_service import EXPORT_ROW_LIMIT, export_as_csv, export_as_json
+from app.services.export_service import (
+    EXPORT_ROW_LIMIT,
+    export_as_csv,
+    export_as_json,
+    stream_csv,
+    stream_json,
+)
 
 
 def _make_event(**overrides) -> RawEvent:
@@ -92,6 +98,59 @@ async def test_export_row_count_is_capped(db_session: AsyncSession, monkeypatch)
     assert len(list(reader)) == 3
     # The real constant is untouched by the monkeypatch above.
     assert EXPORT_ROW_LIMIT == 100_000
+
+
+async def test_stream_csv_is_not_row_limited(db_session: AsyncSession, monkeypatch):
+    # Force many small batches (instead of one query returning everything)
+    # to prove pagination across batch boundaries doesn't drop or duplicate
+    # rows, and that -- unlike export_as_csv -- this never consults
+    # EXPORT_ROW_LIMIT at all. GET /api/export and
+    # scripts/archive_weekly_export.py both rely on this for ranges far
+    # past that cap (a real deployment's raw_events table holds millions of
+    # rows for even a single day).
+    import app.services.export_service as export_service_module
+
+    monkeypatch.setattr(export_service_module, "_STREAM_BATCH_SIZE", 3)
+    row_total = 250
+    db_session.add_all([_make_event(client_ip=f"10.0.{i // 250}.{i % 250}") for i in range(row_total)])
+    await db_session.commit()
+
+    chunks = [
+        chunk
+        async for chunk in stream_csv(db_session, RangeParam.ONE_HOUR.since(), datetime.now(UTC), blocked_only=False)
+    ]
+    csv_body = "".join(chunks)
+    reader = csv.DictReader(io.StringIO(csv_body))
+    assert len(list(reader)) == row_total
+
+
+async def test_stream_csv_escapes_formula_injection(db_session: AsyncSession):
+    db_session.add(_make_event(client_ip="10.0.0.1", domain="=cmd|'/c calc'!A1"))
+    await db_session.commit()
+
+    chunks = [
+        chunk
+        async for chunk in stream_csv(db_session, RangeParam.ONE_HOUR.since(), datetime.now(UTC), blocked_only=False)
+    ]
+    reader = csv.DictReader(io.StringIO("".join(chunks)))
+    assert next(reader)["domain"].startswith("'=")
+
+
+async def test_stream_json_produces_valid_json_across_batches(db_session: AsyncSession, monkeypatch):
+    import app.services.export_service as export_service_module
+
+    monkeypatch.setattr(export_service_module, "_STREAM_BATCH_SIZE", 2)
+    db_session.add_all([_make_event(client_ip=f"10.0.0.{i}") for i in range(7)])
+    await db_session.commit()
+
+    chunks = [
+        chunk
+        async for chunk in stream_json(
+            db_session, RangeParam.ONE_HOUR.since(), datetime.now(UTC), blocked_only=False
+        )
+    ]
+    parsed = json.loads("".join(chunks))
+    assert len(parsed) == 7
 
 
 async def test_export_route_returns_csv_with_headers(app_client: AsyncClient, admin_token, auth_headers):

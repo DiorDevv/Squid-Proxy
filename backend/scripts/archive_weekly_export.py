@@ -2,13 +2,14 @@
 """Archives the last 7 days of raw event detail as gzip-compressed CSV before
 retention.py permanently purges it (RETENTION_DAYS_RAW_EVENTS, default 7).
 
-Streams rows in batches (keyset-paginated by id) straight into a gzip
-writer rather than building the export in memory -- a week of raw events at
-the traffic volumes in the brief (1-3M req/day) is millions of rows, far
-past what fits comfortably as one in-memory string. This deliberately
-doesn't reuse export_service.export_as_csv, which caps at EXPORT_ROW_LIMIT
-(100k) and holds the whole result in memory -- a sensible limit for an
-admin's interactive HTTP download, wrong for a full-week unattended archive.
+Delegates the actual row streaming to export_service.stream_csv (also used
+by GET /api/export) rather than re-querying RawEvent itself, so the two
+places that need "every row in a range, batched, no memory blowup" can't
+quietly drift apart. This is the same reason that function -- not
+export_as_csv's EXPORT_ROW_LIMIT-capped, in-memory-string sibling -- exists:
+a week of raw events at the traffic volumes in the brief (1-3M req/day) is
+millions of rows, and both this script and the interactive download need
+the complete range, not the most recent 100k.
 
 Intended to run weekly via cron/systemd timer, before that data ages out:
     0 3 * * 0  cd /path/to/backend && .venv/bin/python scripts/archive_weekly_export.py
@@ -22,63 +23,18 @@ the live database's own retention window.
 
 import argparse
 import asyncio
-import csv
 import gzip
 import sys
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from typing import TextIO
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from sqlalchemy import select  # noqa: E402
-from sqlalchemy.ext.asyncio import AsyncSession  # noqa: E402
-
 from app.core.config import get_settings  # noqa: E402
 from app.models.db import AsyncSessionLocal, init_db  # noqa: E402
-from app.models.raw_event import RawEvent  # noqa: E402
-from app.services.export_service import _COLUMNS, _escape_csv_formula, _row_to_dict  # noqa: E402
+from app.services.export_service import stream_csv  # noqa: E402
 
-BATCH_SIZE = 5_000
 ARCHIVE_FILENAME_GLOB = "squid-events-*.csv.gz"
-
-
-async def _stream_branch_csv(
-    session: AsyncSession, since: datetime, until: datetime, branch: str, text_file: TextIO
-) -> int:
-    writer = csv.DictWriter(text_file, fieldnames=_COLUMNS)
-    writer.writeheader()
-
-    total = 0
-    last_id = 0
-    while True:
-        query = (
-            select(RawEvent)
-            .where(
-                RawEvent.branch == branch,
-                RawEvent.timestamp >= since,
-                RawEvent.timestamp < until,
-                RawEvent.id > last_id,
-            )
-            .order_by(RawEvent.id)
-            .limit(BATCH_SIZE)
-        )
-        rows = (await session.execute(query)).scalars().all()
-        if not rows:
-            break
-
-        for row in rows:
-            record = _row_to_dict(row)
-            for column in ("client_ip", "user", "url", "domain"):
-                record[column] = _escape_csv_formula(record[column])
-            writer.writerow(record)
-
-        total += len(rows)
-        last_id = rows[-1].id
-        if len(rows) < BATCH_SIZE:
-            break
-
-    return total
 
 
 def _purge_old_archives(output_dir: Path, keep_days: int) -> None:
@@ -100,9 +56,23 @@ async def archive(output_dir: Path, keep_days: int) -> None:
         for source in settings.effective_log_sources:
             filename = f"squid-events-{source.branch}-{since.date()}_{now.date()}.csv.gz"
             path = output_dir / filename
+
+            # stream_csv's first chunk is exactly the header row; every
+            # chunk after that is one full batch of already-terminated CSV
+            # rows, so counting those (and skipping the header chunk) gives
+            # an exact row count without re-deriving anything about the
+            # query itself.
+            row_count = 0
+            is_header_chunk = True
             with gzip.open(path, "wt", encoding="utf-8", newline="") as f:
-                count = await _stream_branch_csv(session, since, now, source.branch, f)
-            print(f"Archived {source.branch}: {count:,} rows -> {path} ({path.stat().st_size:,} bytes)")
+                async for chunk in stream_csv(session, since, now, blocked_only=False, branch=source.branch):
+                    f.write(chunk)
+                    if is_header_chunk:
+                        is_header_chunk = False
+                    else:
+                        row_count += chunk.count("\r\n")
+
+            print(f"Archived {source.branch}: {row_count:,} rows -> {path} ({path.stat().st_size:,} bytes)")
 
     _purge_old_archives(output_dir, keep_days)
 

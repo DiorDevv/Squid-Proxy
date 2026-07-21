@@ -281,10 +281,9 @@ cd backend
 ```
 
 Writes one gzip-compressed CSV per configured branch (`squid-events-<branch>-<since>_<until>.csv.gz`)
-covering the last 7 days, streamed in batches rather than held in memory — unlike `GET
-/api/export`, which is capped at 100k rows for an admin's interactive download, this has no row
-limit, since a week of raw events at real traffic volumes is routinely millions of rows. `--keep-days`
-then prunes archive files older than that from `--output-dir` (the *archive's* own retention, separate
+covering the last 7 days, streamed in batches rather than held in memory, so it has no row limit —
+a week of raw events at real traffic volumes is routinely millions of rows. `--keep-days` then
+prunes archive files older than that from `--output-dir` (the *archive's* own retention, separate
 from the database's).
 
 Run it weekly via cron or a systemd timer, before `RETENTION_DAYS_RAW_EVENTS` catches up to the data:
@@ -292,6 +291,14 @@ Run it weekly via cron or a systemd timer, before `RETENTION_DAYS_RAW_EVENTS` ca
 ```
 0 3 * * 0  cd /path/to/backend && .venv/bin/python scripts/archive_weekly_export.py --output-dir /var/backups/squid-watch
 ```
+
+`GET /api/export` (also the **Export** button on **Settings**) streams the same way and is equally
+uncapped — pick `range=7d` there for an ad-hoc download of the full week straight from the browser,
+no server access needed. The difference is what each is *for*: the browser download is a plain,
+uncompressed CSV/JSON, fine for an occasional manual pull but sized (and timed) proportionally to
+however many rows are in range — at millions of rows that's several hundred MB and several
+minutes. The script above is the one to put on a schedule for unattended, ongoing archival, since
+it also gzip-compresses (roughly 15x smaller) and prunes its own old files.
 
 ## API surface
 

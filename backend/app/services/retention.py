@@ -15,7 +15,8 @@ from datetime import UTC, datetime, timedelta
 from sqlalchemy import delete, func, literal_column, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.config import get_settings
+from app.core.config import Settings, get_settings
+from app.models.archive_run import ArchiveRun
 from app.models.client_aggregate import ClientMinuteAggregate
 from app.models.client_category_aggregate import ClientCategoryMinuteAggregate
 from app.models.client_hourly_aggregate import ClientHourlyAggregate
@@ -25,6 +26,7 @@ from app.models.minute_aggregate import MinuteAggregate
 from app.models.raw_event import RawEvent
 from app.models.refresh_token import RefreshToken
 from app.services.db_upsert import bulk_upsert_sum
+from app.services.report_service import send_unarchived_purge_warning
 
 logger = logging.getLogger(__name__)
 
@@ -34,6 +36,13 @@ class RetentionJob:
         self.interval_seconds = interval_seconds
         self._task: asyncio.Task | None = None
         self._stop_event = asyncio.Event()
+        # Populated by the most recent purge() -- which branches (if any)
+        # just had raw_events permanently deleted without ever being
+        # archived (see _find_unarchived_branches). Read by /api/health so
+        # this is visible on the dashboard, not just in logs/email; reset
+        # to empty every run, so it only ever reflects the *last* purge,
+        # not every warning that's ever fired.
+        self.unarchived_branches: list[str] = []
 
     def start(self) -> None:
         self._task = asyncio.create_task(self._run_forever(), name="retention-job")
@@ -72,6 +81,12 @@ class RetentionJob:
         async with AsyncSessionLocal() as session:
             await self._rollup_client_minutes_to_hourly(session, rollup_cutoff)
 
+            # Checked *before* the delete below, against the data that
+            # delete is about to remove -- purging still happens either way
+            # (retention has to stay bounded regardless of whether anyone's
+            # archiving), this only decides whether to warn about it.
+            unarchived_branches = await self._find_unarchived_branches(session, settings, raw_cutoff)
+
             raw_result = await session.execute(delete(RawEvent).where(RawEvent.timestamp < raw_cutoff))
             await session.execute(
                 delete(MinuteAggregate).where(MinuteAggregate.bucket_ts < aggregate_cutoff)
@@ -104,6 +119,40 @@ class RetentionJob:
             "Retention purge complete",
             extra={"raw_events_deleted": raw_result.rowcount, "raw_cutoff": raw_cutoff.isoformat()},
         )
+
+        self.unarchived_branches = unarchived_branches
+        if unarchived_branches:
+            logger.warning(
+                "Purged raw_events for branch(es) never archived: %s (cutoff %s)",
+                ", ".join(unarchived_branches),
+                raw_cutoff.isoformat(),
+            )
+            # A broken/unconfigured SMTP setup must never take down
+            # retention itself -- the purge above already happened and
+            # committed; this is a best-effort notification about it, not
+            # part of the purge's own correctness.
+            try:
+                await send_unarchived_purge_warning(unarchived_branches, raw_cutoff)
+            except Exception:
+                logger.exception("Failed to send unarchived-purge warning email")
+
+    async def _find_unarchived_branches(
+        self, session: AsyncSession, settings: Settings, raw_cutoff: datetime
+    ) -> list[str]:
+        """Which configured branches have raw_events about to be purged
+        (older than raw_cutoff) that scripts/archive_weekly_export.py never
+        archived up to that point -- i.e. ArchiveRun has no row for that
+        branch, or its last successful archive didn't reach far enough."""
+        archived_until_by_branch = {
+            row.branch: row.archived_until
+            for row in (await session.execute(select(ArchiveRun))).scalars().all()
+        }
+        unarchived = []
+        for source in settings.effective_log_sources:
+            archived_until = archived_until_by_branch.get(source.branch)
+            if archived_until is None or archived_until < raw_cutoff:
+                unarchived.append(source.branch)
+        return unarchived
 
     async def _rollup_client_minutes_to_hourly(
         self, session: AsyncSession, rollup_cutoff: datetime

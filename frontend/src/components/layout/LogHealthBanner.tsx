@@ -14,12 +14,15 @@ export function LogHealthBanner() {
   const highFailureRate =
     hasTraffic && data.log_parse_failure_rate !== null && data.log_parse_failure_rate >= HIGH_FAILURE_THRESHOLD
   const tailerDown = !data.log_tailer_alive
+  const hasUnarchivedPurge = data.unarchived_purge_branches.length > 0
 
-  if (!highFailureRate && !tailerDown) return null
+  if (!highFailureRate && !tailerDown && !hasUnarchivedPurge) return null
 
   const message = highFailureRate
     ? t('health.parseFailure', { rate: Math.round(data.log_parse_failure_rate! * 100) })
-    : t('health.tailerDown')
+    : tailerDown
+      ? t('health.tailerDown')
+      : t('health.unarchivedPurge', { branches: data.unarchived_purge_branches.join(', ') })
 
   return (
     <div

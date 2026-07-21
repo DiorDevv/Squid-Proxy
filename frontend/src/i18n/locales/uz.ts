@@ -33,6 +33,8 @@ export const uz = {
   'health.parseFailure':
     "Squid loglarining {{rate}}% qismi o'qib bo'lmadi — access_log \"squid\" formatida ekanligini tekshiring (README'ga qarang).",
   'health.tailerDown': "Squid log fayli o'qilmayapti yoki topilmadi — yangi trafik qayd etilmayapti.",
+  'health.unarchivedPurge':
+    "{{branches}} uchun batafsil log ma'lumoti arxivlanmasdan turib butunlay o'chirildi (saqlash muddati tugadi) — README'dagi arxivlash bo'limiga qarang.",
 
   'account.signedIn': 'Tizimga kirilgan',
   'account.signOut': 'Chiqish',

@@ -36,6 +36,8 @@ export const en = {
   'health.parseFailure':
     '{{rate}}% of recent Squid log lines failed to parse — check that access_log uses the "squid" logformat (see README).',
   'health.tailerDown': 'The Squid log file is unreadable or missing — no new traffic is being recorded.',
+  'health.unarchivedPurge':
+    'Raw log detail for {{branches}} was just permanently deleted (retention window) without ever being archived — see the README\'s archiving section.',
 
   // --- Account menu ---
   'account.signedIn': 'Signed in',

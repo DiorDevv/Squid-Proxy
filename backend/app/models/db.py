@@ -44,6 +44,7 @@ async def init_db() -> None:
     # Import models so they're registered on Base.metadata before create_all.
     from app.models import (  # noqa: F401
         anomaly_event,
+        archive_run,
         audit_log,
         client_aggregate,
         client_category_aggregate,

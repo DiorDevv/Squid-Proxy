@@ -11,6 +11,7 @@ from app.core.config import get_settings
 from app.models import (  # noqa: F401,E402
     alert_settings,
     anomaly_event,
+    archive_run,
     audit_log,
     client_aggregate,
     client_category_aggregate,

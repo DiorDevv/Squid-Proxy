@@ -182,3 +182,32 @@ async def generate_and_send_report(
         send_report_email, settings.REPORT_RECIPIENTS, subject, html_body, csv_attachment
     )
     return True
+
+
+async def send_unarchived_purge_warning(branches: list[str], raw_cutoff: datetime) -> bool:
+    """Best-effort email alert: RetentionJob.purge() calls this right before
+    permanently deleting raw_events for a branch that scripts/
+    archive_weekly_export.py has never (or not recently enough) archived --
+    see retention.py. Same "no recipients configured, no-op" shape as
+    generate_and_send_report; failures here must never block the purge
+    itself, so the caller wraps this separately.
+    """
+    settings = get_settings()
+    if not settings.REPORT_RECIPIENTS:
+        return False
+
+    branch_list = ", ".join(branches)
+    subject = f"Squid Watch: raw log data purged without being archived ({branch_list})"
+    html_body = (
+        f"<p>Retention just permanently deleted raw event detail older than "
+        f"{html.escape(raw_cutoff.isoformat())} for branch(es) <b>{html.escape(branch_list)}</b>, "
+        f"which {'was' if len(branches) == 1 else 'were'} never covered by a successful "
+        f"<code>scripts/archive_weekly_export.py</code> run up to that point.</p>"
+        f"<p>If you need this data retained longer than "
+        f"<code>RETENTION_DAYS_RAW_EVENTS</code>, make sure the archive script is running on "
+        f"schedule (see the README's \"Archiving raw event detail before it's purged\" section) "
+        f"before the next purge.</p>"
+    )
+
+    await asyncio.to_thread(send_report_email, settings.REPORT_RECIPIENTS, subject, html_body)
+    return True

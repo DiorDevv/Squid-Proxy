@@ -19,6 +19,21 @@ way), named squid-events-<branch>-<since_date>_<until_date>.csv.gz in
 --output-dir. Archive files older than --keep-days are deleted after a
 successful run -- rotation for the *archive* on this server, independent of
 the live database's own retention window.
+
+Each successful per-branch write also upserts an ArchiveRun row
+(branch -> archived up to `now`), which retention.py checks before its next
+purge -- so if this script stops running (cron misconfigured, disk full,
+etc.), the next purge notices that branch was never (or not recently
+enough) archived and warns instead of silently deleting it anyway.
+
+The per-branch range starts at the *earlier* of "7 days ago" and "where the
+last successful run for that branch left off" (ArchiveRun.archived_until),
+not always a flat 7 days back. Otherwise a missed run -- the exact failure
+this exists to catch -- would recover with one archive covering only the
+most recent 7 days, silently skipping the gap between that and the older
+data already covered by the previous run; retention.py only sees a single
+archived_until marker, so that marker must never claim more coverage than
+was actually written.
 """
 
 import argparse
@@ -31,6 +46,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from app.core.config import get_settings  # noqa: E402
+from app.models.archive_run import ArchiveRun  # noqa: E402
 from app.models.db import AsyncSessionLocal, init_db  # noqa: E402
 from app.services.export_service import stream_csv  # noqa: E402
 
@@ -49,11 +65,14 @@ async def archive(output_dir: Path, keep_days: int) -> None:
     await init_db()
     settings = get_settings()
     now = datetime.now(UTC)
-    since = now - timedelta(days=7)
+    default_since = now - timedelta(days=7)
     output_dir.mkdir(parents=True, exist_ok=True)
 
     async with AsyncSessionLocal() as session:
         for source in settings.effective_log_sources:
+            existing_run = await session.get(ArchiveRun, source.branch)
+            since = min(default_since, existing_run.archived_until) if existing_run else default_since
+
             filename = f"squid-events-{source.branch}-{since.date()}_{now.date()}.csv.gz"
             path = output_dir / filename
 
@@ -73,6 +92,12 @@ async def archive(output_dir: Path, keep_days: int) -> None:
                         row_count += chunk.count("\r\n")
 
             print(f"Archived {source.branch}: {row_count:,} rows -> {path} ({path.stat().st_size:,} bytes)")
+
+            if existing_run is not None:
+                existing_run.archived_until = now
+            else:
+                session.add(ArchiveRun(branch=source.branch, archived_until=now))
+            await session.commit()
 
     _purge_old_archives(output_dir, keep_days)
 

@@ -40,6 +40,9 @@ async def health(request: Request) -> dict:
     backlog_ratio = round(aggregator.backlog_ratio, 3) if aggregator else 0.0
     events_likely_lost = bool(aggregator and aggregator.events_likely_lost)
 
+    retention_job = getattr(request.app.state, "retention_job", None)
+    unarchived_branches = list(retention_job.unarchived_branches) if retention_job else []
+
     return {
         "status": "ok",
         "time": datetime.now(UTC).isoformat(),
@@ -55,4 +58,9 @@ async def health(request: Request) -> dict:
         # ERROR log line an operator has to go looking for.
         "aggregator_backlog_ratio": backlog_ratio,
         "aggregator_events_likely_lost": events_likely_lost,
+        # Branches whose raw_events were just permanently purged by the last
+        # retention run without ever being archived (see RetentionJob.
+        # purge()/_find_unarchived_branches) -- empty in the normal case
+        # where scripts/archive_weekly_export.py is running on schedule.
+        "unarchived_purge_branches": unarchived_branches,
     }

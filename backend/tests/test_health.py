@@ -42,6 +42,26 @@ async def test_health_reports_aggregator_backlog_when_wired(app_client: AsyncCli
     assert body["aggregator_events_likely_lost"] is False
 
 
+async def test_health_reports_no_unarchived_branches_without_a_retention_job(app_client: AsyncClient):
+    """The test app's lifespan double doesn't wire up a real retention job --
+    the endpoint must degrade to an empty list rather than 500."""
+    response = await app_client.get("/api/health")
+    body = response.json()
+    assert body["unarchived_purge_branches"] == []
+
+
+async def test_health_reports_unarchived_branches_when_wired(app_client: AsyncClient, test_app):
+    from app.services.retention import RetentionJob
+
+    job = RetentionJob()
+    job.unarchived_branches = ["hq"]
+    test_app.state.retention_job = job
+
+    response = await app_client.get("/api/health")
+    body = response.json()
+    assert body["unarchived_purge_branches"] == ["hq"]
+
+
 def _fake_event():
     from app.services.log_parser import parse_line
 

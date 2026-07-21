@@ -31,6 +31,8 @@ export const ru = {
   'health.parseFailure':
     'Не удалось разобрать {{rate}}% строк лога Squid — проверьте, что access_log использует формат "squid" (см. README).',
   'health.tailerDown': 'Файл лога Squid недоступен или не найден — новый трафик не фиксируется.',
+  'health.unarchivedPurge':
+    'Подробные данные лога для {{branches}} только что были безвозвратно удалены (срок хранения истёк), не будучи заархивированы — см. раздел об архивировании в README.',
 
   'account.signedIn': 'Вы вошли',
   'account.signOut': 'Выйти',

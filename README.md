@@ -300,6 +300,14 @@ however many rows are in range — at millions of rows that's several hundred MB
 minutes. The script above is the one to put on a schedule for unattended, ongoing archival, since
 it also gzip-compresses (roughly 15x smaller) and prunes its own old files.
 
+**If the schedule above stops running** (cron misconfigured, disk full, etc.), you're not left
+finding out the hard way once the data is already gone. Every successful run records how far it
+archived (`archive_runs` table); before each purge, `RetentionJob` checks whether the branch it's
+about to delete raw data for was actually covered, and if not, still purges (retention has to stay
+bounded regardless) but surfaces a warning both on the dashboard (a banner, same mechanism as the
+Squid-logformat one above) and by email to `REPORT_RECIPIENTS`, if configured. Seeing that warning
+means the schedule needs attention *before* more data ages out unarchived — not after.
+
 ## API surface
 
 All endpoints are under `/api`, JWT-protected except `/api/health`. See

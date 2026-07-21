@@ -3,7 +3,8 @@ from datetime import UTC, datetime, timedelta
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.config import get_settings
+from app.core.config import DEFAULT_BRANCH, get_settings
+from app.models.archive_run import ArchiveRun
 from app.models.client_aggregate import ClientMinuteAggregate
 from app.models.client_category_aggregate import ClientCategoryMinuteAggregate
 from app.models.client_hourly_aggregate import ClientHourlyAggregate
@@ -209,6 +210,114 @@ async def test_purge_rolls_up_old_client_minutes_into_hourly_and_deletes_the_sou
     assert hourly_rows[0].request_count == 5
     assert hourly_rows[0].blocked_count == 1
     assert hourly_rows[0].total_bytes == 500
+
+
+async def test_purge_flags_branch_with_no_archive_run_as_unarchived(db_session: AsyncSession, monkeypatch):
+    import app.services.retention as retention_module
+
+    monkeypatch.setattr(retention_module, "AsyncSessionLocal", lambda: db_session)
+
+    settings = get_settings()
+    old_ts = datetime.now(UTC) - timedelta(days=settings.RETENTION_DAYS_RAW_EVENTS + 1)
+    db_session.add(_raw_event(old_ts))
+    await db_session.commit()
+
+    job = RetentionJob()
+    await job.purge()
+
+    # No ArchiveRun row exists for this branch at all -- the raw data just
+    # purged was never archived, so it should be flagged.
+    assert job.unarchived_branches == [DEFAULT_BRANCH]
+
+
+async def test_purge_does_not_flag_a_branch_covered_by_a_recent_archive_run(
+    db_session: AsyncSession, monkeypatch
+):
+    import app.services.retention as retention_module
+
+    monkeypatch.setattr(retention_module, "AsyncSessionLocal", lambda: db_session)
+
+    settings = get_settings()
+    now = datetime.now(UTC)
+    old_ts = now - timedelta(days=settings.RETENTION_DAYS_RAW_EVENTS + 1)
+    db_session.add(_raw_event(old_ts))
+    db_session.add(ArchiveRun(branch=DEFAULT_BRANCH, archived_until=now))
+    await db_session.commit()
+
+    job = RetentionJob()
+    await job.purge()
+
+    assert job.unarchived_branches == []
+
+
+async def test_purge_flags_branch_whose_archive_run_is_too_old(db_session: AsyncSession, monkeypatch):
+    import app.services.retention as retention_module
+
+    monkeypatch.setattr(retention_module, "AsyncSessionLocal", lambda: db_session)
+
+    settings = get_settings()
+    now = datetime.now(UTC)
+    raw_cutoff = now - timedelta(days=settings.RETENTION_DAYS_RAW_EVENTS)
+    old_ts = raw_cutoff - timedelta(days=1)
+    db_session.add(_raw_event(old_ts))
+    # Archived once, but before the data that's about to be purged now --
+    # e.g. the weekly cron hasn't run again since older data accumulated.
+    db_session.add(ArchiveRun(branch=DEFAULT_BRANCH, archived_until=raw_cutoff - timedelta(days=1)))
+    await db_session.commit()
+
+    job = RetentionJob()
+    await job.purge()
+
+    assert job.unarchived_branches == [DEFAULT_BRANCH]
+
+
+async def test_purge_emails_a_warning_when_a_branch_was_purged_unarchived(
+    db_session: AsyncSession, monkeypatch
+):
+    import app.services.retention as retention_module
+
+    monkeypatch.setattr(retention_module, "AsyncSessionLocal", lambda: db_session)
+    calls = []
+
+    async def fake_send(branches: list[str], raw_cutoff: datetime) -> bool:
+        calls.append(branches)
+        return True
+
+    monkeypatch.setattr(retention_module, "send_unarchived_purge_warning", fake_send)
+
+    settings = get_settings()
+    old_ts = datetime.now(UTC) - timedelta(days=settings.RETENTION_DAYS_RAW_EVENTS + 1)
+    db_session.add(_raw_event(old_ts))
+    await db_session.commit()
+
+    job = RetentionJob()
+    await job.purge()
+
+    assert calls == [[DEFAULT_BRANCH]]
+
+
+async def test_purge_survives_a_failed_warning_email(db_session: AsyncSession, monkeypatch):
+    """A broken/unconfigured SMTP setup must never take down retention --
+    the purge itself must still complete and commit."""
+    import app.services.retention as retention_module
+
+    monkeypatch.setattr(retention_module, "AsyncSessionLocal", lambda: db_session)
+
+    async def broken_send(branches: list[str], raw_cutoff: datetime) -> bool:
+        raise RuntimeError("SMTP is not configured")
+
+    monkeypatch.setattr(retention_module, "send_unarchived_purge_warning", broken_send)
+
+    settings = get_settings()
+    old_ts = datetime.now(UTC) - timedelta(days=settings.RETENTION_DAYS_RAW_EVENTS + 1)
+    db_session.add(_raw_event(old_ts))
+    await db_session.commit()
+
+    job = RetentionJob()
+    await job.purge()  # must not raise
+
+    remaining = (await db_session.execute(select(RawEvent))).scalars().all()
+    assert remaining == []
 
 
 async def test_purge_rollup_accumulates_into_an_existing_hourly_row_on_a_later_run(

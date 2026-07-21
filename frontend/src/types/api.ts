@@ -126,6 +126,7 @@ export interface HealthResponse {
   log_lines_parsed: number
   log_parse_failure_rate: number | null
   log_sources: LogSourceHealth[]
+  unarchived_purge_branches: string[]
 }
 
 export interface DomainSummary {

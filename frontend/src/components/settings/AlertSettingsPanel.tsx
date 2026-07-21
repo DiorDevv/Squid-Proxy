@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
@@ -11,7 +11,7 @@ import { useAlertSettings, useUpdateAlertSettings } from '@/hooks/useAlertSettin
 import { useBranches } from '@/hooks/useBranches'
 import { CATEGORY_LABEL_KEYS, CATEGORY_OPTIONS } from '@/lib/categories'
 import { useTranslation } from '@/i18n'
-import type { DomainCategoryLabel } from '@/types/api'
+import type { AlertSettingsOut, DomainCategoryLabel } from '@/types/api'
 
 const BYTES_PER_GB = 1_000_000_000
 const DEFAULT_BRANCH = 'default'
@@ -42,22 +42,68 @@ export function AlertSettingsPanel() {
       : (branchItems[0]?.slug ?? DEFAULT_BRANCH)
 
   const query = useAlertSettings(branch)
+
+  if (query.isLoading) {
+    return (
+      <div className="flex flex-col gap-2">
+        {Array.from({ length: 4 }).map((_, i) => (
+          <Skeleton key={i} className="h-9 w-full" />
+        ))}
+      </div>
+    )
+  }
+
+  if (query.isError) {
+    return <ErrorState message={query.error?.message} onRetry={() => query.refetch()} />
+  }
+
+  // Narrows query.data from `AlertSettingsOut | undefined` for the render
+  // below -- isLoading/isError already rule this out in practice, but
+  // TypeScript can't infer that across separate boolean flags.
+  if (!query.data) {
+    return null
+  }
+
+  return (
+    <div className="flex flex-col gap-4">
+      {branchItems.length > 1 && (
+        <div className="flex flex-col gap-1.5">
+          <Label htmlFor="alert-settings-branch">{t('branch.filter')}</Label>
+          <Select value={branch} onValueChange={setManualBranch}>
+            <SelectTrigger id="alert-settings-branch" size="sm" className="w-48">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {branchItems.map((item) => (
+                <SelectItem key={item.slug} value={item.slug}>
+                  {item.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+      )}
+
+      {/* key={branch} remounts the form fresh whenever the branch changes,
+          so its local state is (re-)initialized straight from that branch's
+          data with no effect needed -- also means an in-progress edit for
+          the current branch survives an incidental background refetch. */}
+      <AlertSettingsForm key={branch} branch={branch} data={query.data} />
+    </div>
+  )
+}
+
+function AlertSettingsForm({ branch, data }: { branch: string; data: AlertSettingsOut }) {
+  const { t } = useTranslation()
   const updateSettings = useUpdateAlertSettings(branch)
 
-  const [sensitiveCategories, setSensitiveCategories] = useState<Set<DomainCategoryLabel>>(new Set())
-  const [nonWorkMinutes, setNonWorkMinutes] = useState('120')
-  const [quotaGb, setQuotaGb] = useState('')
-
-  useEffect(() => {
-    if (!query.data) return
-    setSensitiveCategories(new Set(query.data.sensitive_categories))
-    setNonWorkMinutes(String(query.data.non_work_minutes_threshold))
-    setQuotaGb(
-      query.data.client_daily_byte_quota_bytes != null
-        ? String(query.data.client_daily_byte_quota_bytes / BYTES_PER_GB)
-        : '',
-    )
-  }, [query.data])
+  const [sensitiveCategories, setSensitiveCategories] = useState<Set<DomainCategoryLabel>>(
+    () => new Set(data.sensitive_categories),
+  )
+  const [nonWorkMinutes, setNonWorkMinutes] = useState(() => String(data.non_work_minutes_threshold))
+  const [quotaGb, setQuotaGb] = useState(() =>
+    data.client_daily_byte_quota_bytes != null ? String(data.client_daily_byte_quota_bytes / BYTES_PER_GB) : '',
+  )
 
   function setCategoryChecked(category: DomainCategoryLabel, checked: boolean) {
     setSensitiveCategories((prev) => {
@@ -91,40 +137,8 @@ export function AlertSettingsPanel() {
     )
   }
 
-  if (query.isLoading) {
-    return (
-      <div className="flex flex-col gap-2">
-        {Array.from({ length: 4 }).map((_, i) => (
-          <Skeleton key={i} className="h-9 w-full" />
-        ))}
-      </div>
-    )
-  }
-
-  if (query.isError) {
-    return <ErrorState message={query.error?.message} onRetry={() => query.refetch()} />
-  }
-
   return (
-    <div className="flex flex-col gap-4">
-      {branchItems.length > 1 && (
-        <div className="flex flex-col gap-1.5">
-          <Label htmlFor="alert-settings-branch">{t('branch.filter')}</Label>
-          <Select value={branch} onValueChange={setManualBranch}>
-            <SelectTrigger id="alert-settings-branch" size="sm" className="w-48">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {branchItems.map((item) => (
-                <SelectItem key={item.slug} value={item.slug}>
-                  {item.label}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
-      )}
-
+    <>
       <div className="flex flex-col gap-2">
         <Label>{t('settings.sensitiveCategories')}</Label>
         <p className="text-xs text-muted-foreground">{t('settings.sensitiveCategoriesDescription')}</p>
@@ -174,6 +188,6 @@ export function AlertSettingsPanel() {
       <Button onClick={handleSave} disabled={updateSettings.isPending} className="w-fit">
         {t('common.save')}
       </Button>
-    </div>
+    </>
   )
 }

@@ -18,7 +18,8 @@ See [ARCHITECTURE.md](ARCHITECTURE.md) for the reasoning behind the major design
 ```
 backend/    FastAPI + SQLAlchemy (async) + JWT auth + log tailer/aggregator
 frontend/   React + TypeScript + Vite + Tailwind + shadcn/ui
-deploy/     Example nginx (bare-metal) and systemd unit for a non-Docker deployment
+deploy/     Example nginx/systemd for a non-Docker deployment, plus rsyslog configs for
+            centralizing logs from multiple branch servers (see "Multi-branch deployment" below)
 docker-compose.yml   Backend + frontend + Postgres, wired together
 ```
 
@@ -78,6 +79,83 @@ it), you have two options: add a **second** `access_log` line in `squid.conf` wr
 format to a separate file for this dashboard to tail, or adapt `parse_line()` in
 `log_parser.py` to your actual field layout (its docstring documents the exact 10 fields it
 expects, in order).
+
+## Multi-branch deployment (multiple Squid servers)
+
+The backend can ingest several branches/sites at once (`LOG_SOURCES`, see
+`backend/.env.example`) into one shared dashboard, each branch tagged and filterable
+independently. That config expects every branch's `access.log` to already be a **local file** on
+the machine running the backend — the backend itself doesn't reach out to remote servers, so
+getting each branch's log there is a separate, infrastructure-level step.
+
+The recommended way to do that is centralizing logs with **rsyslog**, over TLS, in real time:
+
+```
+Branch 1 Squid ──access.log──> rsyslog (imfile) ──TLS──┐
+Branch 2 Squid ──access.log──> rsyslog (imfile) ──TLS──┼──> Central rsyslog (imtcp) ──> one file per branch ──> LOG_SOURCES
+Branch N Squid ──access.log──> rsyslog (imfile) ──TLS──┘
+```
+
+Example configs for both ends are in `deploy/rsyslog/`:
+
+- **`deploy/rsyslog/branch.conf`** — installed on each branch server. Tails that branch's
+  `access.log` and forwards it to the central server over TLS. If the central server or the link
+  between them is down, lines queue to local disk (`queue.type="linkedlist"`, capped at
+  `queue.maxdiskspace`) and drain automatically once it's back — no log data is lost to a
+  transient outage, it just arrives late.
+- **`deploy/rsyslog/central.conf`** — installed on the backend server. Receives each branch's
+  stream and writes it back out to its own file, unchanged (no syslog envelope added), so it's
+  byte-identical to what Squid wrote — `LogTailer` reads it exactly like a local Squid install.
+- **`deploy/rsyslog/check-queue-disk.sh`** — run on each branch server via cron/systemd timer;
+  alerts (via `logger`, so it surfaces through whatever monitoring already watches that server)
+  if the disk-buffer queue is filling up, which only happens during an extended outage. Catch it
+  before the queue hits its cap and starts dropping data.
+- **`deploy/rsyslog/squid-branches.logrotate`** — installed on the central server; rotates the
+  per-branch files `central.conf` writes (they'd otherwise grow unbounded). Uses `copytruncate`,
+  required because rsyslog keeps the destination file open.
+- **`deploy/rsyslog/test-single-vm.sh`** — a scratch end-to-end sanity check: runs both the
+  branch and central roles on one disposable test VM (over `127.0.0.1`, self-signed test certs),
+  sends a marker line through the whole pipeline, and confirms it arrives. Validates the config
+  logic (TLS, tag routing, file output) before touching real branch servers; doesn't test
+  cross-server firewall/hostnames — see the rollout checklist below for that. Run it on a
+  disposable VM, not your main machine (it installs packages and edits `/etc/rsyslog.d/`).
+
+Both `.conf` files use TLS client-cert auth between branch and central — Squid logs contain
+client IPs and visited URLs, which is sensitive even on a private network. Generate your own
+private CA and per-server certs (e.g. with `openssl req`); this repo doesn't ship real certs or
+keys.
+
+### Rollout checklist (per branch)
+
+These are the four things that actually break a real rollout if skipped — check each one
+explicitly per branch rather than assuming it "just works" from the config alone:
+
+1. **Firewall**: TCP/6514 open from that branch's IP to the central server. Without this, the TLS
+   handshake never even starts — check with `nc -zv <central-host> 6514` from the branch.
+2. **Certs**: the branch's TLS client cert's CN/SAN is added to `central.conf`'s `PermittedPeer`
+   list (placeholder there — it ships with 4 example hostnames, replace with your real ones), and
+   `central.example.internal` in `branch.conf` matches the central server's actual cert name.
+3. **File permissions**: the backend process's user (`squid-dashboard` in `deploy/systemd`) can
+   read the files rsyslog creates under `/var/log/squid/` on the central server —
+   `central.conf`'s `fileCreateMode="0644"` handles this in the common case; if your rsyslog runs
+   under a more restrictive umask, add the backend's user to rsyslog's group instead.
+4. **`BRANCH_TAG` consistency**: the same string is used in that branch's `branch.conf` (`Tag=`)
+   and in the corresponding `LOG_SOURCES` entry's `"branch"` field — a typo here means that
+   branch's file never gets created/tailed, with no error, just an empty branch in the dashboard.
+
+**After wiring up each branch, verify it before trusting its data**: check `GET /api/health`'s
+`log_sources` array. Each branch's `parse_failure_rate` should be at/near `0` — same check as the
+single-branch case above, just per branch instead of global. A branch stuck at `1.0` means that
+branch's Squid is logging in the wrong format (see "Required Squid configuration" above), not a
+transport problem.
+
+This setup is deliberately **only about getting logs to the backend reliably** — the backend
+itself still runs as a single instance by design (see `ARCHITECTURE.md`'s "Not yet built: running
+more than one backend instance"). A branch or network outage delays that branch's data; the
+backend process going down loses no data (Squid/rsyslog keep buffering) but does pause live
+monitoring until it restarts, which `deploy/systemd`'s `Restart=on-failure` already handles
+automatically. Building the backend itself into a multi-instance/HA setup is a bigger, separate
+undertaking that isn't warranted here — see that same `ARCHITECTURE.md` section for why.
 
 ## Quick start (without Docker)
 
@@ -202,7 +280,8 @@ Swagger UI).
 
 See `deploy/systemd/squid-dashboard-backend.service` (runs the backend as a systemd service) and
 `deploy/nginx/squid-dashboard.conf` (serves the built frontend, reverse-proxies `/api` and `/ws`
-to the backend, terminates SSL). Build the frontend for this path with:
+to the backend, terminates SSL). For multiple branch servers, see `deploy/rsyslog/` and the
+"Multi-branch deployment" section above. Build the frontend for this path with:
 
 ```bash
 cd frontend

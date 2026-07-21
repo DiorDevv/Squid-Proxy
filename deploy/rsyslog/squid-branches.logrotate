@@ -1,0 +1,20 @@
+# Rotates the per-branch files central.conf writes to
+# (/var/log/squid/<branch>.log) -- without this they grow unbounded.
+#
+# Install on the CENTRAL server:
+#   sudo cp deploy/rsyslog/squid-branches.logrotate /etc/logrotate.d/squid-branches
+#
+# copytruncate is required here: rsyslog's DynaFile action keeps the
+# destination file open, so a rename-based rotation ("create" mode) would
+# leave it writing to a now-unlinked file until rsyslog is restarted/
+# HUP'd. copytruncate avoids that -- and LogTailer already handles it (see
+# ARCHITECTURE.md's "Log tailer: rotation-safe, never crashes the process").
+/var/log/squid/*.log {
+    daily
+    rotate 14
+    missingok
+    notifempty
+    compress
+    delaycompress
+    copytruncate
+}

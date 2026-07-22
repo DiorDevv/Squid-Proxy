@@ -155,7 +155,13 @@ export interface UserSummary {
   created_at: string
 }
 
-export type AuditAction = 'user_created' | 'user_role_changed' | 'user_password_reset' | 'user_deleted'
+export type AuditAction =
+  | 'user_created'
+  | 'user_role_changed'
+  | 'user_password_reset'
+  | 'user_deleted'
+  | 'export_created'
+  | 'export_downloaded'
 
 export interface AuditLogEntry {
   id: string
@@ -177,4 +183,21 @@ export interface AnomalyEvent {
   client_ip: string | null
   domain: string | null
   branch: string
+}
+
+export type ExportJobStatus = 'pending' | 'running' | 'done' | 'failed' | 'cancelled'
+
+export interface ExportJob {
+  id: string
+  status: ExportJobStatus
+  format: string
+  since: string
+  until: string
+  blocked_only: boolean
+  branch: string | null
+  row_count: number | null
+  file_size_bytes: number | null
+  error_message: string | null
+  created_at: string
+  completed_at: string | null
 }

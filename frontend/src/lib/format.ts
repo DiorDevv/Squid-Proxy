@@ -41,6 +41,14 @@ export function formatDuration(totalSeconds: number): string {
   return `${Math.floor(totalSeconds)}s`
 }
 
+/** `datetime-local` inputs want "YYYY-MM-DDTHH:mm" in local time, with no
+ * timezone suffix -- deliberately *not* toISOString() (which is UTC and
+ * would show the wrong local clock time in the picker). */
+export function toDatetimeLocalValue(date: Date): string {
+  const pad = (n: number) => String(n).padStart(2, '0')
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`
+}
+
 export function formatRelativeTime(iso: string | null): string {
   if (!iso) return 'never'
   const diffMs = Date.now() - new Date(iso).getTime()

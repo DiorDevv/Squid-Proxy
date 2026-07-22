@@ -26,6 +26,14 @@ async def lifespan(app: FastAPI):
 
     await init_db()
 
+    from app.services.export_job_service import reconcile_orphaned_jobs
+
+    orphaned_count = await reconcile_orphaned_jobs()
+    if orphaned_count:
+        logger.warning(
+            "Marked %d export job(s) failed -- interrupted by a previous restart", orphaned_count
+        )
+
     from app.services.auth_bootstrap import bootstrap_admin_user
 
     await bootstrap_admin_user()
@@ -71,6 +79,15 @@ async def lifespan(app: FastAPI):
     app.state.retention_job = retention_job
     retention_job.start()
 
+    from app.services.archive_scheduler import ArchiveScheduler
+
+    archive_scheduler = ArchiveScheduler(
+        check_interval_seconds=settings.ARCHIVE_CHECK_INTERVAL_SECONDS,
+        min_interval_seconds=settings.ARCHIVE_MIN_INTERVAL_SECONDS,
+    )
+    app.state.archive_scheduler = archive_scheduler
+    archive_scheduler.start()
+
     from app.services.category_usage_monitor import CategoryUsageMonitorJob
 
     category_usage_monitor = CategoryUsageMonitorJob(
@@ -99,6 +116,7 @@ async def lifespan(app: FastAPI):
             await tailer.stop()
         await aggregator.stop()
         await retention_job.stop()
+        await archive_scheduler.stop()
         await category_usage_monitor.stop()
         await quota_monitor.stop()
         await report_scheduler.stop()
@@ -111,6 +129,17 @@ def _handle_new_event(app: FastAPI, event) -> None:
 
 def create_app() -> FastAPI:
     settings = get_settings()
+
+    if settings.SENTRY_DSN:
+        import sentry_sdk
+
+        # No integrations= list -- sentry_sdk auto-detects FastAPI/Starlette
+        # (and the stdlib logging handler, so ERROR-level log lines like the
+        # ones core/exceptions.py's catch-all handler already emits get
+        # captured too, not just raised exceptions) once sentry-sdk[fastapi]
+        # is installed. traces_sample_rate defaults to 0.0 (errors only, no
+        # performance tracing) -- a deliberate opt-in, not a hidden default.
+        sentry_sdk.init(dsn=settings.SENTRY_DSN, traces_sample_rate=settings.SENTRY_TRACES_SAMPLE_RATE)
 
     app = FastAPI(
         title="Squid Proxy Log Analytics API",

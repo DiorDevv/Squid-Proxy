@@ -11,6 +11,8 @@ const ACTION_LABEL_KEYS: Record<AuditAction, TranslationKey> = {
   user_role_changed: 'auditLog.actionUserRoleChanged',
   user_password_reset: 'auditLog.actionUserPasswordReset',
   user_deleted: 'auditLog.actionUserDeleted',
+  export_created: 'auditLog.actionExportCreated',
+  export_downloaded: 'auditLog.actionExportDownloaded',
 }
 
 const PAGE_SIZE = 20

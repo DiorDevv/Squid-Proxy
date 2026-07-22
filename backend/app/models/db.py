@@ -51,6 +51,7 @@ async def init_db() -> None:
         client_hourly_aggregate,
         domain_aggregate,
         domain_category,
+        export_job,
         minute_aggregate,
         raw_event,
         refresh_token,

@@ -14,6 +14,8 @@ class AuditAction(str, enum.Enum):
     USER_ROLE_CHANGED = "user_role_changed"
     USER_PASSWORD_RESET = "user_password_reset"
     USER_DELETED = "user_deleted"
+    EXPORT_CREATED = "export_created"
+    EXPORT_DOWNLOADED = "export_downloaded"
 
 
 class AuditLogEntry(Base):

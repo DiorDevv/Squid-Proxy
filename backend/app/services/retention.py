@@ -26,6 +26,7 @@ from app.models.minute_aggregate import MinuteAggregate
 from app.models.raw_event import RawEvent
 from app.models.refresh_token import RefreshToken
 from app.services.db_upsert import bulk_upsert_sum
+from app.services.export_job_service import purge_old_jobs
 from app.services.report_service import send_unarchived_purge_warning
 
 logger = logging.getLogger(__name__)
@@ -113,6 +114,11 @@ class RetentionJob:
             # theft-detection signal, see api/routes/auth.py:refresh), then
             # purged here so the table doesn't grow unbounded.
             await session.execute(delete(RefreshToken).where(RefreshToken.expires_at < now))
+            # Export job result files (see api/routes/export.py's POST
+            # /export/jobs) are meant to be downloaded soon after they
+            # finish, not kept indefinitely -- purge alongside everything
+            # else with its own, much shorter window.
+            await purge_old_jobs(session)
             await session.commit()
 
         logger.info(

@@ -2,7 +2,7 @@ import { API_BASE_URL } from '@/lib/constants'
 import { decodeAccessTokenRole, getAccessToken, useAuthStore } from '@/lib/auth-store'
 import { translate, useLocaleStore } from '@/i18n'
 import type { LoginResponse, RefreshResponse, Role, WsTicketResponse } from '@/types/auth'
-import type { UserSummary } from '@/types/api'
+import type { ExportJob, UserSummary } from '@/types/api'
 
 export class ApiError extends Error {
   status: number
@@ -131,29 +131,53 @@ export const api = {
     }),
   deleteUser: (userId: string) =>
     apiFetch<void>(`/api/users/${encodeURIComponent(userId)}`, { method: 'DELETE' }),
+  createExportJob: (params: {
+    range?: string
+    fromTs?: string
+    toTs?: string
+    format: 'csv' | 'json'
+    blockedOnly: boolean
+    branch?: string | null
+  }) =>
+    apiFetch<ExportJob>('/api/export/jobs', {
+      method: 'POST',
+      searchParams: {
+        range: params.range,
+        from_ts: params.fromTs,
+        to_ts: params.toTs,
+        format: params.format,
+        blocked_only: params.blockedOnly,
+        branch: params.branch ?? undefined,
+      },
+    }),
+  getExportJob: (jobId: string) => apiFetch<ExportJob>(`/api/export/jobs/${encodeURIComponent(jobId)}`),
+  listExportJobs: () => apiFetch<ExportJob[]>('/api/export/jobs'),
+  cancelExportJob: (jobId: string) =>
+    apiFetch<ExportJob>(`/api/export/jobs/${encodeURIComponent(jobId)}/cancel`, { method: 'POST' }),
 }
 
-export async function downloadExport(
-  range: string,
-  format: 'csv' | 'json',
-  blockedOnly: boolean,
-): Promise<void> {
+/** Downloads a finished background export job's result file (see
+ * api.createExportJob / useExportJob) for GET /api/export/jobs/{id}/download
+ * -- an authenticated binary response, so it can't just be an <a href>;
+ * fetch it and hand the browser a blob URL instead. The plain synchronous
+ * GET /api/export this replaced in the UI still exists server-side for
+ * scripted/curl use. */
+export async function downloadExportJob(jobId: string): Promise<void> {
   const token = getAccessToken()
-  const response = await fetch(
-    buildUrl('/api/export', { range, format, blocked_only: blockedOnly }),
-    {
-      credentials: 'include',
-      headers: token ? { Authorization: `Bearer ${token}` } : {},
-    },
-  )
+  const response = await fetch(buildUrl(`/api/export/jobs/${jobId}/download`), {
+    credentials: 'include',
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+  })
   if (!response.ok) {
     throw new ApiError(response.status, 'Export failed. Check your permissions and try again.')
   }
+  const disposition = response.headers.get('Content-Disposition')
+  const filename = disposition?.match(/filename="([^"]+)"/)?.[1] ?? 'export'
   const blob = await response.blob()
   const objectUrl = URL.createObjectURL(blob)
   const link = document.createElement('a')
   link.href = objectUrl
-  link.download = `squid-events-${range}.${format}`
+  link.download = filename
   document.body.appendChild(link)
   link.click()
   link.remove()

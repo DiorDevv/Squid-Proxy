@@ -248,10 +248,28 @@ export const en = {
   'settings.rangeLast7Days': 'Last 7 days',
   'settings.download': 'Download export',
   'settings.preparingExport': 'Preparing export…',
+  'settings.preparingExportWithCount': 'Preparing export… ({{count}} rows so far)',
   'settings.exportNote':
-    'Exports are limited to the most recent 100,000 matching events and require the admin role.',
+    'Requires the admin role. Covers every matching event in range, so a large range (e.g. 7 days at high traffic) can take a while and produce a large file.',
   'settings.exportSuccessToast': 'Export downloaded.',
   'settings.exportErrorToast': 'Export failed.',
+
+  'settings.recentExports': 'Recent exports',
+  'settings.recentExportsEmpty': 'No exports yet.',
+  'settings.exportColumnStatus': 'Status',
+  'settings.exportColumnFormat': 'Format',
+  'settings.exportColumnRange': 'Range',
+  'settings.exportColumnRows': 'Rows',
+  'settings.exportColumnCreated': 'Created',
+  'settings.exportColumnSize': 'Size',
+  'settings.exportStatusPending': 'Pending',
+  'settings.exportStatusRunning': 'Running',
+  'settings.exportStatusDone': 'Done',
+  'settings.exportStatusFailed': 'Failed',
+  'settings.exportStatusCancelled': 'Cancelled',
+  'settings.cancelExport': 'Cancel',
+  'settings.exportCancelledToast': 'Export cancelled.',
+  'settings.exportCancelErrorToast': 'Failed to cancel export.',
 
   // --- User management panel ---
   'userManagement.accountsCount_one':
@@ -305,10 +323,16 @@ export const en = {
   'auditLog.actionUserRoleChanged': 'Role changed',
   'auditLog.actionUserPasswordReset': 'Password reset',
   'auditLog.actionUserDeleted': 'User deleted',
+  'auditLog.actionExportCreated': 'Export created',
+  'auditLog.actionExportDownloaded': 'Export downloaded',
 
   // --- Not found page ---
   'notFound.heading': 'Page not found',
   'notFound.backToDashboard': 'Return to dashboard',
+
+  'errorBoundary.heading': 'Something went wrong',
+  'errorBoundary.message': 'An unexpected error occurred. Reloading the page usually fixes this.',
+  'errorBoundary.reload': 'Reload page',
 
   // --- Session ---
   'session.verifying': 'Verifying session…',

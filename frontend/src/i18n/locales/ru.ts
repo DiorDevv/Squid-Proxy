@@ -233,10 +233,28 @@ export const ru = {
   'settings.rangeLast7Days': 'Последние 7 дней',
   'settings.download': 'Скачать экспорт',
   'settings.preparingExport': 'Подготовка экспорта…',
+  'settings.preparingExportWithCount': 'Подготовка экспорта… ({{count}} строк готово)',
   'settings.exportNote':
-    'Экспорт ограничен последними 100 000 подходящими событиями и требует роли администратора.',
+    'Требует роль администратора. Включает все подходящие события за период, поэтому большой диапазон (например, 7 дней при высокой нагрузке) может занять время и дать большой файл.',
   'settings.exportSuccessToast': 'Экспорт скачан.',
   'settings.exportErrorToast': 'Не удалось выполнить экспорт.',
+
+  'settings.recentExports': 'Последние экспорты',
+  'settings.recentExportsEmpty': 'Пока нет экспортов.',
+  'settings.exportColumnStatus': 'Статус',
+  'settings.exportColumnFormat': 'Формат',
+  'settings.exportColumnRange': 'Период',
+  'settings.exportColumnRows': 'Строк',
+  'settings.exportColumnCreated': 'Создан',
+  'settings.exportColumnSize': 'Размер',
+  'settings.exportStatusPending': 'Ожидает',
+  'settings.exportStatusRunning': 'Выполняется',
+  'settings.exportStatusDone': 'Готово',
+  'settings.exportStatusFailed': 'Ошибка',
+  'settings.exportStatusCancelled': 'Отменён',
+  'settings.cancelExport': 'Отменить',
+  'settings.exportCancelledToast': 'Экспорт отменён.',
+  'settings.exportCancelErrorToast': 'Не удалось отменить экспорт.',
 
   'userManagement.accountsCount_one':
     '{{count}} аккаунт · администратор может добавлять, менять роли, сбрасывать пароли и закрывать доступ.',
@@ -288,9 +306,15 @@ export const ru = {
   'auditLog.actionUserRoleChanged': 'Роль изменена',
   'auditLog.actionUserPasswordReset': 'Пароль сброшен',
   'auditLog.actionUserDeleted': 'Пользователь удалён',
+  'auditLog.actionExportCreated': 'Экспорт создан',
+  'auditLog.actionExportDownloaded': 'Экспорт скачан',
 
   'notFound.heading': 'Страница не найдена',
   'notFound.backToDashboard': 'Вернуться на панель управления',
+
+  'errorBoundary.heading': 'Что-то пошло не так',
+  'errorBoundary.message': 'Произошла непредвиденная ошибка. Обычно помогает перезагрузка страницы.',
+  'errorBoundary.reload': 'Перезагрузить страницу',
 
   'session.verifying': 'Проверка сеанса…',
   'session.expired': 'Сеанс истёк. Пожалуйста, войдите снова.',

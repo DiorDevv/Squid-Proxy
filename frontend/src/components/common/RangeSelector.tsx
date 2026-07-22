@@ -6,15 +6,8 @@ import { useFiltersStore } from '@/lib/filters-store'
 import { Button } from '@/components/ui/button'
 import { Label } from '@/components/ui/label'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
+import { toDatetimeLocalValue } from '@/lib/format'
 import { useTranslation } from '@/i18n'
-
-/** `datetime-local` inputs want "YYYY-MM-DDTHH:mm" in local time, with no
- * timezone suffix -- this is deliberately *not* toISOString() (which is UTC
- * and would show the wrong local clock time in the picker). */
-function toDatetimeLocalValue(date: Date): string {
-  const pad = (n: number) => String(n).padStart(2, '0')
-  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`
-}
 
 const CUSTOM_KEY = 'custom'
 

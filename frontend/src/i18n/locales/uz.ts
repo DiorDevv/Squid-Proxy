@@ -236,10 +236,28 @@ export const uz = {
   'settings.rangeLast7Days': 'Soʻnggi 7 kun',
   'settings.download': 'Eksportni yuklab olish',
   'settings.preparingExport': 'Eksport tayyorlanmoqda…',
+  'settings.preparingExportWithCount': 'Eksport tayyorlanmoqda… ({{count}} qator tayyor)',
   'settings.exportNote':
-    'Eksport soʻnggi 100,000 mos hodisa bilan cheklangan va admin rolini talab qiladi.',
+    "Admin rolini talab qiladi. Tanlangan davrdagi barcha mos hodisalarni oladi, shuning uchun katta davr (masalan, yuqori trafikda 7 kun) biroz vaqt olishi va katta fayl berishi mumkin.",
   'settings.exportSuccessToast': 'Eksport yuklab olindi.',
   'settings.exportErrorToast': 'Eksport amalga oshmadi.',
+
+  'settings.recentExports': "So'nggi eksportlar",
+  'settings.recentExportsEmpty': "Hali eksport qilinmagan.",
+  'settings.exportColumnStatus': 'Holat',
+  'settings.exportColumnFormat': 'Format',
+  'settings.exportColumnRange': 'Davr',
+  'settings.exportColumnRows': 'Qator',
+  'settings.exportColumnCreated': 'Yaratilgan',
+  'settings.exportColumnSize': 'Hajmi',
+  'settings.exportStatusPending': 'Kutilmoqda',
+  'settings.exportStatusRunning': 'Bajarilmoqda',
+  'settings.exportStatusDone': 'Tayyor',
+  'settings.exportStatusFailed': 'Xatolik',
+  'settings.exportStatusCancelled': 'Bekor qilindi',
+  'settings.cancelExport': 'Bekor qilish',
+  'settings.exportCancelledToast': 'Eksport bekor qilindi.',
+  'settings.exportCancelErrorToast': 'Eksportni bekor qilib bo\'lmadi.',
 
   'userManagement.accountsCount_one':
     '{{count}} ta hisob · admin qoʻsha oladi, rol oʻzgartira oladi, parolni tiklay oladi va ruxsatni bekor qila oladi.',
@@ -291,9 +309,15 @@ export const uz = {
   'auditLog.actionUserRoleChanged': 'Rol oʻzgartirildi',
   'auditLog.actionUserPasswordReset': 'Parol tiklandi',
   'auditLog.actionUserDeleted': 'Foydalanuvchi oʻchirildi',
+  'auditLog.actionExportCreated': 'Eksport yaratildi',
+  'auditLog.actionExportDownloaded': 'Eksport yuklab olindi',
 
   'notFound.heading': 'Sahifa topilmadi',
   'notFound.backToDashboard': 'Boshqaruv paneliga qaytish',
+
+  'errorBoundary.heading': 'Nimadir xato ketdi',
+  'errorBoundary.message': "Kutilmagan xatolik yuz berdi. Sahifani qayta yuklash odatda yordam beradi.",
+  'errorBoundary.reload': 'Sahifani qayta yuklash',
 
   'session.verifying': 'Sessiya tekshirilmoqda…',
   'session.expired': 'Sessiya muddati tugadi. Iltimos, qaytadan tizimga kiring.',

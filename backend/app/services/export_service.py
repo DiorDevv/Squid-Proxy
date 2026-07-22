@@ -137,14 +137,29 @@ async def _iter_batches(
 
 
 async def stream_csv(
-    session: AsyncSession, since: datetime, until: datetime, blocked_only: bool, branch: str | None = None
+    session: AsyncSession,
+    since: datetime,
+    until: datetime,
+    blocked_only: bool,
+    branch: str | None = None,
+    row_counter: list[int] | None = None,
 ) -> AsyncIterator[str]:
+    """row_counter, if given, is incremented (as a one-element out-param --
+    an async generator can't return a value alongside its yields) by the
+    number of rows in every batch actually written. export_job_service.run_job
+    uses this instead of a separate COUNT(*) after the fact: since/until are
+    a fixed range but this table keeps getting new matching rows inserted in
+    real time, a follow-up count query can (and, under real traffic, will)
+    see rows that arrived after streaming already finished, so it doesn't
+    reliably describe what ended up in the file."""
     buffer = io.StringIO()
     writer = csv.DictWriter(buffer, fieldnames=_COLUMNS)
     writer.writeheader()
     yield buffer.getvalue()
 
     async for batch in _iter_batches(session, since, until, blocked_only, branch):
+        if row_counter is not None:
+            row_counter[0] += len(batch)
         buffer.seek(0)
         buffer.truncate(0)
         for row in batch:
@@ -156,11 +171,19 @@ async def stream_csv(
 
 
 async def stream_json(
-    session: AsyncSession, since: datetime, until: datetime, blocked_only: bool, branch: str | None = None
+    session: AsyncSession,
+    since: datetime,
+    until: datetime,
+    blocked_only: bool,
+    branch: str | None = None,
+    row_counter: list[int] | None = None,
 ) -> AsyncIterator[str]:
+    """See stream_csv's docstring for row_counter."""
     yield "["
     first = True
     async for batch in _iter_batches(session, since, until, blocked_only, branch):
+        if row_counter is not None:
+            row_counter[0] += len(batch)
         parts = []
         for row in batch:
             parts.append(("" if first else ",") + json.dumps(_row_to_dict(row)))

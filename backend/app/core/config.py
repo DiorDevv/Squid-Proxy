@@ -6,6 +6,18 @@ from pydantic import BaseModel, Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 INSECURE_DEFAULT_JWT_SECRET = "CHANGE_ME_INSECURE_DEV_SECRET"
+# Matches the placeholder both .env.example (root, for docker-compose) and
+# backend/.env.example ship for ADMIN_PASSWORD -- see
+# _reject_insecure_production_secret.
+INSECURE_DEFAULT_ADMIN_PASSWORD = "CHANGE_ME_STRONG_PASSWORD"
+# docker-compose.yml's own POSTGRES_PASSWORD fallback -- there's no
+# dedicated POSTGRES_PASSWORD Settings field (the app only ever sees the
+# already-assembled DATABASE_URL), so this is checked as a substring of it
+# instead. Requiring POSTGRES_PASSWORD to be set at all is handled at the
+# docker-compose level (`:?...` instead of a silent `:-` fallback); this is
+# the same defense-in-depth JWT_SECRET/ADMIN_PASSWORD get from being checked
+# here too, in case DATABASE_URL is ever set directly instead.
+INSECURE_DEFAULT_POSTGRES_PASSWORD = "squid_dev_password"
 
 # Branch tag used when no LOG_SOURCES is configured -- keeps single-branch
 # deployments (the common case) working with zero config changes, since
@@ -57,6 +69,40 @@ class Settings(BaseSettings):
     # window, which is what makes wide-range client queries slow at scale.
     CLIENT_ROLLUP_AFTER_HOURS: int = 48
 
+    # --- Automatic raw-event archiving (see app/services/archive_service.py,
+    # app/services/archive_scheduler.py) -- runs before
+    # RETENTION_DAYS_RAW_EVENTS purges the same data, so it isn't lost for
+    # good. Defaults on (unlike REPORT_SCHEDULE below, which defaults
+    # disabled): this only touches local disk, no external credentials
+    # needed, so there's little downside to it just working out of the box:
+    # set to false to manage this fully yourself instead (e.g. via
+    # scripts/archive_weekly_export.py on your own cron/systemd timer).
+    ARCHIVE_ENABLED: bool = True
+    ARCHIVE_OUTPUT_DIR: str = "./archives"
+    ARCHIVE_KEEP_DAYS: int = 365
+    # Each archive() call re-covers a deliberately-overlapping ~7-day window
+    # (see that function's docstring), so calling it isn't cheap/incremental
+    # -- these are two different cadences, same split as REPORT_SCHEDULE /
+    # REPORT_SCHEDULER_CHECK_INTERVAL_SECONDS below: how often to check
+    # whether a run is due (cheap, reads already-persisted ArchiveRun rows)
+    # vs. how long between actually calling archive() (expensive).
+    ARCHIVE_CHECK_INTERVAL_SECONDS: int = 3600
+    ARCHIVE_MIN_INTERVAL_SECONDS: int = 604800
+
+    # --- Background export jobs (see api/routes/export.py, ExportJob) ---
+    EXPORT_JOBS_DIR: str = "./export_jobs"
+    # Result files (and their DB rows) older than this are purged by
+    # RetentionJob -- these are meant to be picked up soon after they
+    # finish, not a long-term archive (see scripts/archive_weekly_export.py
+    # for that).
+    EXPORT_JOB_RETENTION_HOURS: int = 48
+    # A wide range at real traffic volumes can produce a multi-hundred-MB
+    # file and run for minutes; nothing stops several admins (or several
+    # browser tabs) from kicking off that many at once, and EXPORT_JOBS_DIR
+    # has no size cap of its own. This bounds how many PENDING/RUNNING jobs
+    # can exist at the same time so that can't fill the disk.
+    EXPORT_JOB_MAX_CONCURRENT: int = 3
+
     # --- Time-spent-per-domain estimation ---
     # Consecutive requests to the same domain more than this many minutes
     # apart are treated as separate sessions (e.g. a lunch break isn't
@@ -88,6 +134,14 @@ class Settings(BaseSettings):
     ALERT_WEBHOOK_URL: str | None = None
     ALERT_MIN_SEVERITY: str = "high"
 
+    # --- Error tracking (optional; no-op unless SENTRY_DSN is set) --
+    # everywhere else unhandled exceptions only ever go to stdout (see
+    # core/exceptions.py's catch-all handler) -- nothing forwards them
+    # anywhere someone's necessarily watching. Needs your own Sentry (or
+    # Sentry-compatible, e.g. GlitchTip) project/DSN to actually activate.
+    SENTRY_DSN: str | None = None
+    SENTRY_TRACES_SAMPLE_RATE: float = 0.0
+
     # --- Category/quota monitor jobs (thresholds are admin-configurable at
     # runtime via /api/alert-settings; these only control how often the
     # background jobs re-check) ---
@@ -117,11 +171,24 @@ class Settings(BaseSettings):
 
     @model_validator(mode="after")
     def _reject_insecure_production_secret(self) -> "Settings":
-        if self.ENVIRONMENT == "production" and self.JWT_SECRET == INSECURE_DEFAULT_JWT_SECRET:
+        if self.ENVIRONMENT != "production":
+            return self
+        if self.JWT_SECRET == INSECURE_DEFAULT_JWT_SECRET:
             raise ValueError(
                 "JWT_SECRET is still the insecure default. Set a real secret "
                 "(python3 -c \"import secrets; print(secrets.token_urlsafe(48))\") "
                 "before running with ENVIRONMENT=production."
+            )
+        if self.ADMIN_PASSWORD == INSECURE_DEFAULT_ADMIN_PASSWORD:
+            raise ValueError(
+                "ADMIN_PASSWORD is still the .env.example placeholder. Set a real "
+                "password before running with ENVIRONMENT=production."
+            )
+        if INSECURE_DEFAULT_POSTGRES_PASSWORD in self.DATABASE_URL:
+            raise ValueError(
+                "DATABASE_URL still contains the insecure default POSTGRES_PASSWORD "
+                "(squid_dev_password). Set a real POSTGRES_PASSWORD before running "
+                "with ENVIRONMENT=production."
             )
         return self
 

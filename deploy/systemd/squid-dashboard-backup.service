@@ -1,0 +1,28 @@
+# Daily full-database backup (see backend/scripts/backup_database.py --
+# distinct from the raw-event archiving that already runs in-process inside
+# the backend itself; this covers users, alert settings, aggregates, the
+# audit log -- everything, not just recent event detail). Triggered by
+# squid-dashboard-backup.timer, not WantedBy'd directly. Install:
+#
+#   sudo cp deploy/systemd/squid-dashboard-backup.{service,timer} /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now squid-dashboard-backup.timer
+#
+# Requires `pg_dump` (matching your Postgres server's major version) or
+# `sqlite3` on PATH, whichever DATABASE_URL calls for -- neither is a Python
+# dependency this project otherwise needs, so install whichever applies
+# yourself (e.g. `apt install postgresql-client-16`). Same
+# WorkingDirectory/EnvironmentFile/user assumptions as
+# squid-dashboard-backend.service -- see that file's header comment.
+
+[Unit]
+Description=Squid Proxy Log Analytics — database backup
+After=network.target
+
+[Service]
+Type=oneshot
+User=squid-dashboard
+Group=squid-dashboard
+WorkingDirectory=/opt/squid-dashboard/backend
+EnvironmentFile=/opt/squid-dashboard/backend/.env
+ExecStart=/opt/squid-dashboard/backend/.venv/bin/python scripts/backup_database.py --output-dir /opt/squid-dashboard/backups --keep-days 30

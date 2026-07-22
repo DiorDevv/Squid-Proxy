@@ -62,6 +62,75 @@ async def test_health_reports_unarchived_branches_when_wired(app_client: AsyncCl
     assert body["unarchived_purge_branches"] == ["hq"]
 
 
+async def test_health_strict_is_still_200_by_default(app_client: AsyncClient):
+    """The plain (non-strict) endpoint must never fail its own frontend
+    consumer (useHealthCheck.ts/LogHealthBanner.tsx polls this exact route)
+    -- a non-2xx response there makes apiFetch throw instead of returning
+    the body, silently hiding the very banner it's meant to drive."""
+    response = await app_client.get("/api/health")
+    assert response.status_code == 200
+
+
+async def test_health_strict_returns_503_when_tailer_down(app_client: AsyncClient):
+    # The test app's lifespan double wires up a null tailer with is_alive
+    # hardcoded false (see conftest.py's _NullTailer) -- exactly the "tailer
+    # down" condition strict mode exists to catch.
+    response = await app_client.get("/api/health?strict=true")
+    assert response.status_code == 503
+    body = response.json()
+    assert body["log_tailer_alive"] is False
+
+
+async def test_health_strict_returns_200_when_tailer_alive(app_client: AsyncClient, test_app):
+    class _AliveTailer:
+        is_alive = True
+        lines_seen = 10
+        lines_parsed = 10
+
+    test_app.state.log_tailers = {"default": _AliveTailer()}
+
+    response = await app_client.get("/api/health?strict=true")
+    assert response.status_code == 200
+    assert response.json()["log_tailer_alive"] is True
+
+
+async def test_health_strict_returns_503_when_events_likely_lost(app_client: AsyncClient, test_app):
+    class _AliveTailer:
+        is_alive = True
+        lines_seen = 10
+        lines_parsed = 10
+
+    class _OverflowingAggregator:
+        backlog_ratio = 1.0
+        events_likely_lost = True
+
+    test_app.state.log_tailers = {"default": _AliveTailer()}
+    test_app.state.aggregator = _OverflowingAggregator()
+
+    response = await app_client.get("/api/health?strict=true")
+    assert response.status_code == 503
+
+
+async def test_health_strict_ignores_unarchived_purge_branches(app_client: AsyncClient, test_app):
+    """A data-retention warning isn't a "this instance is broken" signal --
+    restarting the container wouldn't fix it, so it shouldn't flip the
+    healthcheck (unlike a dead tailer or dropped events)."""
+    from app.services.retention import RetentionJob
+
+    class _AliveTailer:
+        is_alive = True
+        lines_seen = 10
+        lines_parsed = 10
+
+    job = RetentionJob()
+    job.unarchived_branches = ["hq"]
+    test_app.state.log_tailers = {"default": _AliveTailer()}
+    test_app.state.retention_job = job
+
+    response = await app_client.get("/api/health?strict=true")
+    assert response.status_code == 200
+
+
 def _fake_event():
     from app.services.log_parser import parse_line
 

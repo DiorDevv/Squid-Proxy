@@ -34,7 +34,9 @@ async def create_user(
 
 
 @router.patch("/{user_id}/role", response_model=UserSummary)
+@limiter.limit(get_settings().SENSITIVE_ACTION_RATE_LIMIT)
 async def update_user_role(
+    request: Request,
     user_id: str,
     body: UserRoleUpdateRequest,
     db: AsyncSession = Depends(get_db),
@@ -57,7 +59,9 @@ async def reset_user_password(
 
 
 @router.delete("/{user_id}", status_code=status.HTTP_204_NO_CONTENT)
+@limiter.limit(get_settings().SENSITIVE_ACTION_RATE_LIMIT)
 async def delete_user(
+    request: Request,
     user_id: str,
     db: AsyncSession = Depends(get_db),
     current_user: CurrentUser = Depends(get_current_user),

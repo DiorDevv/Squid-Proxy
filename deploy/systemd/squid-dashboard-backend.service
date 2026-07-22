@@ -20,7 +20,18 @@ User=squid-dashboard
 Group=squid-dashboard
 WorkingDirectory=/opt/squid-dashboard/backend
 EnvironmentFile=/opt/squid-dashboard/backend/.env
-ExecStart=/opt/squid-dashboard/backend/.venv/bin/uvicorn app.main:app --host 127.0.0.1 --port 8000 --workers 1
+# Applies any pending Alembic migrations before the app starts -- the app's
+# own init_db() only ever creates tables that don't exist yet, it never
+# alters existing ones, so this is required for schema changes to actually
+# land on upgrade. Runs with the same WorkingDirectory/EnvironmentFile as
+# ExecStart below, so alembic picks up DATABASE_URL the same way the app does.
+ExecStartPre=/opt/squid-dashboard/backend/.venv/bin/alembic upgrade head
+# --proxy-headers/--forwarded-allow-ips=127.0.0.1: trusts X-Forwarded-For
+# from the local nginx (deploy/nginx/squid-dashboard.conf) only -- this
+# already binds to 127.0.0.1, so nothing else can spoof it. Without this,
+# every request's peer is nginx itself, and per-IP rate limiting
+# (app/core/rate_limit.py) collapses into one bucket shared by every client.
+ExecStart=/opt/squid-dashboard/backend/.venv/bin/uvicorn app.main:app --host 127.0.0.1 --port 8000 --workers 1 --proxy-headers --forwarded-allow-ips=127.0.0.1
 Restart=on-failure
 RestartSec=5
 

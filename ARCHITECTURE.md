@@ -100,9 +100,24 @@ system later rather than something worth the complexity now.
 `postgresql+asyncpg://`); nothing else in the code branches on which database is in use. This
 means `uvicorn app.main:app` works with zero external services for local development (SQLite,
 with `PRAGMA journal_mode=WAL` for concurrent reads while the aggregator writes), while
-`docker-compose.yml` points at a bundled Postgres for anything beyond a laptop. Schema is created
-automatically on startup (`init_db()`); an Alembic baseline migration is also included for teams
-that want explicit, reviewed migrations going forward.
+`docker-compose.yml` points at a bundled Postgres for anything beyond a laptop.
+
+Schema changes go through Alembic (`app/db/migrations/`), not just `init_db()`'s
+`Base.metadata.create_all()` at startup — `create_all()` only ever creates tables that don't exist
+yet, it never alters an existing one, so it can't be the whole story once a table has shipped and
+needs a later column/enum change. The Docker image's entrypoint (`docker-entrypoint.sh`) and the
+systemd unit (`deploy/systemd/squid-dashboard-backend.service`, via `ExecStartPre=`) both run
+`alembic upgrade head` before the app starts, so this is automatic for both deploy paths; `init_db()`
+still runs after that (harmless/idempotent) purely so a brand-new, empty database also works via a
+plain `uvicorn app.main:app` with no separate migration step for local dev.
+
+**Upgrading a database that predates this** (i.e. was only ever bootstrapped by `create_all()`, with
+no `alembic_version` table): run `alembic stamp head` once, manually, before deploying a version that
+runs `alembic upgrade head` automatically -- otherwise it tries to replay every migration from the
+very first one against tables that already exist, and fails with "table already exists" on the first
+one it hits. This can't be detected and handled automatically in general, since a `create_all()`-only
+database's actual schema is whatever the code version running at the time produced, not a fixed,
+predictable target to check against.
 
 ## Scaling to a large client count: what's handled, what isn't yet
 

@@ -1,16 +1,29 @@
+# The default json-file log driver has no size cap of its own -- without
+# this, a long-running container's logs grow unbounded and can quietly fill
+# the disk. 10m x 5 files = 50MB max per container, rotated automatically.
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "5"
+
 x-backend-common: &backend-common
   build:
     context: ./backend
+  logging: *default-logging
   environment:
     ENVIRONMENT: production
-    DATABASE_URL: postgresql+asyncpg://squid:${POSTGRES_PASSWORD:-squid_dev_password}@postgres:5432/squid_dashboard
+    DATABASE_URL: postgresql+asyncpg://squid:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in your .env before starting}@postgres:5432/squid_dashboard
     LOG_FILE_PATH: /data/squid-logs/access.log
     JWT_SECRET: ${JWT_SECRET:?Set JWT_SECRET in your .env before starting}
     ADMIN_EMAIL: ${ADMIN_EMAIL:-admin@example.com}
     ADMIN_PASSWORD: ${ADMIN_PASSWORD:?Set ADMIN_PASSWORD in your .env before starting}
     CORS_ORIGINS: '["http://localhost:8080"]'
+    # Optional -- see "Error tracking" in .env.example. Empty/unset stays inert.
+    SENTRY_DSN: ${SENTRY_DSN:-}
   volumes:
     - squid_log_data:/data/squid-logs
+    - archive_data:/app/archives
   depends_on:
     postgres:
       condition: service_healthy
@@ -18,9 +31,10 @@ x-backend-common: &backend-common
 services:
   postgres:
     image: postgres:16-alpine
+    logging: *default-logging
     environment:
       POSTGRES_USER: squid
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-squid_dev_password}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in your .env before starting}
       POSTGRES_DB: squid_dashboard
     volumes:
       - postgres_data:/var/lib/postgresql/data
@@ -34,9 +48,19 @@ services:
   backend:
     <<: *backend-common
     ports:
-      - "${BACKEND_PORT:-8000}:8000"
+      # Loopback-only: the frontend's nginx (proxying /api and /ws) is the
+      # only intended path in. Publishing this on all interfaces would let
+      # anyone reach the raw API directly -- bypassing nginx's security
+      # headers, and (see backend/app/core/rate_limit.py's docstring)
+      # defeating the precondition that makes trusting X-Forwarded-For safe
+      # for rate limiting below.
+      - "127.0.0.1:${BACKEND_PORT:-8000}:8000"
     healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/health')"]
+      # ?strict=true: 503 (not 200) when the log tailer is down or events are
+      # being dropped, so this actually catches something -- the plain
+      # /api/health the frontend polls stays always-200 (see health.py's
+      # docstring for why those need to behave differently).
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/health?strict=true')"]
       interval: 15s
       timeout: 5s
       retries: 5
@@ -48,10 +72,35 @@ services:
       args:
         VITE_API_BASE_URL: ""
         VITE_WS_URL: ""
+    logging: *default-logging
     ports:
       - "${FRONTEND_PORT:-8080}:80"
     depends_on:
       - backend
+    restart: unless-stopped
+
+  # Full-database backup (users, alert settings, aggregates, audit log --
+  # everything, not just raw_events -- see backend/scripts/backup_database.py's
+  # docstring for why that's a distinct concern from archiving). Based on
+  # postgres:16-alpine specifically (not the Python backend image) so pg_dump
+  # is guaranteed to match the server's exact version.
+  db-backup:
+    image: postgres:16-alpine
+    logging: *default-logging
+    environment:
+      PGHOST: postgres
+      PGUSER: squid
+      PGPASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in your .env before starting}
+      PGDATABASE: squid_dashboard
+      BACKUP_KEEP_DAYS: ${BACKUP_KEEP_DAYS:-30}
+      BACKUP_INTERVAL_SECONDS: ${BACKUP_INTERVAL_SECONDS:-86400}
+    volumes:
+      - db_backup_data:/backups
+      - ./backend/scripts/backup_postgres_docker.sh:/backup_postgres_docker.sh:ro
+    entrypoint: ["/bin/sh", "/backup_postgres_docker.sh"]
+    depends_on:
+      postgres:
+        condition: service_healthy
     restart: unless-stopped
 
   # Optional: generates synthetic Squid access.log traffic so the dashboard
@@ -61,6 +110,7 @@ services:
     build:
       context: ./backend
     profiles: ["demo"]
+    logging: *default-logging
     volumes:
       - squid_log_data:/data/squid-logs
     command:
@@ -74,3 +124,5 @@ services:
 volumes:
   postgres_data:
   squid_log_data:
+  archive_data:
+  db_backup_data:

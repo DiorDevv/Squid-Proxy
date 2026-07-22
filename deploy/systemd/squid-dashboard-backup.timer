@@ -1,0 +1,16 @@
+# Runs squid-dashboard-backup.service once a day. See that file for install
+# instructions -- both are installed together.
+
+[Unit]
+Description=Daily Squid Proxy Log Analytics database backup
+
+[Timer]
+OnCalendar=daily
+# Staggers the actual run time by up to an hour so it doesn't necessarily
+# land at exactly midnight on every host if this is ever deployed to more
+# than one -- harmless for a single host too.
+RandomizedDelaySec=3600
+Persistent=true
+
+[Install]
+WantedBy=timers.target

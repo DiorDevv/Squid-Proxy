@@ -1,6 +1,7 @@
 from datetime import UTC, datetime
 
 from fastapi import APIRouter, Request
+from fastapi.responses import JSONResponse
 
 router = APIRouter(tags=["health"])
 
@@ -13,8 +14,19 @@ def _failure_rate(lines_seen: int, lines_parsed: int) -> float | None:
     return None if lines_seen == 0 else round(1 - (lines_parsed / lines_seen), 3)
 
 
-@router.get("/api/health")
-async def health(request: Request) -> dict:
+@router.get("/api/health", response_model=None)
+async def health(request: Request, strict: bool = False) -> dict | JSONResponse:
+    """`strict=true` returns HTTP 503 instead of 200 when the tailer is down
+    or events are being dropped -- for infra healthchecks (docker-compose's
+    `backend` healthcheck, a load balancer/orchestrator readiness probe) that
+    key off status code alone. Defaults to false (always 200) because the
+    frontend's own health banner (see useHealthCheck.ts/LogHealthBanner.tsx)
+    polls this same endpoint to *render* these same conditions -- if this
+    default flipped, a non-2xx response would make apiFetch throw instead of
+    returning the body, and the banner that's supposed to explain the
+    problem would just silently stop rendering at exactly the moment it
+    matters most.
+    """
     tailers = getattr(request.app.state, "log_tailers", {})
 
     log_sources = [
@@ -43,7 +55,7 @@ async def health(request: Request) -> dict:
     retention_job = getattr(request.app.state, "retention_job", None)
     unarchived_branches = list(retention_job.unarchived_branches) if retention_job else []
 
-    return {
+    payload = {
         "status": "ok",
         "time": datetime.now(UTC).isoformat(),
         "log_tailer_alive": tailer_alive,
@@ -64,3 +76,11 @@ async def health(request: Request) -> dict:
         # where scripts/archive_weekly_export.py is running on schedule.
         "unarchived_purge_branches": unarchived_branches,
     }
+
+    # Not unarchived_branches -- that's a data-retention warning an operator
+    # needs to see, not a "this instance is broken" signal a healthcheck
+    # should act on (restarting the container wouldn't fix it either way).
+    is_unhealthy = not tailer_alive or events_likely_lost
+    if strict and is_unhealthy:
+        return JSONResponse(status_code=503, content=payload)
+    return payload

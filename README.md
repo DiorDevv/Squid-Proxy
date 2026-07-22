@@ -272,41 +272,91 @@ Full per-request detail (`raw_events` — every URL, client, timestamp) is only 
 `RETENTION_DAYS_RAW_EVENTS` (default 7 days) before `RetentionJob` permanently deletes it; only
 the smaller per-minute/per-hour aggregates survive long-term (`RETENTION_DAYS_AGGREGATES`, default
 ~400 days). That's the right tradeoff for the live database, but if your organization needs to
-keep the full detail longer (e.g. a compliance requirement), archive it externally before it ages
-out:
+keep the full detail longer (e.g. a compliance requirement), it needs to be archived externally
+before it ages out.
+
+**This now happens automatically, out of the box.** `ARCHIVE_ENABLED` defaults to `true`: an
+in-process job (`ArchiveScheduler`, started the same way `RetentionJob`/`Aggregator`/etc. are)
+periodically writes one gzip-compressed CSV per configured branch
+(`squid-events-<branch>-<since>_<until>.csv.gz`) to `ARCHIVE_OUTPUT_DIR` (default `./archives`,
+mounted as its own Docker volume so it survives container recreation), and prunes archive files
+older than `ARCHIVE_KEEP_DAYS` (default 365) from there. No setup required for the common case.
+
+If you'd rather manage this fully yourself instead — a different external destination, your own
+cron/systemd timer, tighter control over exactly when it runs — set `ARCHIVE_ENABLED=false` and
+use the same logic via the standalone script:
 
 ```bash
 cd backend
 .venv/bin/python scripts/archive_weekly_export.py --output-dir /path/to/archive --keep-days 365
 ```
 
-Writes one gzip-compressed CSV per configured branch (`squid-events-<branch>-<since>_<until>.csv.gz`)
-covering the last 7 days, streamed in batches rather than held in memory, so it has no row limit —
-a week of raw events at real traffic volumes is routinely millions of rows. `--keep-days` then
-prunes archive files older than that from `--output-dir` (the *archive's* own retention, separate
-from the database's).
-
-Run it weekly via cron or a systemd timer, before `RETENTION_DAYS_RAW_EVENTS` catches up to the data:
-
 ```
 0 3 * * 0  cd /path/to/backend && .venv/bin/python scripts/archive_weekly_export.py --output-dir /var/backups/squid-watch
 ```
+
+Either way, each run streams in batches rather than holding rows in memory, so there's no row
+limit — a week of raw events at real traffic volumes is routinely millions of rows.
 
 `GET /api/export` (also the **Export** button on **Settings**) streams the same way and is equally
 uncapped — pick `range=7d` there for an ad-hoc download of the full week straight from the browser,
 no server access needed. The difference is what each is *for*: the browser download is a plain,
 uncompressed CSV/JSON, fine for an occasional manual pull but sized (and timed) proportionally to
 however many rows are in range — at millions of rows that's several hundred MB and several
-minutes. The script above is the one to put on a schedule for unattended, ongoing archival, since
-it also gzip-compresses (roughly 15x smaller) and prunes its own old files.
+minutes. Archiving is the one built for unattended, ongoing retention, since it also
+gzip-compresses (roughly 15x smaller) and prunes its own old files.
 
-**If the schedule above stops running** (cron misconfigured, disk full, etc.), you're not left
-finding out the hard way once the data is already gone. Every successful run records how far it
-archived (`archive_runs` table); before each purge, `RetentionJob` checks whether the branch it's
-about to delete raw data for was actually covered, and if not, still purges (retention has to stay
-bounded regardless) but surfaces a warning both on the dashboard (a banner, same mechanism as the
+**If archiving ever stops running** (disabled, disk full, etc.), you're not left finding out the
+hard way once the data is already gone. Every successful run records how far it archived
+(`archive_runs` table); before each purge, `RetentionJob` checks whether the branch it's about to
+delete raw data for was actually covered, and if not, still purges (retention has to stay bounded
+regardless) but surfaces a warning both on the dashboard (a banner, same mechanism as the
 Squid-logformat one above) and by email to `REPORT_RECIPIENTS`, if configured. Seeing that warning
-means the schedule needs attention *before* more data ages out unarchived — not after.
+means archiving needs attention *before* more data ages out unarchived — not after.
+
+## Database backups
+
+**Archiving above is not a database backup.** It covers exactly one table (`raw_events`), and only
+what's about to be purged by `RETENTION_DAYS_RAW_EVENTS`. Users, alert settings, aggregates, the
+audit log, export-job history — everything else — has no equivalent unless you set this up. If
+`postgres_data` (or your SQLite file) is lost or corrupted with no backup, all of that is gone
+permanently.
+
+**Docker**: a dedicated `db-backup` service runs automatically as part of `docker compose up`
+(`docker-compose.yml`) — no separate setup needed. It's built from `postgres:16-alpine` specifically
+(not the Python backend image), so `pg_dump` is guaranteed to match the server's exact version. Dumps
+land in the `db_backup_data` volume as `squid-dashboard-backup-<timestamp>.dump` (Postgres custom
+format — compressed, supports selective restore), once a day by default
+(`BACKUP_INTERVAL_SECONDS`), pruned after `BACKUP_KEEP_DAYS` (default 30).
+
+**Without Docker**: install `postgresql-client` (matching your server's major version) or `sqlite3`,
+whichever `DATABASE_URL` calls for, then run `backend/scripts/backup_database.py` on a schedule —
+`deploy/systemd/squid-dashboard-backup.{service,timer}` does this daily, install the same way as
+the backend unit:
+
+```bash
+sudo cp deploy/systemd/squid-dashboard-backup.{service,timer} /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now squid-dashboard-backup.timer
+```
+
+Or run it manually / via your own cron:
+
+```bash
+cd backend
+.venv/bin/python scripts/backup_database.py --output-dir /var/backups/squid-watch --keep-days 30
+```
+
+**Restoring** — a backup nobody's tested restoring from isn't a real backup:
+
+```bash
+# Postgres (custom format -- pg_restore, not psql):
+pg_restore --clean --if-exists --dbname=postgresql://squid:PASSWORD@localhost:5432/squid_dashboard \
+  squid-dashboard-backup-20260101T040000Z.dump
+
+# SQLite -- the backup file is already a complete, standalone database:
+cp squid-dashboard-backup-20260101T040000Z.db squid_dashboard.db
+```
 
 ## API surface
 
@@ -320,10 +370,12 @@ Swagger UI).
 
 ## Deploying without Docker
 
-See `deploy/systemd/squid-dashboard-backend.service` (runs the backend as a systemd service) and
-`deploy/nginx/squid-dashboard.conf` (serves the built frontend, reverse-proxies `/api` and `/ws`
-to the backend, terminates SSL). For multiple branch servers, see `deploy/rsyslog/` and the
-"Multi-branch deployment" section above. Build the frontend for this path with:
+See `deploy/systemd/squid-dashboard-backend.service` (runs the backend as a systemd service, and
+runs `alembic upgrade head` via `ExecStartPre=` before every start so schema changes are applied
+automatically -- see "Database migrations" below) and `deploy/nginx/squid-dashboard.conf` (serves
+the built frontend, reverse-proxies `/api` and `/ws` to the backend, terminates SSL). For multiple
+branch servers, see `deploy/rsyslog/` and the "Multi-branch deployment" section above. Build the
+frontend for this path with:
 
 ```bash
 cd frontend
@@ -332,6 +384,39 @@ VITE_API_BASE_URL=https://dashboard.example.com VITE_WS_URL=wss://dashboard.exam
 
 (or leave both unset/empty to use the same origin the page is served from, matching the nginx
 config's same-origin proxy setup).
+
+## Database migrations
+
+Schema changes go through Alembic (`backend/app/db/migrations/`), not just the app's own
+`init_db()` at startup -- that only ever creates tables that don't exist yet, it never alters an
+existing one, so it can't apply a later column/enum change to a table that's already there.
+
+Both deploy paths run `alembic upgrade head` automatically, before the app starts:
+
+- **Docker**: the image's entrypoint (`backend/docker-entrypoint.sh`) runs it whenever the
+  container's command is `uvicorn` (i.e. the `backend` service; `demo-log-generator` reuses the
+  same image but isn't affected, since its own command doesn't need a database at all).
+- **systemd**: `deploy/systemd/squid-dashboard-backend.service`'s `ExecStartPre=` runs it before
+  `ExecStart=` on every start/restart.
+
+For local dev (`uvicorn app.main:app --reload` directly, per "Quick start" above), you don't need
+to do anything extra: a fresh, empty SQLite database is created entirely by `init_db()`'s
+`create_all()`, which produces the full current schema in one shot with no migration history
+needed.
+
+**Upgrading an existing database that predates this** (i.e. one that was only ever bootstrapped by
+`create_all()`, with no `alembic_version` table yet) needs a one-time manual step first:
+
+```bash
+cd backend && alembic stamp head
+```
+
+Without this, `alembic upgrade head` has no record of what's already applied, so it tries to
+replay every migration from the very first one against tables that already exist, and fails on the
+first one it hits with "table already exists". `alembic stamp head` marks the database as already
+being at the latest revision without running any of that DDL again -- correct here specifically
+because a `create_all()`-only database already has the *current* code's full schema, just without
+Alembic's bookkeeping table recording it.
 
 ## Security notes
 

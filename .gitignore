@@ -11,6 +11,13 @@ venv/
 *.db-wal
 *.db-shm
 
+# Runtime output dirs (export jobs, raw-event archives, DB backups --
+# default paths in backend/app/core/config.py's EXPORT_JOBS_DIR/
+# ARCHIVE_OUTPUT_DIR, and scripts/backup_database.py's --output-dir)
+backend/export_jobs/
+backend/archives/
+backend/backups/
+
 # Env
 .env
 !.env.example

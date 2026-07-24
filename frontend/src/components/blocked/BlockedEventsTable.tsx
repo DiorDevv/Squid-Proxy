@@ -4,6 +4,7 @@ import { DataTable } from '@/components/common/DataTable'
 import { StatusBadge } from '@/components/common/StatusBadge'
 import { formatDateTime } from '@/lib/format'
 import { useTranslation } from '@/i18n'
+import { cn } from '@/lib/utils'
 import type { LiveEvent } from '@/types/events'
 
 interface BlockedEventsTableProps {
@@ -77,12 +78,16 @@ export function BlockedEventsTable({
       {
         accessorKey: 'status_code',
         header: t('blocked.columnStatus'),
-        cell: ({ getValue }) => <span className="font-data text-warning">{getValue<number>()}</span>,
+        cell: ({ getValue, row }) => (
+          <span className={cn('font-data', row.original.blocked ? 'text-warning' : 'text-foreground')}>
+            {getValue<number>()}
+          </span>
+        ),
       },
       {
         id: 'status',
         header: t('blocked.columnOutcome'),
-        cell: () => <StatusBadge blocked />,
+        cell: ({ row }) => <StatusBadge blocked={row.original.blocked} />,
       },
     ],
     [t, showBranchColumn],

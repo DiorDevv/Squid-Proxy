@@ -12,6 +12,7 @@ import { useDebouncedValue } from '@/hooks/useDebouncedValue'
 import { useLiveEvents } from '@/hooks/useLiveEvents'
 import { useRangeSearchParams } from '@/lib/filters-store'
 import { useTranslation } from '@/i18n'
+import { cn } from '@/lib/utils'
 import type { LiveEvent } from '@/types/events'
 
 const LIMIT = 50
@@ -27,6 +28,7 @@ export default function BlockedPage() {
   const [offset, setOffset] = useState(0)
   const [search, setSearch] = useState('')
   const [method, setMethod] = useState(ALL_METHODS)
+  const [blockedOnly, setBlockedOnly] = useState(true)
   const [selectedEvent, setSelectedEvent] = useState<LiveEvent | null>(null)
   const debouncedSearch = useDebouncedValue(search, 300)
 
@@ -38,13 +40,13 @@ export default function BlockedPage() {
     rangeParams,
     limit: LIMIT,
     offset,
-    blockedOnly: true,
+    blockedOnly,
     method: method === ALL_METHODS ? undefined : method,
     search: debouncedSearch,
     live,
   })
 
-  const resetKey = `${debouncedSearch}|${method}|${JSON.stringify(rangeParams)}`
+  const resetKey = `${debouncedSearch}|${method}|${blockedOnly}|${JSON.stringify(rangeParams)}`
   const [prevResetKey, setPrevResetKey] = useState(resetKey)
   if (resetKey !== prevResetKey) {
     setPrevResetKey(resetKey)
@@ -59,6 +61,34 @@ export default function BlockedPage() {
           <div className="flex flex-wrap items-center gap-2">
             <BranchSelector />
             <RangeSelector />
+            <div className="flex items-center gap-0.5 rounded-md border border-border bg-secondary/50 p-0.5">
+              <button
+                type="button"
+                onClick={() => setBlockedOnly(true)}
+                aria-pressed={blockedOnly}
+                className={cn(
+                  'rounded-[calc(var(--radius-sm)-2px)] px-2 py-1 text-xs font-medium transition-colors duration-150',
+                  blockedOnly
+                    ? 'bg-primary text-primary-foreground'
+                    : 'text-muted-foreground hover:text-foreground',
+                )}
+              >
+                {t('blocked.showBlockedOnly')}
+              </button>
+              <button
+                type="button"
+                onClick={() => setBlockedOnly(false)}
+                aria-pressed={!blockedOnly}
+                className={cn(
+                  'rounded-[calc(var(--radius-sm)-2px)] px-2 py-1 text-xs font-medium transition-colors duration-150',
+                  !blockedOnly
+                    ? 'bg-primary text-primary-foreground'
+                    : 'text-muted-foreground hover:text-foreground',
+                )}
+              >
+                {t('blocked.showAll')}
+              </button>
+            </div>
             <Select value={method} onValueChange={setMethod}>
               <SelectTrigger size="sm" className="w-28" aria-label={t('blocked.methodFilter')}>
                 <SelectValue />
@@ -93,7 +123,11 @@ export default function BlockedPage() {
             isLoading={query.isLoading}
             onRowClick={setSelectedEvent}
             emptyMessage={
-              search.trim() ? t('blocked.noMatch', { search: search.trim() }) : t('blocked.emptyDefault')
+              search.trim()
+                ? t('blocked.noMatch', { search: search.trim() })
+                : blockedOnly
+                  ? t('blocked.emptyDefault')
+                  : t('blocked.emptyDefaultAll')
             }
           />
         )}

@@ -1,4 +1,6 @@
-import { Activity, Info, ShieldCheck, ShieldX, Users } from 'lucide-react'
+import { Link } from 'react-router-dom'
+import { Activity, ChevronRight, Info, ShieldCheck, ShieldX, Users } from 'lucide-react'
+import { Button } from '@/components/ui/button'
 import { SummaryCard } from '@/components/dashboard/SummaryCard'
 import { TrafficChart } from '@/components/dashboard/TrafficChart'
 import { TopBlockedDomains } from '@/components/dashboard/TopBlockedDomains'
@@ -96,7 +98,21 @@ export default function DashboardPage() {
       </div>
 
       <div className="grid grid-cols-1 gap-4 xl:grid-cols-3">
-        <Panel title={t('dashboard.liveEvents')} className="xl:col-span-2">
+        <Panel
+          title={t('dashboard.liveEvents')}
+          className="xl:col-span-2"
+          action={
+            <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
+              {t('dashboard.liveEventsHint')}
+              <Button asChild variant="outline" size="xs" className="gap-0.5">
+                <Link to="/blocked">
+                  {t('dashboard.liveEventsHintLink')}
+                  <ChevronRight className="h-3.5 w-3.5" aria-hidden="true" />
+                </Link>
+              </Button>
+            </span>
+          }
+        >
           <LiveEventsTicker />
         </Panel>
 

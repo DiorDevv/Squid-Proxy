@@ -17,6 +17,7 @@ import asyncio
 import logging
 import time
 import uuid
+import zipfile
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
@@ -180,6 +181,28 @@ def _jobs_dir() -> Path:
     return path
 
 
+def _range_label(job: ExportJob) -> str:
+    return (
+        job.since.date().isoformat()
+        if job.since.date() == job.until.date()
+        else f"{job.since.date()}_{job.until.date()}"
+    )
+
+
+def inner_filename(job: ExportJob) -> str:
+    """The CSV/JSON filename stored *inside* the zip -- what a user sees
+    after extracting, matching what the plain (non-background) GET
+    /api/export download would have been named."""
+    return f"squid-events-{_range_label(job)}.{job.format}"
+
+
+def zip_filename(job: ExportJob) -> str:
+    """The filename download_export_job serves -- job.file_path itself is
+    just f"{job_id}.zip" (see run_job), so callers need this to get a
+    human-readable name for Content-Disposition."""
+    return f"squid-events-{_range_label(job)}.zip"
+
+
 async def reconcile_orphaned_jobs() -> int:
     """Marks any job still PENDING/RUNNING as of process start FAILED --
     called once from the lifespan on startup, before anything can create a
@@ -203,9 +226,12 @@ async def reconcile_orphaned_jobs() -> int:
         for job in stale_jobs:
             # file_path is only ever set once run_job reaches DONE, so a job
             # caught here has none recorded -- but it follows the same
-            # {job_id}.{format} naming run_job would have written to, so a
-            # best-effort unlink by that name still catches the partial file.
+            # {job_id}.{format} / {job_id}.zip naming run_job would have
+            # written to, so a best-effort unlink by those names still
+            # catches whatever partial file was in progress, whichever
+            # stage (raw write vs. zipping) the crash landed in.
             (_jobs_dir() / f"{job.id}.{job.format}").unlink(missing_ok=True)
+            (_jobs_dir() / f"{job.id}.zip").unlink(missing_ok=True)
             job.status = ExportJobStatus.FAILED
             job.error_message = "Export was interrupted by a server restart."
             job.completed_at = datetime.now(UTC)
@@ -230,9 +256,10 @@ async def run_job(job_id: str) -> None:
         job.status = ExportJobStatus.RUNNING
         await session.commit()
 
-        file_path: Path | None = None
+        raw_path: Path | None = None
+        zip_path: Path | None = None
         try:
-            file_path = _jobs_dir() / f"{job_id}.{job.format}"
+            raw_path = _jobs_dir() / f"{job_id}.{job.format}"
             row_counter = [0]
             stream = (
                 stream_csv(session, job.since, job.until, job.blocked_only, job.branch, row_counter)
@@ -249,7 +276,7 @@ async def run_job(job_id: str) -> None:
             # export into hundreds of extra commits. Cancellation is
             # checked at the same checkpoint (see _JobCancelled above).
             last_progress_commit = time.monotonic()
-            with file_path.open("w", encoding="utf-8", newline="") as f:
+            with raw_path.open("w", encoding="utf-8", newline="") as f:
                 async for chunk in stream:
                     f.write(chunk)
                     if job_id in _cancel_requested:
@@ -260,15 +287,29 @@ async def run_job(job_id: str) -> None:
                         await session.commit()
                         last_progress_commit = now
 
+            # Zip the finished file rather than serving raw CSV/JSON --
+            # that text compresses roughly 10-15x, so this both shrinks what
+            # an admin has to download and what sits on disk until
+            # purge_old_jobs reclaims it. Done after the raw file is
+            # complete (not streamed straight into the zip) because
+            # zipfile's writer needs to seek back to patch in the entry's
+            # final size/CRC once it knows them.
+            zip_path = _jobs_dir() / f"{job_id}.zip"
+            with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
+                zf.write(raw_path, arcname=inner_filename(job))
+            raw_path.unlink()
+
             job.status = ExportJobStatus.DONE
-            job.file_path = str(file_path)
+            job.file_path = str(zip_path)
             job.row_count = row_counter[0]
-            job.file_size_bytes = file_path.stat().st_size
+            job.file_size_bytes = zip_path.stat().st_size
             job.completed_at = datetime.now(UTC)
         except _JobCancelled:
             logger.info("export job %s cancelled", job_id)
-            if file_path is not None:
-                file_path.unlink(missing_ok=True)
+            if raw_path is not None:
+                raw_path.unlink(missing_ok=True)
+            if zip_path is not None:
+                zip_path.unlink(missing_ok=True)
             job.status = ExportJobStatus.CANCELLED
             job.row_count = row_counter[0]
             job.completed_at = datetime.now(UTC)
@@ -278,8 +319,10 @@ async def run_job(job_id: str) -> None:
             # error is a truncated, unusable file -- nothing ever points
             # job.file_path at it (download_export_job 409s without one), so
             # nothing else will ever clean it up.
-            if file_path is not None:
-                file_path.unlink(missing_ok=True)
+            if raw_path is not None:
+                raw_path.unlink(missing_ok=True)
+            if zip_path is not None:
+                zip_path.unlink(missing_ok=True)
             job.status = ExportJobStatus.FAILED
             job.error_message = str(exc)[:2000]
             job.completed_at = datetime.now(UTC)

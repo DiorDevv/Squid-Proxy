@@ -141,12 +141,8 @@ async def download_export_job(
 
     await export_job_service.record_download(db, job, current_user.user_id)
 
-    range_label = job.since.date().isoformat() if job.since.date() == job.until.date() else (
-        f"{job.since.date()}_{job.until.date()}"
-    )
-    media_type = "text/csv" if job.format == "csv" else "application/json"
     return FileResponse(
         job.file_path,
-        media_type=media_type,
-        filename=f"squid-events-{range_label}.{job.format}",
+        media_type="application/zip",
+        filename=export_job_service.zip_filename(job),
     )

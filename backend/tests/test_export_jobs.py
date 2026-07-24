@@ -1,6 +1,7 @@
 import asyncio
 import json
 import time
+import zipfile
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
@@ -56,7 +57,13 @@ async def test_run_job_writes_csv_and_marks_done(db_session: AsyncSession, tmp_p
     assert refreshed.status == ExportJobStatus.DONE
     assert refreshed.row_count == 5
     assert refreshed.file_path is not None
-    assert Path(refreshed.file_path).read_text().count("\n") == 6  # header + 5 rows
+    assert refreshed.file_path.endswith(".zip")  # raw .csv is zipped and removed, see run_job
+    with zipfile.ZipFile(refreshed.file_path) as zf:
+        names = zf.namelist()
+        assert len(names) == 1
+        assert names[0] == export_job_service.inner_filename(refreshed)
+        csv_text = zf.read(names[0]).decode()
+    assert csv_text.count("\n") == 6  # header + 5 rows
     assert refreshed.file_size_bytes == Path(refreshed.file_path).stat().st_size
     assert refreshed.file_size_bytes > 0
 
@@ -97,7 +104,8 @@ async def test_run_job_writes_valid_json(db_session: AsyncSession, tmp_path: Pat
 
     refreshed = await db_session.get(ExportJob, job.id)
     assert refreshed.status == ExportJobStatus.DONE
-    parsed = json.loads(Path(refreshed.file_path).read_text())
+    with zipfile.ZipFile(refreshed.file_path) as zf:
+        parsed = json.loads(zf.read(export_job_service.inner_filename(refreshed)))
     assert len(parsed) == 3
 
 

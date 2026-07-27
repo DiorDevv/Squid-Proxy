@@ -240,6 +240,68 @@ Brauzerda `http://SERVER_IP:8082` ochib, endi **haqiqiy** trafik ko'rinishini te
 
 ---
 
+## 3-BOSQICH: Sig'imni (capacity) haqiqiy trafikka moslash
+
+2-bosqich bir necha kun (kamida 3-5 kun, real trafik bilan) ishlab turgandan keyin,
+default sozlamalar sizning trafik hajmingiz uchun yetarlimi — buni **taxmin qilish emas,
+kuzatib bilish** kerak.
+
+### 3.1 Xotira (ring buffer) yetarli-yetarli emasligini tekshirish
+
+```bash
+curl http://localhost:8001/api/health
+```
+
+Javobdagi ikkita maydonga qarang:
+- `aggregator_backlog_ratio` — `1.0`ga yaqinlashsa, demak tizim ortda qolyapti
+- `aggregator_events_likely_lost` — agar `true` bo'lsa, demak `RING_BUFFER_MAX_EVENTS`
+  (`.env`dagi standart qiymat: `500000`) real trafik uchun yetarli emas, ba'zi hodisalar
+  yo'qolayotgan bo'lishi mumkin — buni oshirish kerak.
+
+Agar ikkalasi ham past/`false` bo'lsa — demak hozirgi sozlama yetarli, hech narsani
+o'zgartirish shart emas.
+
+### 3.2 Disk sig'imini tekshirish (baza qancha tez o'sayotgani)
+
+```bash
+docker exec -it $(docker compose ps -q postgres) \
+  psql -U squid -d squid_dashboard -c "SELECT pg_size_pretty(pg_database_size('squid_dashboard'));"
+```
+
+Buni bir necha kun ketma-ket ishga tushirib, kunlik o'sish tezligini hisoblang. So'ng:
+
+```
+kerakli disk = kunlik o'sish × RETENTION_DAYS_RAW_EVENTS (.env, standart: 7)
+```
+
+Agar bu son serverdagi bo'sh diskdan katta bo'lsa — `RETENTION_DAYS_RAW_EVENTS`ni
+kamaytiring (eski xom ma'lumot avtomatik arxivlanadi, yo'qolib ketmaydi — README'dagi
+"Archiving" bo'limiga qarang).
+
+### 3.3 RAM sarfini tekshirish
+
+```bash
+docker stats --no-stream
+```
+
+`backend` konteynerining real xotira sarfini ko'ring. Agar server RAM'i cheklangan va
+3.1-qadamda `aggregator_events_likely_lost: false` bo'lsa, `RING_BUFFER_MAX_EVENTS`ni
+xavfsiz kamaytirish mumkin (ma'lumot yo'qolmaydi — baza barcha holatda asosiy manba).
+
+### 3.4 Sozlamalarni o'zgartirish
+
+```bash
+nano .env
+# masalan: RING_BUFFER_MAX_EVENTS=1000000
+#          RETENTION_DAYS_RAW_EVENTS=14
+docker compose up -d
+```
+
+`.env`dagi bu qiymatlar `docker-compose.yml` orqali backend'ga avtomatik uzatiladi —
+konteynerni qayta ishga tushirish (`up -d`) yetarli, qayta build shart emas.
+
+---
+
 ## Kelajakda kodni yangilash (agar A-variant — git clone — ishlatgan bo'lsangiz)
 
 Loyihaga o'z kompyuteringizda o'zgartirish kiritib, git'ga push qilganingizdan keyin,

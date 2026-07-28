@@ -196,6 +196,7 @@ export const en = {
 
   // --- Domain detail page ---
   'domainDetail.back': 'Back to domains',
+  'domainDetail.category': 'Category',
   'domainDetail.totalVisits': 'Total visits',
   'domainDetail.distinctClients': 'Distinct clients',
   'domainDetail.clientsTitle': 'Clients who visited this domain',

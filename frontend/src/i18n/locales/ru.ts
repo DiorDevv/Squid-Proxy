@@ -182,6 +182,7 @@ export const ru = {
 
   // --- Страница домена ---
   'domainDetail.back': 'Назад к доменам',
+  'domainDetail.category': 'Категория',
   'domainDetail.totalVisits': 'Всего посещений',
   'domainDetail.distinctClients': 'Уникальные клиенты',
   'domainDetail.clientsTitle': 'Клиенты, посетившие этот домен',

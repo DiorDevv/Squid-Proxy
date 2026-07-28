@@ -185,6 +185,7 @@ export const uz = {
 
   // --- Domen tafsilotlari sahifasi ---
   'domainDetail.back': 'Domenlarga qaytish',
+  'domainDetail.category': 'Kategoriya',
   'domainDetail.totalVisits': 'Jami tashriflar',
   'domainDetail.distinctClients': 'Alohida mijozlar',
   'domainDetail.clientsTitle': 'Bu domenga kirgan mijozlar',

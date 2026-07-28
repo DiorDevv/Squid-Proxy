@@ -1,20 +1,23 @@
 import { useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import type { SortingState } from '@tanstack/react-table'
+import { toast } from 'sonner'
 import { ArrowLeft, Activity, Database, Info, ShieldX, Users } from 'lucide-react'
 import { Button } from '@/components/ui/button'
-import { Badge } from '@/components/ui/badge'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Panel } from '@/components/common/Panel'
 import { ErrorState } from '@/components/common/ErrorState'
 import { RangeSelector } from '@/components/common/RangeSelector'
 import { DomainClientsTable } from '@/components/domains/DomainClientsTable'
 import { SummaryCard } from '@/components/dashboard/SummaryCard'
 import { useDomainClients, useDomainSummary } from '@/hooks/useDomainDetail'
+import { useSetDomainCategory } from '@/hooks/useDomainCategories'
 import { useRangeSearchParams } from '@/lib/filters-store'
 import { formatBytes, formatNumber } from '@/lib/format'
-import { CATEGORY_LABEL_KEYS } from '@/lib/categories'
+import { CATEGORY_LABEL_KEYS, CATEGORY_OPTIONS } from '@/lib/categories'
 import { cn } from '@/lib/utils'
 import { useTranslation } from '@/i18n'
+import type { DomainCategoryLabel } from '@/types/api'
 
 const LIMIT = 25
 
@@ -30,6 +33,12 @@ export default function DomainDetailPage() {
   const rangeParams = useRangeSearchParams()
   const summaryQuery = useDomainSummary(domain, rangeParams)
   const clientsQuery = useDomainClients({ domain, rangeParams, limit: LIMIT, offset, sortBy, order })
+  const setCategory = useSetDomainCategory()
+
+  function handleCategoryChange(category: DomainCategoryLabel) {
+    if (!domain) return
+    setCategory.mutate({ domain, category }, { onError: () => toast.error(t('common.errorDefault')) })
+  }
 
   const summary = summaryQuery.data
   const isEmptyRange = summaryQuery.isSuccess && summary?.total_requests === 0
@@ -54,7 +63,20 @@ export default function DomainDetailPage() {
             </Link>
           </Button>
           <h1 className="font-data text-lg font-semibold text-foreground">{domain}</h1>
-          {summary && <Badge variant="secondary">{t(CATEGORY_LABEL_KEYS[summary.category])}</Badge>}
+          {summary && (
+            <Select value={summary.category} onValueChange={(value) => handleCategoryChange(value as DomainCategoryLabel)}>
+              <SelectTrigger size="sm" className="w-40" aria-label={t('domainDetail.category')}>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {CATEGORY_OPTIONS.map((option) => (
+                  <SelectItem key={option} value={option}>
+                    {t(CATEGORY_LABEL_KEYS[option])}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          )}
         </div>
         <RangeSelector />
       </div>

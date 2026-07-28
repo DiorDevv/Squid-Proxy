@@ -18,6 +18,7 @@ backend/export_jobs/
 backend/archives/
 backend/backups/
 backend/ut1_blacklist_data/
+backend/log_tailer_state/
 
 # Env
 .env

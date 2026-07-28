@@ -204,6 +204,28 @@ liveness via `/api/health` so monitoring can alert if it stays down. Malformed l
 and skipped by `log_parser.py` — a single bad line never takes down the tailer or the line after
 it.
 
+**Reading and parsing happen off the event loop.** Every poll's file I/O and parsing runs via
+`asyncio.to_thread`, not inline on the event loop — measured at 3.6s to fully freeze the process
+(no API response, no WebSocket push, nothing) for a 200k-line backlog before this, which is a real
+scenario, not a contrived one: it's exactly what happens when `deploy/rsyslog/`'s disk-queued
+lines drain all at once after a branch/central link recovers from an outage (see "Multi-branch
+deployment" above). Only dispatching already-parsed events to `on_event` happens back on the
+event-loop thread, since `WebSocketManager.broadcast_nowait` schedules asyncio tasks, which isn't
+safe from a worker thread. Verified against a live deployment: 340 API requests served (avg
+11.8ms) while a 150k-line burst was being ingested, vs. the old implementation's multi-second
+total freeze for a comparable backlog.
+
+**Read position survives a restart.** Each tailer persists its position (inode + byte offset) to
+`LOG_TAILER_STATE_DIR` after every poll. Previously every fresh `LogTailer` — including one
+created by a routine restart, not just a first-ever deploy — opened at the file's current end,
+silently skipping whatever Squid wrote while the process was down. A saved position is only
+trusted if its inode still matches the current file (otherwise the file was rotated away while
+down, and the tailer starts from the beginning of the new file instead, since that may already
+hold data written since the rotation); no saved position at all still means "first-ever run,
+skip existing history," the original deliberate first-deploy behavior. Verified against a live
+deployment: 3068 events written to the log during a 22-second container stop were all correctly
+picked up on restart, with no gap in the resulting event timeline.
+
 ## `insights/` — an intentionally empty extension point
 
 The product brief is explicit that an AI-generated insights/anomaly-detection layer is planned

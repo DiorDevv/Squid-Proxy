@@ -25,10 +25,12 @@ x-backend-common: &backend-common
     # Off unless UT1_ENABLED=true is set in .env.
     UT1_ENABLED: ${UT1_ENABLED:-false}
     UT1_DATA_DIR: /app/ut1_blacklist_data
+    LOG_TAILER_STATE_DIR: /app/log_tailer_state
   volumes:
     - squid_log_data:/data/squid-logs
     - archive_data:/app/archives
     - ut1_blacklist_data:/app/ut1_blacklist_data
+    - log_tailer_state:/app/log_tailer_state
   depends_on:
     postgres:
       condition: service_healthy
@@ -132,3 +134,4 @@ volumes:
   archive_data:
   db_backup_data:
   ut1_blacklist_data:
+  log_tailer_state:

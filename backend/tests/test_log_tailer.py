@@ -1,4 +1,6 @@
+import asyncio
 import os
+import time
 from pathlib import Path
 
 from app.services.log_tailer import LogTailer
@@ -8,10 +10,15 @@ def squid_line(domain: str = "example.com") -> str:
     return f"1737100800.123 45 10.0.0.5 TCP_MISS/200 1024 GET http://{domain}/ alice HIER_DIRECT/93.184.216.34 text/html\n"
 
 
-def make_tailer(path: Path) -> tuple[LogTailer, list]:
+def make_tailer(path: Path, state_dir: Path | None = None) -> tuple[LogTailer, list]:
     events = []
     tailer = LogTailer(
-        path=str(path), on_event=events.append, branch="default", poll_interval=0.01, backoff_max=1.0
+        path=str(path),
+        on_event=events.append,
+        branch="default",
+        poll_interval=0.01,
+        backoff_max=1.0,
+        state_dir=str(state_dir) if state_dir else None,
     )
     return tailer, events
 
@@ -162,3 +169,136 @@ async def test_backoff_recovers_once_file_reappears(tmp_path):
     assert was_missing is False
     assert tailer.is_alive is True
     assert events == []  # file reopened at EOF again, pre-existing content skipped
+
+
+async def test_resumes_from_persisted_position_after_restart(tmp_path):
+    """Simulates a process restart: a second LogTailer instance, pointed at
+    the same file and state_dir as the first, must resume from exactly
+    where the first one left off -- not re-read (duplicates) and not skip
+    ahead to the current EOF (data loss)."""
+    log_path = tmp_path / "access.log"
+    state_dir = tmp_path / "state"
+    log_path.write_text("")
+
+    first_tailer, first_events = make_tailer(log_path, state_dir=state_dir)
+    await first_tailer.poll_once()  # opens at EOF of empty file, persists position
+
+    with log_path.open("a") as f:
+        f.write(squid_line("seen-before-restart.com"))
+    await first_tailer.poll_once()
+    assert [e.domain for e in first_events] == ["seen-before-restart.com"]
+
+    # "Restart": more data is appended while nothing is tailing, then a
+    # brand-new LogTailer instance (fresh in-memory state, same state_dir)
+    # takes over -- exactly what happens across a real process restart.
+    with log_path.open("a") as f:
+        f.write(squid_line("written-while-down.com"))
+
+    second_tailer, second_events = make_tailer(log_path, state_dir=state_dir)
+    was_missing = await second_tailer.poll_once()
+
+    assert was_missing is False
+    assert [e.domain for e in second_events] == ["written-while-down.com"]
+
+
+async def test_rotation_while_down_starts_new_file_from_beginning(tmp_path):
+    """If the file was rotated (logrotate 'create' mode) while the process
+    was down, the persisted inode no longer matches -- the old file's
+    unread tail is unrecoverable, but the new file must be read from its
+    own beginning rather than skipped to EOF, since it may already contain
+    data written since the rotation that's never been seen."""
+    log_path = tmp_path / "access.log"
+    state_dir = tmp_path / "state"
+    log_path.write_text("")
+
+    first_tailer, _first_events = make_tailer(log_path, state_dir=state_dir)
+    await first_tailer.poll_once()
+    with log_path.open("a") as f:
+        f.write(squid_line("before-rotation-and-restart.com"))
+    await first_tailer.poll_once()
+
+    # Rotate (new inode) while "down", with fresh content already written
+    # to the new file before the tailer comes back.
+    os.rename(log_path, tmp_path / "access.log.1")
+    log_path.write_text(squid_line("written-to-new-file-while-down.com"))
+
+    second_tailer, second_events = make_tailer(log_path, state_dir=state_dir)
+    was_missing = await second_tailer.poll_once()
+
+    assert was_missing is False
+    assert [e.domain for e in second_events] == ["written-to-new-file-while-down.com"]
+
+
+async def test_no_persisted_state_opens_at_end_even_with_state_dir_configured(tmp_path):
+    """state_dir being configured doesn't change first-ever-run behavior --
+    only a *previous* run's persisted position does."""
+    log_path = tmp_path / "access.log"
+    state_dir = tmp_path / "state"
+    log_path.write_text(squid_line("pre-existing.com"))
+
+    tailer, events = make_tailer(log_path, state_dir=state_dir)
+    await tailer.poll_once()
+
+    assert events == []
+
+
+async def test_idle_poll_does_not_rewrite_the_state_file(tmp_path):
+    """An idle log (no new data, no rotation) shouldn't touch disk on every
+    single poll -- only when the read position actually changes."""
+    log_path = tmp_path / "access.log"
+    state_dir = tmp_path / "state"
+    log_path.write_text("")
+
+    tailer, _events = make_tailer(log_path, state_dir=state_dir)
+    await tailer.poll_once()  # opens at EOF, position changes from "no file" -> persisted
+
+    with log_path.open("a") as f:
+        f.write(squid_line("real-traffic.com"))
+    await tailer.poll_once()
+
+    state_path = state_dir / "default.json"
+    mtime_after_data = state_path.stat().st_mtime_ns
+
+    # Several idle polls in a row -- nothing new written to the log.
+    for _ in range(5):
+        was_missing = await tailer.poll_once()
+        assert was_missing is False
+
+    assert state_path.stat().st_mtime_ns == mtime_after_data
+
+
+async def test_large_backlog_does_not_block_the_event_loop(tmp_path):
+    """The old (pre-thread) implementation read+parsed synchronously on the
+    event loop -- measured at 3.6s to freeze the entire process for a 200k
+    line backlog (e.g. rsyslog draining a queue after a branch/central link
+    recovers, see README). A concurrent heartbeat must still get scheduled
+    regularly while a large poll is in flight."""
+    log_path = tmp_path / "access.log"
+    log_path.write_text("")
+    tailer, events = make_tailer(log_path)
+    await tailer.poll_once()  # opens at EOF
+
+    line_count = 50_000
+    with log_path.open("a") as f:
+        f.write(squid_line() * line_count)
+
+    heartbeat_ticks = 0
+
+    async def heartbeat() -> None:
+        nonlocal heartbeat_ticks
+        while True:
+            await asyncio.sleep(0.005)
+            heartbeat_ticks += 1
+
+    hb_task = asyncio.create_task(heartbeat())
+    t0 = time.monotonic()
+    await tailer.poll_once()
+    elapsed = time.monotonic() - t0
+    hb_task.cancel()
+
+    assert len(events) == line_count
+    # A blocking implementation would produce ~0 ticks for however long the
+    # read+parse takes; to_thread lets the loop keep scheduling other work
+    # throughout, so plenty of ticks should land during a multi-hundred-ms
+    # poll.
+    assert heartbeat_ticks > 5, f"only {heartbeat_ticks} heartbeat ticks during a {elapsed:.3f}s poll"

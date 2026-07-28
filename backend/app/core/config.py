@@ -51,6 +51,11 @@ class Settings(BaseSettings):
     LOG_SOURCES: list[LogSource] = Field(default_factory=list)
     LOG_TAILER_POLL_INTERVAL_SECONDS: float = 0.75
     LOG_TAILER_BACKOFF_MAX_SECONDS: float = 30.0
+    # Where each branch's tailer persists its read position (inode + byte
+    # offset), so a restart resumes exactly where it left off instead of
+    # silently skipping whatever Squid wrote while the process was down --
+    # see app/services/log_tailer.py's module docstring.
+    LOG_TAILER_STATE_DIR: str = "./log_tailer_state"
 
     # --- Database ---
     DATABASE_URL: str = "sqlite+aiosqlite:///./squid_dashboard.db"

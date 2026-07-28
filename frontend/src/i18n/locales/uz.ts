@@ -271,6 +271,21 @@ export const uz = {
   'settings.exportCancelledToast': 'Eksport bekor qilindi.',
   'settings.exportCancelErrorToast': 'Eksportni bekor qilib bo\'lmadi.',
 
+  'settings.exportCleanupSettings': 'Eksportni tozalash sozlamalari',
+  'settings.exportSettingsSaved': 'Eksport sozlamalari saqlandi.',
+  'settings.exportCleanupMode': 'Tozalash rejimi',
+  'settings.exportCleanupModeTimeBased': "Belgilangan muddatdan keyin o'chirish",
+  'settings.exportCleanupModeAfterDownload': "Yuklab olingandan so'ng darhol o'chirish",
+  'settings.exportCleanupModeDescription':
+    "Bir vaqtning o'zida faqat bitta rejim ishlaydi. \"Yuklab olingandan keyin\" rejimida hech qachon yuklab olinmagan fayl vaqt bo'yicha avtomatik o'chirilmaydi -- bunday holatni ushlash uchun quyidagi ogohlantirishdan foydalaning.",
+  'settings.exportRetentionHours': 'Saqlash muddati (soat)',
+  'settings.exportRetentionHoursDescription':
+    "Tayyor eksport fayli o'chirilishidan oldin qancha vaqt saqlanishi.",
+  'settings.exportWarnUndownloadedHours': "Necha soatdan keyin ogohlantirish (yuklab olinmagan bo'lsa)",
+  'settings.exportWarnUndownloadedHoursPlaceholder': "O'chirilgan",
+  'settings.exportWarnUndownloadedHoursDescription':
+    "Tayyor eksport shuncha vaqt yuklab olinmasdan tursa, dashboardda ogohlantirish chiqadi. O'chirish uchun bo'sh qoldiring. Ikkala tozalash rejimida ham ishlaydi.",
+
   'userManagement.accountsCount_one':
     '{{count}} ta hisob · admin qoʻsha oladi, rol oʻzgartira oladi, parolni tiklay oladi va ruxsatni bekor qila oladi.',
   'userManagement.accountsCount_other':

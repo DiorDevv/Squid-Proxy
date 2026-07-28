@@ -28,8 +28,9 @@ from app.core.config import get_settings
 from app.models import db as db_module
 from app.models.audit_log import AuditAction
 from app.models.export_job import ExportJob, ExportJobStatus
+from app.models.export_settings import ExportCleanupMode
 from app.schemas.export import ExportJobOut
-from app.services import audit_service
+from app.services import audit_service, export_settings_service
 from app.services.export_service import stream_csv, stream_json
 
 logger = logging.getLogger(__name__)
@@ -159,7 +160,33 @@ async def record_download(session: AsyncSession, job: ExportJob, actor_user_id: 
         actor_user_id=actor_user_id,
         detail=detail,
     )
+    # Only the *first* download counts -- a job re-downloaded later (an
+    # admin grabbing it again) shouldn't reset the undownloaded-export
+    # monitor's clock or look "freshly downloaded" for AFTER_DOWNLOAD mode
+    # (which will already have deleted the file after the first one).
+    if job.downloaded_at is None:
+        job.downloaded_at = datetime.now(UTC)
     await session.commit()
+
+
+async def delete_file_if_after_download_mode(job_id: str) -> None:
+    """Called as a FastAPI BackgroundTask from the download route -- i.e.
+    only after the file has already been fully streamed to the client, so
+    deleting it here can never race the response itself. Runs in its own
+    session since BackgroundTasks execute after the request-scoped one
+    (see api/deps.get_db) has already closed."""
+    async with db_module.AsyncSessionLocal() as session:
+        settings_row = await export_settings_service.get_settings_row(session)
+        if settings_row.cleanup_mode != ExportCleanupMode.AFTER_DOWNLOAD:
+            return
+
+        job = await session.get(ExportJob, job_id)
+        if job is None or job.file_path is None:
+            return
+
+        Path(job.file_path).unlink(missing_ok=True)
+        job.file_path = None
+        await session.commit()
 
 
 async def list_jobs(session: AsyncSession, limit: int = 20) -> list[ExportJob]:
@@ -333,13 +360,21 @@ async def run_job(job_id: str) -> None:
 
 
 async def purge_old_jobs(session: AsyncSession) -> int:
-    """Deletes ExportJob rows (and their result files) older than
-    EXPORT_JOB_RETENTION_HOURS -- called from RetentionJob.purge(). These
-    are meant to be downloaded soon after they finish, not kept
-    indefinitely; scripts/archive_weekly_export.py is the long-term archive
-    path."""
-    settings = get_settings()
-    cutoff = datetime.now(UTC) - timedelta(hours=settings.EXPORT_JOB_RETENTION_HOURS)
+    """Deletes ExportJob rows (and their result files) older than the
+    admin-configured retention_hours (see app/models/export_settings.py) --
+    called from RetentionJob.purge(). Only runs in TIME_BASED cleanup mode:
+    in AFTER_DOWNLOAD mode, files are deleted individually right after each
+    download instead (see delete_file_if_after_download_mode), and an
+    undownloaded job is deliberately left alone here regardless of age --
+    app/services/undownloaded_export_monitor.py is what surfaces that,
+    not silent deletion. These rows are meant to be downloaded soon after
+    they finish, not kept indefinitely; scripts/archive_weekly_export.py is
+    the long-term archive path."""
+    settings_row = await export_settings_service.get_settings_row(session)
+    if settings_row.cleanup_mode != ExportCleanupMode.TIME_BASED:
+        return 0
+
+    cutoff = datetime.now(UTC) - timedelta(hours=settings_row.retention_hours)
     old_jobs = (
         (await session.execute(select(ExportJob).where(ExportJob.created_at < cutoff))).scalars().all()
     )

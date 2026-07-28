@@ -1,6 +1,6 @@
 from enum import Enum
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Request, status
 from fastapi.responses import FileResponse, StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -127,6 +127,7 @@ async def cancel_export_job(job_id: str, db: AsyncSession = Depends(get_db)) -> 
 @router.get("/export/jobs/{job_id}/download", dependencies=[Depends(require_admin)])
 async def download_export_job(
     job_id: str,
+    background_tasks: BackgroundTasks,
     db: AsyncSession = Depends(get_db),
     current_user: CurrentUser = Depends(get_current_user),
 ) -> FileResponse:
@@ -141,8 +142,14 @@ async def download_export_job(
 
     await export_job_service.record_download(db, job, current_user.user_id)
 
+    # Runs after the file has been fully streamed to the client -- never
+    # races the FileResponse below. No-ops unless ExportSettings.cleanup_mode
+    # is AFTER_DOWNLOAD (see export_job_service.delete_file_if_after_download_mode).
+    background_tasks.add_task(export_job_service.delete_file_if_after_download_mode, job_id)
+
     return FileResponse(
         job.file_path,
         media_type="application/zip",
         filename=export_job_service.zip_filename(job),
+        background=background_tasks,
     )

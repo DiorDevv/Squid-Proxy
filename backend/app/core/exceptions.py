@@ -3,6 +3,7 @@
 import logging
 
 from fastapi import FastAPI, Request, status
+from fastapi.encoders import jsonable_encoder
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
@@ -21,7 +22,12 @@ def register_exception_handlers(app: FastAPI) -> None:
     ) -> JSONResponse:
         return JSONResponse(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            content={"detail": "Invalid request parameters.", "errors": exc.errors()},
+            # exc.errors() can embed the raw exception object in ctx.error for
+            # validators that raise ValueError directly (e.g. field_validator
+            # bodies) -- jsonable_encoder is what FastAPI's own default
+            # handler uses to make that JSON-safe; a plain dict here works
+            # for the common cases but crashes on that one.
+            content={"detail": "Invalid request parameters.", "errors": jsonable_encoder(exc.errors())},
         )
 
     @app.exception_handler(Exception)

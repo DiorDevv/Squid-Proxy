@@ -268,6 +268,21 @@ export const ru = {
   'settings.exportCancelledToast': 'Экспорт отменён.',
   'settings.exportCancelErrorToast': 'Не удалось отменить экспорт.',
 
+  'settings.exportCleanupSettings': 'Настройки очистки экспорта',
+  'settings.exportSettingsSaved': 'Настройки экспорта сохранены.',
+  'settings.exportCleanupMode': 'Режим очистки',
+  'settings.exportCleanupModeTimeBased': 'Удалять по истечении срока хранения',
+  'settings.exportCleanupModeAfterDownload': 'Удалять сразу после скачивания',
+  'settings.exportCleanupModeDescription':
+    'Одновременно действует только один режим. В режиме "после скачивания" файл, который так и не скачали, никогда не удаляется автоматически по возрасту -- используйте предупреждение ниже, чтобы отследить такой случай.',
+  'settings.exportRetentionHours': 'Срок хранения (часы)',
+  'settings.exportRetentionHoursDescription':
+    'Сколько времени готовый файл экспорта хранится перед удалением.',
+  'settings.exportWarnUndownloadedHours': 'Предупреждать, если не скачан через (часы)',
+  'settings.exportWarnUndownloadedHoursPlaceholder': 'Выключено',
+  'settings.exportWarnUndownloadedHoursDescription':
+    'Показывает предупреждение на дашборде, если готовый экспорт не скачан столько времени. Оставьте пустым, чтобы отключить. Действует в обоих режимах очистки.',
+
   'userManagement.accountsCount_one':
     '{{count}} аккаунт · администратор может добавлять, менять роли, сбрасывать пароли и закрывать доступ.',
   'userManagement.accountsCount_other':

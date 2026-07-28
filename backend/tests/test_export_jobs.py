@@ -11,9 +11,10 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.models.audit_log import AuditAction, AuditLogEntry
 from app.models.export_job import ExportJob, ExportJobStatus
+from app.models.export_settings import ExportCleanupMode
 from app.models.raw_event import RawEvent
 from app.schemas.common import RangeParam
-from app.services import export_job_service
+from app.services import export_job_service, export_settings_service
 
 
 def _make_event(**overrides) -> RawEvent:
@@ -389,6 +390,113 @@ async def test_purge_old_jobs_deletes_expired_rows_and_files(
     assert recent_file.exists()
 
 
+async def test_purge_old_jobs_is_noop_in_after_download_mode(db_session: AsyncSession, tmp_path: Path):
+    """AFTER_DOWNLOAD mode deletes a job's file individually, right after
+    each download (see delete_file_if_after_download_mode) -- purge_old_jobs
+    must never also delete an old, still-undownloaded job by age in this
+    mode, since that would silently destroy data the admin was relying on
+    this mode specifically to keep around until they actually grab it."""
+    old_file = tmp_path / "old.csv"
+    old_file.write_text("id,domain\n")
+
+    now = datetime.now(UTC)
+    db_session.add(
+        ExportJob(
+            id="old-undownloaded-job",
+            status=ExportJobStatus.DONE,
+            format="csv",
+            since=now - timedelta(days=1),
+            until=now,
+            blocked_only=False,
+            branch=None,
+            file_path=str(old_file),
+            created_at=now - timedelta(hours=200),
+        )
+    )
+    await export_settings_service.update_settings(
+        db_session, ExportCleanupMode.AFTER_DOWNLOAD, retention_hours=48, warn_undownloaded_after_hours=None
+    )
+
+    deleted_count = await export_job_service.purge_old_jobs(db_session)
+
+    assert deleted_count == 0
+    assert await db_session.get(ExportJob, "old-undownloaded-job") is not None
+    assert old_file.exists()
+
+
+async def test_record_download_sets_downloaded_at_only_on_first_call(db_session: AsyncSession):
+    now = datetime.now(UTC)
+    job = ExportJob(
+        id="dl-job",
+        status=ExportJobStatus.DONE,
+        format="csv",
+        since=now - timedelta(hours=1),
+        until=now,
+        blocked_only=False,
+        branch=None,
+        file_path=None,
+        created_at=now,
+    )
+    db_session.add(job)
+    await db_session.commit()
+
+    assert job.downloaded_at is None
+
+    await export_job_service.record_download(db_session, job, "admin-user-id")
+    first_downloaded_at = job.downloaded_at
+    assert first_downloaded_at is not None
+
+    await export_job_service.record_download(db_session, job, "admin-user-id")
+    assert job.downloaded_at == first_downloaded_at
+
+
+async def test_delete_file_if_after_download_mode_deletes_only_in_that_mode(
+    db_engine, tmp_path: Path, monkeypatch
+):
+    session_factory = async_sessionmaker(db_engine, expire_on_commit=False, class_=AsyncSession)
+    import app.models.db as db_module
+
+    monkeypatch.setattr(db_module, "AsyncSessionLocal", session_factory)
+
+    result_file = tmp_path / "result.zip"
+    result_file.write_text("fake zip contents")
+
+    now = datetime.now(UTC)
+    async with session_factory() as session:
+        session.add(
+            ExportJob(
+                id="after-dl-job",
+                status=ExportJobStatus.DONE,
+                format="csv",
+                since=now - timedelta(hours=1),
+                until=now,
+                blocked_only=False,
+                branch=None,
+                file_path=str(result_file),
+                created_at=now,
+            )
+        )
+        await export_settings_service.update_settings(
+            session, ExportCleanupMode.TIME_BASED, retention_hours=48, warn_undownloaded_after_hours=None
+        )
+
+    # TIME_BASED (the default/current mode) -- must not touch the file.
+    await export_job_service.delete_file_if_after_download_mode("after-dl-job")
+    assert result_file.exists()
+
+    async with session_factory() as session:
+        await export_settings_service.update_settings(
+            session, ExportCleanupMode.AFTER_DOWNLOAD, retention_hours=48, warn_undownloaded_after_hours=None
+        )
+
+    await export_job_service.delete_file_if_after_download_mode("after-dl-job")
+    assert not result_file.exists()
+
+    async with session_factory() as session:
+        job = await session.get(ExportJob, "after-dl-job")
+        assert job.file_path is None
+
+
 async def test_create_export_job_route_returns_pending(
     app_client: AsyncClient, admin_token, auth_headers, tmp_path: Path, monkeypatch
 ):
@@ -441,6 +549,50 @@ async def test_download_export_job_route_records_audit_entry(
     ).scalar_one()
     assert entry.actor_email == "admin@example.com"
     assert f"job_id={job_id}" in entry.detail
+
+
+async def test_download_export_job_route_deletes_file_in_after_download_mode(
+    app_client: AsyncClient, admin_token, auth_headers, tmp_path: Path, monkeypatch, db_session: AsyncSession
+):
+    """End-to-end through the real route (not calling the service function
+    directly) -- proves the FastAPI BackgroundTask actually runs after the
+    file is streamed, using the same DB the route itself writes through."""
+    monkeypatch.setattr(export_job_service, "_jobs_dir", lambda: tmp_path)
+    await export_settings_service.update_settings(
+        db_session, ExportCleanupMode.AFTER_DOWNLOAD, retention_hours=48, warn_undownloaded_after_hours=None
+    )
+
+    create_response = await app_client.post(
+        "/api/export/jobs?range=1h&format=csv", headers=auth_headers(admin_token)
+    )
+    job_id = create_response.json()["id"]
+
+    for _ in range(20):
+        status_response = await app_client.get(
+            f"/api/export/jobs/{job_id}", headers=auth_headers(admin_token)
+        )
+        if status_response.json()["status"] == "done":
+            break
+        await asyncio.sleep(0.05)
+    else:
+        raise AssertionError("export job never reached done")
+
+    download_response = await app_client.get(
+        f"/api/export/jobs/{job_id}/download", headers=auth_headers(admin_token)
+    )
+    assert download_response.status_code == 200
+
+    job = await db_session.get(ExportJob, job_id)
+    await db_session.refresh(job)
+    assert job.file_path is None
+    assert job.downloaded_at is not None
+
+    # A second attempt must fail cleanly (409, matching the "not ready
+    # yet"/already-gone case), not crash trying to serve a deleted file.
+    second_response = await app_client.get(
+        f"/api/export/jobs/{job_id}/download", headers=auth_headers(admin_token)
+    )
+    assert second_response.status_code == 409
 
 
 async def test_download_export_job_route_409_does_not_record_audit_entry(

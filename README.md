@@ -307,7 +307,8 @@ All three are **off by default** (nothing configured) and tuned by an admin at
 **Settings → Alert settings** (`GET`/`PUT /api/alert-settings`) — not environment variables, since
 these are business policy an admin should be able to change without a redeploy. Anomalies raised
 by any of them flow through the same `AnomalyEvent`/webhook pipeline as the built-in checks (see
-`ALERT_WEBHOOK_URL` below).
+`ALERT_WEBHOOK_URL` below). A fourth check, **undownloaded exports**, is configured separately at
+**Settings → Export cleanup settings** — see below.
 
 Scheduled email reports (a periodic summary + CSV attachment) are configured via
 `REPORT_SCHEDULE` (`disabled` | `daily` | `weekly`), `REPORT_RECIPIENTS`, and `SMTP_*` — see
@@ -363,6 +364,24 @@ regardless) but surfaces a warning both on the dashboard (a banner, same mechani
 Squid-logformat one above) and by email to `REPORT_RECIPIENTS`, if configured. Seeing that warning
 means archiving needs attention *before* more data ages out unarchived — not after.
 
+**Result files from `GET /api/export/jobs` (the background export used by the Settings page for
+large ranges) are cleaned up automatically too**, on an admin-tunable policy at
+**Settings → Export cleanup settings** (`GET`/`PUT /api/export-settings`) rather than an
+environment variable, for the same reason alert thresholds are: it's a policy an admin should be
+able to change without a redeploy. Two mutually exclusive modes — only one applies at a time:
+
+- **Time-based** *(default, 48h)* — a finished export file is deleted once it's older than the
+  configured retention period, downloaded or not.
+- **After download** — a finished export file is deleted the moment it's successfully downloaded,
+  regardless of age. Useful when disk space is tight. A file that's *never* downloaded in this
+  mode is never auto-deleted by age — nothing schedules its deletion — so pair it with the warning
+  below.
+
+Independently of which mode is active, **`warn_undownloaded_after_hours`** *(off by default)*
+raises a dashboard anomaly once a finished export has sat undownloaded that long — e.g. an export
+kicked off mid-week and then forgotten. Same `AnomalyEvent`/webhook pipeline as the category/quota
+alerting checks above.
+
 ## Database backups
 
 **Archiving above is not a database backup.** It covers exactly one table (`raw_events`), and only
@@ -412,8 +431,8 @@ cp squid-dashboard-backup-20260101T040000Z.db squid_dashboard.db
 All endpoints are under `/api`, JWT-protected except `/api/health`. See
 `backend/app/api/routes/` for the full set: `auth`, `summary`, `timeseries`, `domains` (top
 visited/blocked, by-category, per-domain detail), `clients` (+ per-client activity, time-spent by
-domain/category), `alert-settings`, `reports` (status, send-now), `events` (recent,
-ring-buffer-backed), `export` (admin-only CSV/JSON), plus the `/ws/live` WebSocket for real-time
+domain/category), `alert-settings`, `export-settings`, `reports` (status, send-now), `events`
+(recent, ring-buffer-backed), `export` (admin-only CSV/JSON), plus the `/ws/live` WebSocket for real-time
 push. Interactive docs are available at `/docs` when the backend is running (FastAPI's built-in
 Swagger UI).
 

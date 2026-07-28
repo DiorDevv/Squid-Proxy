@@ -283,6 +283,20 @@ export const en = {
   'settings.exportCancelledToast': 'Export cancelled.',
   'settings.exportCancelErrorToast': 'Failed to cancel export.',
 
+  'settings.exportCleanupSettings': 'Export cleanup settings',
+  'settings.exportSettingsSaved': 'Export settings saved.',
+  'settings.exportCleanupMode': 'Cleanup mode',
+  'settings.exportCleanupModeTimeBased': 'Delete after a fixed retention period',
+  'settings.exportCleanupModeAfterDownload': 'Delete immediately after download',
+  'settings.exportCleanupModeDescription':
+    'Only one mode applies at a time. In "after download" mode, a file that is never downloaded is never auto-deleted by age -- use the warning below to catch that case.',
+  'settings.exportRetentionHours': 'Retention period (hours)',
+  'settings.exportRetentionHoursDescription': 'How long a finished export file is kept before it is deleted.',
+  'settings.exportWarnUndownloadedHours': 'Warn if undownloaded after (hours)',
+  'settings.exportWarnUndownloadedHoursPlaceholder': 'Off',
+  'settings.exportWarnUndownloadedHoursDescription':
+    'Raises a dashboard warning once a finished export has sat undownloaded this long. Leave blank to turn this off. Applies in both cleanup modes.',
+
   // --- User management panel ---
   'userManagement.accountsCount_one':
     '{{count}} account · admin can add, change roles, reset passwords, and remove access.',

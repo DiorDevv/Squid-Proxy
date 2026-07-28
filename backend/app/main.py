@@ -111,6 +111,14 @@ async def lifespan(app: FastAPI):
     app.state.uncategorized_domain_monitor = uncategorized_domain_monitor
     uncategorized_domain_monitor.start()
 
+    from app.services.undownloaded_export_monitor import UndownloadedExportMonitorJob
+
+    undownloaded_export_monitor = UndownloadedExportMonitorJob(
+        interval_seconds=settings.UNDOWNLOADED_EXPORT_MONITOR_INTERVAL_SECONDS
+    )
+    app.state.undownloaded_export_monitor = undownloaded_export_monitor
+    undownloaded_export_monitor.start()
+
     from app.services.report_scheduler import ReportScheduler
 
     report_scheduler = ReportScheduler(interval_seconds=settings.REPORT_SCHEDULER_CHECK_INTERVAL_SECONDS)
@@ -137,6 +145,7 @@ async def lifespan(app: FastAPI):
         await report_scheduler.stop()
         await ut1_scheduler.stop()
         await uncategorized_domain_monitor.stop()
+        await undownloaded_export_monitor.stop()
 
 
 def _handle_new_event(app: FastAPI, event) -> None:
@@ -200,6 +209,7 @@ def create_app() -> FastAPI:
         domains,
         events,
         export,
+        export_settings,
         insights,
         reports,
         summary,
@@ -217,6 +227,7 @@ def create_app() -> FastAPI:
     app.include_router(clients.router)
     app.include_router(events.router)
     app.include_router(export.router)
+    app.include_router(export_settings.router)
     app.include_router(users.router)
     app.include_router(audit.router)
     app.include_router(insights.router)

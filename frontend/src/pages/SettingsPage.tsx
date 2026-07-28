@@ -18,6 +18,7 @@ import { DomainCategoriesPanel } from '@/components/settings/DomainCategoriesPan
 import { AlertSettingsPanel } from '@/components/settings/AlertSettingsPanel'
 import { ReportsPanel } from '@/components/settings/ReportsPanel'
 import { ExportJobsPanel } from '@/components/settings/ExportJobsPanel'
+import { ExportSettingsPanel } from '@/components/settings/ExportSettingsPanel'
 import { downloadExportJob, ApiError } from '@/lib/api-client'
 import { useCancelExportJob, useCreateExportJob, useExportJob } from '@/hooks/useExportJob'
 import { useBranches } from '@/hooks/useBranches'
@@ -301,6 +302,10 @@ export default function SettingsPage() {
 
       <Panel title={t('settings.recentExports')}>
         <ExportJobsPanel />
+      </Panel>
+
+      <Panel title={t('settings.exportCleanupSettings')}>
+        <ExportSettingsPanel />
       </Panel>
     </div>
   )

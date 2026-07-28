@@ -96,11 +96,10 @@ class Settings(BaseSettings):
 
     # --- Background export jobs (see api/routes/export.py, ExportJob) ---
     EXPORT_JOBS_DIR: str = "./export_jobs"
-    # Result files (and their DB rows) older than this are purged by
-    # RetentionJob -- these are meant to be picked up soon after they
-    # finish, not a long-term archive (see scripts/archive_weekly_export.py
-    # for that).
-    EXPORT_JOB_RETENTION_HOURS: int = 48
+    # Cleanup policy (how long a result file is kept, or whether it's
+    # deleted right after download instead) is admin-configurable at
+    # runtime via GET/PUT /api/export-settings, not here -- see
+    # app/models/export_settings.py.
     # A wide range at real traffic volumes can produce a multi-hundred-MB
     # file and run for minutes; nothing stops several admins (or several
     # browser tabs) from kicking off that many at once, and EXPORT_JOBS_DIR
@@ -158,6 +157,12 @@ class Settings(BaseSettings):
     # anything is admin-configurable at runtime via /api/alert-settings,
     # same as the two intervals above.
     UNCATEGORIZED_DOMAIN_MONITOR_INTERVAL_SECONDS: int = 86400
+    # How often to check for undownloaded export jobs (see
+    # app/services/undownloaded_export_monitor.py) -- the threshold that
+    # actually gates whether this raises anything
+    # (warn_undownloaded_after_hours) is admin-configurable at runtime via
+    # /api/export-settings, same as the interval above.
+    UNDOWNLOADED_EXPORT_MONITOR_INTERVAL_SECONDS: int = 3600
 
     # --- UT1 bulk domain blacklist (optional; see app/services/
     # ut1_blacklist.py). Off by default -- this reaches a third-party

@@ -202,3 +202,12 @@ export interface ExportJob {
   created_at: string
   completed_at: string | null
 }
+
+export type ExportCleanupMode = 'time_based' | 'after_download'
+
+export interface ExportSettingsOut {
+  cleanup_mode: ExportCleanupMode
+  retention_hours: number
+  warn_undownloaded_after_hours: number | null
+  updated_at: string
+}

@@ -50,3 +50,8 @@ class ExportJob(Base):
 
     created_at: Mapped[datetime] = mapped_column(UTCDateTime, index=True)
     completed_at: Mapped[datetime | None] = mapped_column(UTCDateTime, nullable=True)
+    # Set on the first successful download (see export_job_service.record_download).
+    # None means "never downloaded" -- what the undownloaded-export monitor
+    # (app/services/undownloaded_export_monitor.py) and AFTER_DOWNLOAD
+    # cleanup mode (ExportSettings) both key off.
+    downloaded_at: Mapped[datetime | None] = mapped_column(UTCDateTime, nullable=True, index=True)

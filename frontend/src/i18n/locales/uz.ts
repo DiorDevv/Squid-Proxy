@@ -240,6 +240,8 @@ export const uz = {
     'WebSocket aloqasi mavjud boʻlmaganda, dashboard avtomatik ravishda yuqoridagi oraliqda REST soʻrovlariga oʻtadi — hech qanday maʼlumot yoʻqolmaydi, faqat yangilanishlar kamroq tez-tez keladi.',
   'settings.exportEvents': 'Hodisalarni eksport qilish',
   'settings.range': 'Oraliq',
+  'settings.exportRangeIndependent':
+    'Hozirgina ko‘rib turgan oralig‘ingizdan avtomatik to‘ldirildi, lekin mustaqil — buni o‘zgartirish faqat shu eksportga ta’sir qiladi.',
   'settings.format': 'Format',
   'settings.rangeLastHour': 'Soʻnggi 1 soat',
   'settings.rangeLast24Hours': 'Soʻnggi 24 soat',

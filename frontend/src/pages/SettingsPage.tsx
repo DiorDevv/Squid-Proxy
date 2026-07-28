@@ -21,6 +21,7 @@ import { ExportJobsPanel } from '@/components/settings/ExportJobsPanel'
 import { downloadExportJob, ApiError } from '@/lib/api-client'
 import { useCancelExportJob, useCreateExportJob, useExportJob } from '@/hooks/useExportJob'
 import { useBranches } from '@/hooks/useBranches'
+import { useFiltersStore } from '@/lib/filters-store'
 import { formatNumber, toDatetimeLocalValue } from '@/lib/format'
 import { POLLING_FALLBACK_INTERVAL_MS } from '@/lib/constants'
 import { useTranslation } from '@/i18n'
@@ -33,11 +34,29 @@ type ExportRangeValue = RangeParam | typeof CUSTOM_RANGE
 
 export default function SettingsPage() {
   const { t } = useTranslation()
-  const [exportRange, setExportRange] = useState<ExportRangeValue>('24h')
-  const [customFrom, setCustomFrom] = useState(() => toDatetimeLocalValue(new Date(Date.now() - 24 * 60 * 60 * 1000)))
-  const [customTo, setCustomTo] = useState(() => toDatetimeLocalValue(new Date()))
+  // Initialized from (not bound to) the same global range/branch filter the
+  // Dashboard/Domains/Clients/Blocked pages all share (useFiltersStore) --
+  // otherwise this defaulted to a flat 24h regardless of what the admin was
+  // just looking at elsewhere, so "export this" after picking e.g. 1h on
+  // the Dashboard silently exported 24h of data instead. A one-time read
+  // via getState() (not the reactive useFiltersStore() hook) so editing
+  // these fields here never feeds back and changes what other pages show.
+  const initialFilters = useFiltersStore.getState()
+  const [exportRange, setExportRange] = useState<ExportRangeValue>(
+    initialFilters.mode === 'custom' ? CUSTOM_RANGE : initialFilters.range,
+  )
+  const [customFrom, setCustomFrom] = useState(() =>
+    initialFilters.mode === 'custom' && initialFilters.customFrom
+      ? toDatetimeLocalValue(new Date(initialFilters.customFrom))
+      : toDatetimeLocalValue(new Date(Date.now() - 24 * 60 * 60 * 1000)),
+  )
+  const [customTo, setCustomTo] = useState(() =>
+    initialFilters.mode === 'custom' && initialFilters.customTo
+      ? toDatetimeLocalValue(new Date(initialFilters.customTo))
+      : toDatetimeLocalValue(new Date()),
+  )
   const [exportFormat, setExportFormat] = useState<'csv' | 'json'>('csv')
-  const [exportBranch, setExportBranch] = useState<string | null>(null)
+  const [exportBranch, setExportBranch] = useState<string | null>(initialFilters.branch)
   const [blockedOnly, setBlockedOnly] = useState(false)
   const [jobId, setJobId] = useState<string | null>(null)
 
@@ -185,6 +204,7 @@ export default function SettingsPage() {
                   <SelectItem value={CUSTOM_RANGE}>{t('common.custom')}</SelectItem>
                 </SelectContent>
               </Select>
+              <p className="text-xs text-muted-foreground">{t('settings.exportRangeIndependent')}</p>
             </div>
             <div className="flex flex-col gap-1.5">
               <Label>{t('settings.format')}</Label>

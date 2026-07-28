@@ -252,6 +252,8 @@ export const en = {
     'When the WebSocket connection is unavailable, the dashboard automatically falls back to REST polling at the interval above — no data is lost, updates just arrive less frequently.',
   'settings.exportEvents': 'Export events',
   'settings.range': 'Range',
+  'settings.exportRangeIndependent':
+    'Pre-filled from what you were just viewing, but independent -- changing it here only affects this export.',
   'settings.format': 'Format',
   'settings.rangeLastHour': 'Last 1 hour',
   'settings.rangeLast24Hours': 'Last 24 hours',

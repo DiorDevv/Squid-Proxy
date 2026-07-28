@@ -33,9 +33,27 @@ monotonically increasing id) and, in one transaction:
 - inserts full-detail rows into `raw_events`
 
 Aggregation and raw storage happen from the *same* flush pass over the *same* events, so they can
-never drift apart. Rows are upserted (select-then-increment, not a dialect-specific
-`ON CONFLICT`) to keep the code portable across SQLite and Postgres without maintaining two
-implementations.
+never drift apart. Rows are upserted via one dialect-specific `INSERT ... ON CONFLICT DO UPDATE`
+per table per flush (`app/services/db_upsert.py`), not select-then-increment one row at a time --
+that scaled linearly with how many distinct buckets/domains/clients a flush window touches, which
+grows with traffic.
+
+**Only advance past a flush's events once they're durably committed.** `_last_flushed_id` used to
+be set right after reading the events, before the transaction that actually persists them --
+a failed commit (a transient DB hiccup, a bug) still marked them flushed, silently skipping that
+whole window forever despite nothing having been written. Verified with a test that forces the
+first commit to fail: the events must still show up in `backlog_size`, and a retry must actually
+persist them.
+
+**Building the per-bucket totals, and inserting `raw_events`, both run off the event loop.**
+Bucketing (~400ms/150k events, pure dict bookkeeping + `effective_category()`) runs via
+`asyncio.to_thread`, same reasoning as `log_tailer.py`'s. `raw_events` uses a Core bulk
+`INSERT` of plain dicts rather than `session.add_all()` with ORM objects -- add_all()'s
+identity-map bookkeeping alone measured ~960ms of synchronous CPU time for 150k rows, on top of
+whatever the implicit flush inside `commit()` then also costs; switching it, verified against a
+live deployment, cut the worst-case API request latency during a real 150k-line ingest burst from
+~4.1s to ~0.7s (and average latency roughly 7x, since the event loop can now actually interleave
+other work throughout, not just during network-wait gaps).
 
 ## Why persist raw events at all, separately from aggregates
 

@@ -6,6 +6,7 @@ very first event in every bucket)."""
 
 from datetime import UTC, datetime
 
+import pytest
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
@@ -152,6 +153,50 @@ async def test_flush_on_second_call_increments_existing_rows_rather_than_duplica
         rows = (await session.execute(select(MinuteAggregate))).scalars().all()
         assert len(rows) == 1
         assert rows[0].total_requests == 2
+
+
+async def test_flush_does_not_advance_past_events_lost_to_a_failed_commit(db_engine, monkeypatch):
+    """If the DB transaction fails (a transient hiccup, a constraint
+    violation), flush() must not have already marked those events as
+    flushed -- otherwise they're silently skipped forever on the next
+    attempt, never having actually been persisted."""
+    session_factory = async_sessionmaker(db_engine, expire_on_commit=False, class_=AsyncSession)
+    import app.services.aggregator as aggregator_module
+
+    monkeypatch.setattr(aggregator_module, "AsyncSessionLocal", session_factory)
+
+    ring_buffer = RingBuffer(max_events=100)
+    ring_buffer.append(parse_line(squid_line("example.com")))
+
+    aggregator = Aggregator(ring_buffer=ring_buffer, interval_seconds=60)
+
+    original_commit = AsyncSession.commit
+    call_count = 0
+
+    async def flaky_commit(self):
+        nonlocal call_count
+        call_count += 1
+        if call_count == 1:
+            raise RuntimeError("simulated transient DB failure")
+        return await original_commit(self)
+
+    monkeypatch.setattr(AsyncSession, "commit", flaky_commit)
+
+    with pytest.raises(RuntimeError):
+        await aggregator.flush()
+
+    # Still considered unflushed -- not silently skipped.
+    assert aggregator.backlog_size == 1
+
+    # A retry (the "transient" failure is over now) must actually persist
+    # it, not no-op because it thinks this event was already handled.
+    result = await aggregator.flush()
+    assert result.events_flushed == 1
+    assert aggregator.backlog_size == 0
+
+    async with session_factory() as session:
+        minute_row = (await session.execute(select(MinuteAggregate))).scalar_one()
+        assert minute_row.total_requests == 1
 
 
 async def test_flush_with_no_new_events_is_a_noop(db_engine, monkeypatch):

@@ -1,5 +1,9 @@
 # Squid Watch — Squid Proxy Log Analytics Dashboard
 
+[![CI](https://github.com/DiorDevv/Squid-Proxy/actions/workflows/ci.yml/badge.svg)](https://github.com/DiorDevv/Squid-Proxy/actions/workflows/ci.yml)
+[![CodeQL](https://github.com/DiorDevv/Squid-Proxy/actions/workflows/codeql.yml/badge.svg)](https://github.com/DiorDevv/Squid-Proxy/actions/workflows/codeql.yml)
+[![License: MIT](https://img.shields.io/github/license/DiorDevv/Squid-Proxy)](LICENSE)
+
 A real-time log analytics dashboard for Squid Proxy: tails `access.log`, parses and aggregates
 traffic, and serves a live "Network Operations Center" style dashboard for a security/compliance
 team to see who accessed (or tried to access) what, and what got blocked.
@@ -11,7 +15,26 @@ Squid Proxy access.log ──tail──> Python backend (FastAPI) ──REST/WS�
                                 SQLite / PostgreSQL
 ```
 
+![Squid Watch dashboard](docs/screenshots/dashboard.jpg)
+
 See [ARCHITECTURE.md](ARCHITECTURE.md) for the reasoning behind the major design decisions.
+
+## Table of contents
+
+- [Project layout](#project-layout)
+- [Quick start (Docker, recommended)](#quick-start-docker-recommended)
+- [Multi-branch deployment (multiple Squid servers)](#multi-branch-deployment-multiple-squid-servers)
+- [Quick start (without Docker)](#quick-start-without-docker)
+- [Tests & linting](#tests--linting)
+- [Configuration reference](#configuration-reference)
+- [Category/quota alerting and scheduled reports](#categoryquota-alerting-and-scheduled-reports)
+- [Archiving raw event detail before it's purged](#archiving-raw-event-detail-before-its-purged)
+- [Database backups](#database-backups)
+- [API surface](#api-surface)
+- [Deploying without Docker](#deploying-without-docker)
+- [Database migrations](#database-migrations)
+- [Security notes](#security-notes)
+- [Contributing](#contributing)
 
 ## Project layout
 
@@ -426,3 +449,9 @@ Alembic's bookkeeping table recording it.
 - `viewer` role has full read access; only `admin` can export data or reach `/settings`.
 - Never commit a real `.env` — both `.gitignore` files exclude it; only `.env.example` files are
   tracked.
+
+## Contributing
+
+Bug reports, feature requests, and pull requests are welcome — see
+[CONTRIBUTING.md](CONTRIBUTING.md) for how to set up a dev environment, run the test suite, and
+what a good pull request looks like here.

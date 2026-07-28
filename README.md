@@ -27,6 +27,7 @@ See [ARCHITECTURE.md](ARCHITECTURE.md) for the reasoning behind the major design
 - [Quick start (without Docker)](#quick-start-without-docker)
 - [Tests & linting](#tests--linting)
 - [Configuration reference](#configuration-reference)
+- [Domain categorization](#domain-categorization)
 - [Category/quota alerting and scheduled reports](#categoryquota-alerting-and-scheduled-reports)
 - [Archiving raw event detail before it's purged](#archiving-raw-event-detail-before-its-purged)
 - [Database backups](#database-backups)
@@ -264,6 +265,31 @@ Key ones to know:
 | `JWT_SECRET` | Signs access tokens — must be set to a real secret in any non-dev environment |
 | `RETENTION_DAYS_RAW_EVENTS` / `RETENTION_DAYS_AGGREGATES` | How long raw vs. aggregated data is kept |
 | `ADMIN_EMAIL` / `ADMIN_PASSWORD` | First-boot admin bootstrap (only used if the `users` table is empty) |
+
+## Domain categorization
+
+Every domain seen in traffic gets a category (`social_media`, `gambling`, `adult_content`, ...)
+used throughout the dashboard and by the alerting below. Three sources, in order of precedence:
+
+1. **Admin override** (`GET`/`PUT /api/domain-categories`) — always wins, since a human said so.
+2. **UT1 bulk blacklist** *(optional, off by default)* — millions of domains across gambling,
+   adult, gaming, social media, shopping, news, and video streaming, from
+   [UT1](https://dsi.ut-capitole.fr/blacklists/) (Universite Toulouse Capitole), a free list built
+   specifically for this kind of filtering and updated roughly daily upstream. Enable with
+   `UT1_ENABLED=true`; it then downloads at startup and refreshes every `UT1_REFRESH_INTERVAL_SECONDS`
+   (default weekly) — see `backend/.env.example`. Left off by default because it's a third-party
+   server reached over the internet at runtime, which shouldn't happen silently for a
+   compliance/security tool. Memory-lean by design (a sorted array of domain hashes, not the
+   domains themselves): ~40MB resident once loaded, briefly ~500MB during a refresh (a background
+   thread, not the request-handling event loop) — disk cache is ~120MB under `UT1_DATA_DIR`.
+3. **Built-in curated list** (`backend/app/services/category_inference.py`) — a small
+   (~90-domain) hand-picked list plus a few TLD/keyword heuristics (e.g. `.bet`/`.casino` →
+   gambling). Always active, zero setup; covers the common cases UT1's bulk categories don't
+   encode the same nuance for (e.g. `aws.amazon.com` is `work_tools`, not `shopping`, even though
+   the bare domain is).
+
+Anything none of the three catches is `uncategorized` — the same as if an admin simply hasn't
+gotten to it yet, not an error.
 
 ## Category/quota alerting and scheduled reports
 

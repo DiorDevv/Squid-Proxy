@@ -148,6 +148,15 @@ class Settings(BaseSettings):
     CATEGORY_MONITOR_INTERVAL_SECONDS: int = 3600
     QUOTA_MONITOR_INTERVAL_SECONDS: int = 3600
 
+    # --- UT1 bulk domain blacklist (optional; see app/services/
+    # ut1_blacklist.py). Off by default -- this reaches a third-party
+    # (French university) server over the internet at runtime, which
+    # shouldn't happen silently for a compliance/security tool. ---
+    UT1_ENABLED: bool = False
+    UT1_MIRROR_URL: str = "https://dsi.ut-capitole.fr/blacklists/download/blacklists.tar.gz"
+    UT1_DATA_DIR: str = "./ut1_blacklist_data"
+    UT1_REFRESH_INTERVAL_SECONDS: int = 604800
+
     # --- Scheduled email reports (optional; no-op unless REPORT_RECIPIENTS
     # is set) ---
     REPORT_SCHEDULE: str = "disabled"  # "disabled" | "daily" | "weekly"

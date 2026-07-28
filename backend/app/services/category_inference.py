@@ -7,13 +7,17 @@ a real deployment with hundreds of distinct domains would start with
 everything dumped in "uncategorized" until an admin manually tags each one,
 which doesn't scale -- this exists purely to make that starting point useful.
 
-Three tiers, checked in order, first match wins:
+Four tiers, checked in order, first match wins:
   1. Known hostnames (longest suffix match, so "aws.amazon.com" resolves to
      work_tools even though the shorter "amazon.com" suffix matches shopping)
-  2. Category-indicating TLDs (weaker signal, but reliable for a handful of
+  2. UT1 bulk blacklist (see ut1_blacklist.py) -- optional, off unless
+     UT1_ENABLED and a successful refresh has happened; covers millions of
+     domains the ~90-entry list above never could, at the cost of being a
+     bulk/automated source rather than hand-curated
+  3. Category-indicating TLDs (weaker signal, but reliable for a handful of
      categories where the TLD itself is a strong hint, e.g. gambling sites
      disproportionately use .bet/.casino/.poker)
-  3. Keyword substrings in the hostname itself (weakest signal -- catches
+  4. Keyword substrings in the hostname itself (weakest signal -- catches
      descriptive names a known-hostname list will never cover, at the cost
      of occasional false positives)
 
@@ -25,6 +29,25 @@ hadn't gotten to it yet.
 from functools import lru_cache
 
 from app.models.domain_category import DomainCategoryLabel
+from app.services.ut1_blacklist import Ut1Blacklist
+
+# Set by Ut1BlacklistScheduler after each successful refresh (see
+# ut1_scheduler.py); None until the first refresh ever succeeds, e.g.
+# UT1_ENABLED=false (the default) or the very first download hasn't
+# completed yet. infer_category() below treats None as "tier absent",
+# not as an error.
+_ut1_blacklist: Ut1Blacklist | None = None
+
+
+def set_ut1_blacklist(blacklist: Ut1Blacklist | None) -> None:
+    global _ut1_blacklist
+    _ut1_blacklist = blacklist
+    # Domains already cached under the old (or no) blacklist may resolve
+    # differently now -- e.g. UNCATEGORIZED because no blacklist was loaded
+    # yet at the time, now correctly categorized. Without this, a domain
+    # looked up once before the first successful refresh would stay wrong
+    # in cache for the life of the process.
+    infer_category.cache_clear()
 
 _KNOWN_HOSTNAMES: dict[str, DomainCategoryLabel] = {
     # --- Video streaming ---
@@ -172,6 +195,11 @@ def infer_category(domain: str | None) -> DomainCategoryLabel:
             best_category = category
     if best_match_len >= 0:
         return best_category
+
+    if _ut1_blacklist is not None:
+        ut1_category = _ut1_blacklist.categorize(domain)
+        if ut1_category is not None:
+            return ut1_category
 
     if domain.endswith(_GAMBLING_TLDS):
         return DomainCategoryLabel.GAMBLING

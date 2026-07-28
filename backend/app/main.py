@@ -108,6 +108,12 @@ async def lifespan(app: FastAPI):
     app.state.report_scheduler = report_scheduler
     report_scheduler.start()
 
+    from app.services.ut1_scheduler import Ut1BlacklistScheduler
+
+    ut1_scheduler = Ut1BlacklistScheduler(interval_seconds=settings.UT1_REFRESH_INTERVAL_SECONDS)
+    app.state.ut1_scheduler = ut1_scheduler
+    ut1_scheduler.start()
+
     try:
         yield
     finally:
@@ -120,6 +126,7 @@ async def lifespan(app: FastAPI):
         await category_usage_monitor.stop()
         await quota_monitor.stop()
         await report_scheduler.stop()
+        await ut1_scheduler.stop()
 
 
 def _handle_new_event(app: FastAPI, event) -> None:

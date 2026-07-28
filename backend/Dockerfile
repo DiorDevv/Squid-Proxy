@@ -21,13 +21,14 @@ RUN pip install --no-cache-dir . \
     && chmod +x docker-entrypoint.sh
 
 RUN useradd --create-home --shell /bin/false appuser \
-    # Pre-create the demo/shared log volume mount point, and the archive
-    # output directory (see app/services/archive_scheduler.py), owned by
+    # Pre-create the demo/shared log volume mount point, the archive output
+    # directory (see app/services/archive_scheduler.py), and the UT1
+    # blacklist cache directory (see app/services/ut1_blacklist.py), owned by
     # appuser. Docker initializes a fresh named volume from the image's
     # directory contents (including ownership) on first mount, so this makes
-    # both volumes writable by the non-root user without needing a root
+    # all three volumes writable by the non-root user without needing a root
     # entrypoint.
-    && mkdir -p /data/squid-logs /app/archives \
+    && mkdir -p /data/squid-logs /app/archives /app/ut1_blacklist_data \
     && chown -R appuser:appuser /data/squid-logs /app
 USER appuser
 

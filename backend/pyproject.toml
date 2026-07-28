@@ -19,7 +19,7 @@ dependencies = [
     "sqlalchemy[asyncio]>=2.0,<2.1",
     "aiosqlite>=0.20,<0.21",
     "asyncpg>=0.30,<0.31",
-    "alembic>=1.14,<1.15",
+    "alembic>=1.14,<1.19",
     "python-jose[cryptography]>=3.3,<4",
     "passlib[bcrypt]>=1.7,<2",
     # Capped below 4.1: passlib 1.7.4 (unmaintained upstream, no newer release

@@ -50,17 +50,37 @@ services:
       interval: 5s
       timeout: 5s
       retries: 10
+    networks:
+      # On both DB networks so backend and db-backup can each reach it --
+      # but backend and db-backup are never on the same network as each
+      # other (see below), so postgres being reachable from both doesn't
+      # bridge them together; Docker doesn't relay traffic between a
+      # container's separate networks.
+      - backend_db_net
+      - backup_db_net
     restart: unless-stopped
 
   backend:
     <<: *backend-common
+    # Overrides the image's own safe-by-default CMD (see Dockerfile) with
+    # this deployment's actual trust boundary: only frontend_net's static
+    # IP (assigned to the frontend/nginx container below) is trusted to set
+    # X-Forwarded-For. Network segmentation (this service is on
+    # frontend_net + backend_db_net only -- never backup_db_net, which
+    # db-backup and demo-log-generator have no path to at all) is the
+    # primary control; this narrows the header-trust precondition to match
+    # it exactly, rather than leaving it wide open as a second, independent
+    # way the same mistake could reappear later.
+    command:
+      [
+        "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000",
+        "--proxy-headers", "--forwarded-allow-ips=172.28.10.10",
+      ]
     ports:
-      # Loopback-only: the frontend's nginx (proxying /api and /ws) is the
-      # only intended path in. Publishing this on all interfaces would let
-      # anyone reach the raw API directly -- bypassing nginx's security
-      # headers, and (see backend/app/core/rate_limit.py's docstring)
-      # defeating the precondition that makes trusting X-Forwarded-For safe
-      # for rate limiting below.
+      # Loopback-only, for host-level debugging (e.g. curl'ing /api/health
+      # directly) -- not part of the trust boundary above, since a
+      # connection arriving this way never presents frontend_net's static
+      # IP and so can't spoof X-Forwarded-For regardless.
       - "127.0.0.1:${BACKEND_PORT:-8000}:8000"
     healthcheck:
       # ?strict=true: 503 (not 200) when the log tailer is down or events are
@@ -71,6 +91,9 @@ services:
       interval: 15s
       timeout: 5s
       retries: 5
+    networks:
+      - frontend_net
+      - backend_db_net
     restart: unless-stopped
 
   frontend:
@@ -82,6 +105,13 @@ services:
     logging: *default-logging
     ports:
       - "${FRONTEND_PORT:-8080}:80"
+    networks:
+      frontend_net:
+        # Fixed so backend's --forwarded-allow-ips above can trust an exact
+        # address rather than a whole subnet -- Compose would otherwise
+        # assign this dynamically, and could reassign it across a
+        # recreate.
+        ipv4_address: 172.28.10.10
     depends_on:
       - backend
     restart: unless-stopped
@@ -105,6 +135,15 @@ services:
       - db_backup_data:/backups
       - ./backend/scripts/backup_postgres_docker.sh:/backup_postgres_docker.sh:ro
     entrypoint: ["/bin/sh", "/backup_postgres_docker.sh"]
+    networks:
+      # Deliberately *not* on backend_db_net or frontend_net -- this
+      # container only ever needs to reach postgres, and has no business
+      # being able to reach backend at all. Sharing a network with backend
+      # here (even though it's only postgres this needs) would silently
+      # reopen the same X-Forwarded-For spoofing path this whole network
+      # layout exists to close, since anything on the same Docker network
+      # can reach any other member's exposed ports.
+      - backup_db_net
     depends_on:
       postgres:
         condition: service_healthy
@@ -126,7 +165,26 @@ services:
         "--output", "/data/squid-logs/access.log",
         "--rate", "30",
       ]
+    # Only ever writes to the shared volume above -- no network calls of
+    # any kind, so it gets none: no path to backend (or anywhere else) to
+    # spoof from, and one less container's dependencies to keep patched.
+    network_mode: "none"
     restart: unless-stopped
+
+networks:
+  # Static subnet so frontend's address (below) is fixed across recreates --
+  # backend's --forwarded-allow-ips trusts that exact IP, not a whole range.
+  frontend_net:
+    ipam:
+      config:
+        - subnet: 172.28.10.0/24
+  # backend <-> postgres only. Never shared with backup_db_net's members
+  # (db-backup) or frontend_net's (frontend) beyond postgres itself, which
+  # sits on both DB networks without bridging them -- see postgres's own
+  # networks: comment above.
+  backend_db_net:
+  # db-backup <-> postgres only.
+  backup_db_net:
 
 volumes:
   postgres_data:

@@ -56,6 +56,13 @@ _UT1_CATEGORY_MAP: dict[str, DomainCategoryLabel] = {
     "shopping": DomainCategoryLabel.SHOPPING,
     "press": DomainCategoryLabel.NEWS,
     "audio-video": DomainCategoryLabel.VIDEO_STREAMING,
+    # UT1 also has a dedicated "radio" folder (internet radio stations --
+    # audio only) -- mapped separately from "audio-video" so this app's
+    # music_streaming label actually gets populated by UT1 at all, not just
+    # the curated list. Without this, ~12% of "audio-video" itself (radio/
+    # music stations mixed into that folder upstream) would still land in
+    # video_streaming instead, since audio-video was checked first.
+    "radio": DomainCategoryLabel.MUSIC_STREAMING,
 }
 
 # Checked in this fixed order so results are deterministic on the rare
@@ -65,6 +72,7 @@ _LABEL_CHECK_ORDER: tuple[DomainCategoryLabel, ...] = (
     DomainCategoryLabel.GAMBLING,
     DomainCategoryLabel.GAMING,
     DomainCategoryLabel.SOCIAL_MEDIA,
+    DomainCategoryLabel.MUSIC_STREAMING,
     DomainCategoryLabel.VIDEO_STREAMING,
     DomainCategoryLabel.SHOPPING,
     DomainCategoryLabel.NEWS,

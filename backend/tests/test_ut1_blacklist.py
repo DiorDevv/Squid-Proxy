@@ -99,6 +99,18 @@ def test_build_from_dir_merges_multiple_categories_into_one_label(tmp_path: Path
     assert blacklist.categorize("from-arjel.example") == DomainCategoryLabel.GAMBLING
 
 
+def test_build_from_dir_maps_radio_to_music_streaming(tmp_path: Path):
+    # UT1's "radio" folder (internet radio stations) is distinct from
+    # "audio-video" (video-first) -- without this, radio stations would
+    # never be reachable via UT1's music_streaming label at all.
+    (tmp_path / "radio").mkdir()
+    (tmp_path / "radio" / "domains").write_text("some-radio-station.example\n")
+
+    blacklist = build_from_dir(tmp_path)
+
+    assert blacklist.categorize("some-radio-station.example") == DomainCategoryLabel.MUSIC_STREAMING
+
+
 @pytest.fixture(autouse=True)
 def _reset_category_inference_ut1_state():
     """category_inference.py holds the active Ut1Blacklist (and an

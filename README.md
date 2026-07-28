@@ -273,7 +273,7 @@ used throughout the dashboard and by the alerting below. Three sources, in order
 
 1. **Admin override** (`GET`/`PUT /api/domain-categories`) — always wins, since a human said so.
 2. **UT1 bulk blacklist** *(optional, off by default)* — millions of domains across gambling,
-   adult, gaming, social media, shopping, news, and video streaming, from
+   adult, gaming, social media, music streaming, video streaming, shopping, and news, from
    [UT1](https://dsi.ut-capitole.fr/blacklists/) (Universite Toulouse Capitole), a free list built
    specifically for this kind of filtering and updated roughly daily upstream. Enable with
    `UT1_ENABLED=true`; it then downloads at startup and refreshes every `UT1_REFRESH_INTERVAL_SECONDS`

@@ -61,3 +61,13 @@ def test_none_or_empty_domain_is_uncategorized():
 
 def test_case_insensitive():
     assert infer_category("YouTube.com") == DomainCategoryLabel.VIDEO_STREAMING
+
+
+def test_regional_uzbek_and_russian_hostnames_are_recognized():
+    assert infer_category("uzum.uz") == DomainCategoryLabel.SHOPPING
+    assert infer_category("olx.uz") == DomainCategoryLabel.SHOPPING
+    assert infer_category("avito.ru") == DomainCategoryLabel.SHOPPING
+    assert infer_category("kun.uz") == DomainCategoryLabel.NEWS
+    assert infer_category("gazeta.uz") == DomainCategoryLabel.NEWS
+    assert infer_category("ok.ru") == DomainCategoryLabel.SOCIAL_MEDIA
+    assert infer_category("rutube.ru") == DomainCategoryLabel.VIDEO_STREAMING

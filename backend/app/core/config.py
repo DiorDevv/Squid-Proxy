@@ -147,6 +147,12 @@ class Settings(BaseSettings):
     # background jobs re-check) ---
     CATEGORY_MONITOR_INTERVAL_SECONDS: int = 3600
     QUOTA_MONITOR_INTERVAL_SECONDS: int = 3600
+    # How often to check for high-traffic uncategorized domains (see
+    # app/services/uncategorized_domain_monitor.py) -- the per-branch
+    # request-count threshold that actually gates whether this raises
+    # anything is admin-configurable at runtime via /api/alert-settings,
+    # same as the two intervals above.
+    UNCATEGORIZED_DOMAIN_MONITOR_INTERVAL_SECONDS: int = 86400
 
     # --- UT1 bulk domain blacklist (optional; see app/services/
     # ut1_blacklist.py). Off by default -- this reaches a third-party

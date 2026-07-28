@@ -209,6 +209,10 @@ export const uz = {
   'settings.clientDailyQuotaPlaceholder': 'Cheklovsiz',
   'settings.clientDailyQuotaDescription':
     'Mijozning trafigi so‘nggi 24 soatda shu GB miqdoridan oshsa ogohlantiriladi. Bo‘sh qoldirilsa — o‘chirilgan.',
+  'settings.uncategorizedDomainThreshold': 'Turkumlanmagan domen so‘rovlar chegarasi',
+  'settings.uncategorizedDomainThresholdPlaceholder': 'Tekshirilmaydi',
+  'settings.uncategorizedDomainThresholdDescription':
+    'So‘nggi 24 soatda shu miqdordan ko‘p so‘rov qilingan, lekin hali kategoriyaga ega bo‘lmagan domen ogohlantiriladi. Bo‘sh qoldirilsa — o‘chirilgan.',
   'settings.alertSettingsSaved': 'Ogohlantirish sozlamalari saqlandi.',
 
   'settings.reports': 'Davriy hisobotlar',

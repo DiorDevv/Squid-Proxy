@@ -102,6 +102,14 @@ async def lifespan(app: FastAPI):
     app.state.quota_monitor = quota_monitor
     quota_monitor.start()
 
+    from app.services.uncategorized_domain_monitor import UncategorizedDomainMonitorJob
+
+    uncategorized_domain_monitor = UncategorizedDomainMonitorJob(
+        interval_seconds=settings.UNCATEGORIZED_DOMAIN_MONITOR_INTERVAL_SECONDS
+    )
+    app.state.uncategorized_domain_monitor = uncategorized_domain_monitor
+    uncategorized_domain_monitor.start()
+
     from app.services.report_scheduler import ReportScheduler
 
     report_scheduler = ReportScheduler(interval_seconds=settings.REPORT_SCHEDULER_CHECK_INTERVAL_SECONDS)
@@ -127,6 +135,7 @@ async def lifespan(app: FastAPI):
         await quota_monitor.stop()
         await report_scheduler.stop()
         await ut1_scheduler.stop()
+        await uncategorized_domain_monitor.stop()
 
 
 def _handle_new_event(app: FastAPI, event) -> None:

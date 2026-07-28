@@ -34,6 +34,7 @@ async def get_settings_row(session: AsyncSession, branch: str = DEFAULT_BRANCH) 
             sensitive_categories="",
             non_work_minutes_threshold=DEFAULT_NON_WORK_MINUTES_THRESHOLD,
             client_daily_byte_quota_bytes=None,
+            uncategorized_domain_request_threshold=None,
             updated_at=datetime.now(UTC),
         )
     return row
@@ -59,6 +60,7 @@ async def update_settings(
     sensitive_categories: list[DomainCategoryLabel],
     non_work_minutes_threshold: int,
     client_daily_byte_quota_bytes: int | None,
+    uncategorized_domain_request_threshold: int | None = None,
     branch: str = DEFAULT_BRANCH,
 ) -> AlertSettings:
     row = (
@@ -71,6 +73,7 @@ async def update_settings(
     row.sensitive_categories = ",".join(category.value for category in sensitive_categories)
     row.non_work_minutes_threshold = non_work_minutes_threshold
     row.client_daily_byte_quota_bytes = client_daily_byte_quota_bytes
+    row.uncategorized_domain_request_threshold = uncategorized_domain_request_threshold
     await session.commit()
     await session.refresh(row)
     return row

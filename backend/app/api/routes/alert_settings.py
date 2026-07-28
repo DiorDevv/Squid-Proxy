@@ -19,6 +19,7 @@ def _to_out(row) -> AlertSettingsOut:
         ),
         non_work_minutes_threshold=row.non_work_minutes_threshold,
         client_daily_byte_quota_bytes=row.client_daily_byte_quota_bytes,
+        uncategorized_domain_request_threshold=row.uncategorized_domain_request_threshold,
         updated_at=row.updated_at,
     )
 
@@ -42,6 +43,7 @@ async def update_alert_settings(
         body.sensitive_categories,
         body.non_work_minutes_threshold,
         body.client_daily_byte_quota_bytes,
+        body.uncategorized_domain_request_threshold,
         branch,
     )
     return _to_out(row)

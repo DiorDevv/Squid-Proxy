@@ -29,6 +29,12 @@ class AlertSettings(Base):
     client_daily_byte_quota_bytes: Mapped[int | None] = mapped_column(
         BigInteger, nullable=True, default=None
     )
+    # None (not 0) means off -- a domain with 24h request_count >= this
+    # gets flagged as "high-traffic but uncategorized" (see
+    # app/services/uncategorized_domain_monitor.py).
+    uncategorized_domain_request_threshold: Mapped[int | None] = mapped_column(
+        Integer, nullable=True, default=None
+    )
     updated_at: Mapped[datetime] = mapped_column(
         UTCDateTime, default=lambda: datetime.now(UTC), onupdate=lambda: datetime.now(UTC)
     )

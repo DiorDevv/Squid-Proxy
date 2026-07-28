@@ -17,6 +17,7 @@ interface UpdateAlertSettingsBody {
   sensitive_categories: DomainCategoryLabel[]
   non_work_minutes_threshold: number
   client_daily_byte_quota_bytes: number | null
+  uncategorized_domain_request_threshold: number | null
 }
 
 export function useUpdateAlertSettings(branch: string) {

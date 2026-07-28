@@ -206,6 +206,10 @@ export const ru = {
   'settings.clientDailyQuotaPlaceholder': 'Без ограничения',
   'settings.clientDailyQuotaDescription':
     'Оповещать, если трафик клиента за последние 24ч превышает это значение в ГБ. Оставьте пустым, чтобы отключить.',
+  'settings.uncategorizedDomainThreshold': 'Порог запросов для некатегоризированных доменов',
+  'settings.uncategorizedDomainThresholdPlaceholder': 'Не проверять',
+  'settings.uncategorizedDomainThresholdDescription':
+    'Оповещать о домене без категории, если у него за последние 24ч было больше этого числа запросов. Оставьте пустым, чтобы отключить.',
   'settings.alertSettingsSaved': 'Настройки оповещений сохранены.',
 
   'settings.reports': 'Периодические отчёты',

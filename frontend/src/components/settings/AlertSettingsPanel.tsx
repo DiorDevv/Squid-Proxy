@@ -104,6 +104,9 @@ function AlertSettingsForm({ branch, data }: { branch: string; data: AlertSettin
   const [quotaGb, setQuotaGb] = useState(() =>
     data.client_daily_byte_quota_bytes != null ? String(data.client_daily_byte_quota_bytes / BYTES_PER_GB) : '',
   )
+  const [uncategorizedThreshold, setUncategorizedThreshold] = useState(() =>
+    data.uncategorized_domain_request_threshold != null ? String(data.uncategorized_domain_request_threshold) : '',
+  )
 
   function setCategoryChecked(category: DomainCategoryLabel, checked: boolean) {
     setSensitiveCategories((prev) => {
@@ -119,7 +122,11 @@ function AlertSettingsForm({ branch, data }: { branch: string; data: AlertSettin
     const trimmedQuota = quotaGb.trim()
     const quota = trimmedQuota ? Math.round(Number(trimmedQuota) * BYTES_PER_GB) : null
     const quotaIsInvalid = trimmedQuota !== '' && !Number.isFinite(Number(trimmedQuota))
-    if (!Number.isFinite(minutes) || minutes < 0 || quotaIsInvalid) {
+    const trimmedUncategorized = uncategorizedThreshold.trim()
+    const uncategorizedValue = trimmedUncategorized ? Math.round(Number(trimmedUncategorized)) : null
+    const uncategorizedIsInvalid =
+      trimmedUncategorized !== '' && !Number.isFinite(Number(trimmedUncategorized))
+    if (!Number.isFinite(minutes) || minutes < 0 || quotaIsInvalid || uncategorizedIsInvalid) {
       toast.error(t('common.errorDefault'))
       return
     }
@@ -129,6 +136,7 @@ function AlertSettingsForm({ branch, data }: { branch: string; data: AlertSettin
         sensitive_categories: Array.from(sensitiveCategories),
         non_work_minutes_threshold: minutes,
         client_daily_byte_quota_bytes: quota,
+        uncategorized_domain_request_threshold: uncategorizedValue,
       },
       {
         onSuccess: () => toast.success(t('settings.alertSettingsSaved')),
@@ -182,6 +190,18 @@ function AlertSettingsForm({ branch, data }: { branch: string; data: AlertSettin
             onChange={(e) => setQuotaGb(e.target.value)}
           />
           <p className="text-xs text-muted-foreground">{t('settings.clientDailyQuotaDescription')}</p>
+        </div>
+        <div className="flex flex-col gap-1.5">
+          <Label htmlFor="uncategorized-threshold">{t('settings.uncategorizedDomainThreshold')}</Label>
+          <Input
+            id="uncategorized-threshold"
+            type="number"
+            min={0}
+            placeholder={t('settings.uncategorizedDomainThresholdPlaceholder')}
+            value={uncategorizedThreshold}
+            onChange={(e) => setUncategorizedThreshold(e.target.value)}
+          />
+          <p className="text-xs text-muted-foreground">{t('settings.uncategorizedDomainThresholdDescription')}</p>
         </div>
       </div>
 

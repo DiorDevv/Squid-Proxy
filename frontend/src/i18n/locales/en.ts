@@ -221,6 +221,10 @@ export const en = {
   'settings.clientDailyQuotaPlaceholder': 'No limit',
   'settings.clientDailyQuotaDescription':
     'Flag a client whose data usage exceeds this many GB in a rolling 24h window. Leave blank to disable.',
+  'settings.uncategorizedDomainThreshold': 'Uncategorized domain request threshold',
+  'settings.uncategorizedDomainThresholdPlaceholder': 'No check',
+  'settings.uncategorizedDomainThresholdDescription':
+    'Flag a domain that had this many requests in the last 24h but still has no category assigned. Leave blank to disable.',
   'settings.alertSettingsSaved': 'Alert settings saved.',
 
   'settings.reports': 'Scheduled reports',

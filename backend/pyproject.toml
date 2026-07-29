@@ -27,7 +27,7 @@ dependencies = [
     # version, an attribute bcrypt itself removed in 4.1.0. Above that, every
     # startup logs a spurious (harmless but alarming) traceback. Verified
     # this pin is what stops it -- see the docker-compose dry run.
-    "bcrypt>=4.0,<4.1",
+    "bcrypt>=4.0,<5.1",
     "python-multipart>=0.0.17",
     "slowapi>=0.1.9,<0.2",
     # xlsx export (write-only Workbook, see services/export_service.py) --

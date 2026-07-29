@@ -189,14 +189,20 @@ docker compose --profile demo down
 
 1-bosqich muvaffaqiyatli o'tgandan keyingina bu bosqichga o'ting.
 
-Sizning holingizda **4 ta Squid bir serverda** ishlaydi: filiallar, bosh ofis, umumiy
-serverlar va yana bittasi. Bu qism aynan shu holat uchun — har bir Squid o'z portida, o'z
-log faylida ishlaydi, dashboard esa `LOG_SOURCES` orqali barcha to'rttasini bitta panelga
-yig'adi (har biri alohida "branch" sifatida, "Filiallar bo'yicha" filtrlash bilan).
+Sizning holingizda **4 ta Squid bir serverda** ishlaydi: filiallar, bosh ofis, serverlar va
+umumiy trafik. Bu qism aynan shu holat uchun — har bir Squid o'z portida, o'z log faylida
+ishlaydi, dashboard esa `LOG_SOURCES` orqali barcha to'rttasini bitta panelga yig'adi (har
+biri alohida "branch" sifatida, "Filial bo'yicha" filtrlash bilan).
 
-> Quyidagi nomlar (`filiallar`, `bosh-ofis`, `umumiy`, `4chi`) — vaqtinchalik. 4-Squid'ning
-> aniq vazifasini eslaganingizda yoki barcha nomlarni tasdiqlaganingizda, shu qismdagi
-> nomlarni birga real nomlarga almashtiramiz.
+Yakuniy nomlar va portlar (`docker-compose.override.yml` va `deploy/squid/`dagi tayyor
+fayllar bilan mos):
+
+| Branch tag | Vazifasi | Port | Log yo'li (serverda) |
+|---|---|---|---|
+| `filiallar` | Filiallar | 3128 | `/var/log/squid-filiallar/access.log` |
+| `bosh_ofis` | Bosh ofis | 3129 | `/var/log/squid-bosh_ofis/access.log` |
+| `serverlar` | Serverlar | 3130 | `/var/log/squid-serverlar/access.log` |
+| `trafik` | Umumiy trafik | 3131 | `/var/log/squid-trafik/access.log` |
 
 ### 2.1 Demo rejimni to'xtatish
 
@@ -228,182 +234,95 @@ sudo systemctl disable squid
 ### 2.3 Har bir Squid uchun papkalarni tayyorlash
 
 ```bash
-sudo mkdir -p /var/log/squid-filiallar /var/log/squid-bosh-ofis /var/log/squid-umumiy /var/log/squid-4chi
-sudo mkdir -p /var/spool/squid-filiallar /var/spool/squid-bosh-ofis /var/spool/squid-umumiy /var/spool/squid-4chi
-sudo chown -R proxy:proxy /var/log/squid-filiallar /var/log/squid-bosh-ofis /var/log/squid-umumiy /var/log/squid-4chi
-sudo chown -R proxy:proxy /var/spool/squid-filiallar /var/spool/squid-bosh-ofis /var/spool/squid-umumiy /var/spool/squid-4chi
+sudo mkdir -p /var/log/squid-filiallar /var/log/squid-bosh_ofis /var/log/squid-serverlar /var/log/squid-trafik
+sudo mkdir -p /var/spool/squid-filiallar /var/spool/squid-bosh_ofis /var/spool/squid-serverlar /var/spool/squid-trafik
+sudo chown -R proxy:proxy /var/log/squid-filiallar /var/log/squid-bosh_ofis /var/log/squid-serverlar /var/log/squid-trafik
+sudo chown -R proxy:proxy /var/spool/squid-filiallar /var/spool/squid-bosh_ofis /var/spool/squid-serverlar /var/spool/squid-trafik
 ```
 
-### 2.4 4 ta konfiguratsiya fayli (ENG MUHIM QADAM)
+### 2.4 4 ta konfiguratsiya faylini nusxalash (ENG MUHIM QADAM)
 
-Har biri uchun alohida fayl — **hammasida** `access_log ... squid` (native format) bo'lishi
-shart, aks holda dashboard "ulangan" ko'rinadi lekin trafik ko'rsatmaydi.
+Tayyor 4 ta fayl loyihaning `deploy/squid/` papkasida turibdi — **hammasida** allaqachon
+`access_log ... squid` (native format) to'g'ri o'rnatilgan (aks holda dashboard "ulangan"
+ko'rinadi lekin trafik ko'rsatmaydi):
 
 ```bash
-sudo tee /etc/squid/squid-filiallar.conf > /dev/null <<'EOF'
-http_port 3128
-pid_filename /run/squid-filiallar.pid
-cache_effective_user proxy
-cache_effective_group proxy
-
-acl localnet src 10.0.0.0/8 172.16.0.0/12 192.168.0.0/16   # o'z ichki tarmog'ingizga moslang
-acl SSL_ports port 443
-acl Safe_ports port 80
-acl Safe_ports port 443
-
-http_access allow localnet
-http_access deny all
-
-access_log /var/log/squid-filiallar/access.log squid
-cache_dir ufs /var/spool/squid-filiallar 100 16 256
-coredump_dir /var/spool/squid-filiallar
-refresh_pattern .   0  20%  4320
-EOF
-
-sudo tee /etc/squid/squid-bosh-ofis.conf > /dev/null <<'EOF'
-http_port 3129
-pid_filename /run/squid-bosh-ofis.pid
-cache_effective_user proxy
-cache_effective_group proxy
-
-acl localnet src 10.0.0.0/8 172.16.0.0/12 192.168.0.0/16
-acl SSL_ports port 443
-acl Safe_ports port 80
-acl Safe_ports port 443
-
-http_access allow localnet
-http_access deny all
-
-access_log /var/log/squid-bosh-ofis/access.log squid
-cache_dir ufs /var/spool/squid-bosh-ofis 100 16 256
-coredump_dir /var/spool/squid-bosh-ofis
-refresh_pattern .   0  20%  4320
-EOF
-
-sudo tee /etc/squid/squid-umumiy.conf > /dev/null <<'EOF'
-http_port 3130
-pid_filename /run/squid-umumiy.pid
-cache_effective_user proxy
-cache_effective_group proxy
-
-acl localnet src 10.0.0.0/8 172.16.0.0/12 192.168.0.0/16
-acl SSL_ports port 443
-acl Safe_ports port 80
-acl Safe_ports port 443
-
-http_access allow localnet
-http_access deny all
-
-access_log /var/log/squid-umumiy/access.log squid
-cache_dir ufs /var/spool/squid-umumiy 100 16 256
-coredump_dir /var/spool/squid-umumiy
-refresh_pattern .   0  20%  4320
-EOF
-
-sudo tee /etc/squid/squid-4chi.conf > /dev/null <<'EOF'
-http_port 3131
-pid_filename /run/squid-4chi.pid
-cache_effective_user proxy
-cache_effective_group proxy
-
-acl localnet src 10.0.0.0/8 172.16.0.0/12 192.168.0.0/16
-acl SSL_ports port 443
-acl Safe_ports port 80
-acl Safe_ports port 443
-
-http_access allow localnet
-http_access deny all
-
-access_log /var/log/squid-4chi/access.log squid
-cache_dir ufs /var/spool/squid-4chi 100 16 256
-coredump_dir /var/spool/squid-4chi
-refresh_pattern .   0  20%  4320
-EOF
+cd ~/squid-watch
+sudo cp deploy/squid/squid-filiallar.conf deploy/squid/squid-bosh_ofis.conf \
+        deploy/squid/squid-serverlar.conf deploy/squid/squid-trafik.conf \
+        /etc/squid/
 ```
 
-> **Diqqat:** `acl localnet src ...` qatoridagi IP diapazonlarini o'z ichki tarmog'ingizga
-> moslang — bu qaysi qurilmalar shu Squid orqali proxy bo'lishga ruxsat olishini
-> belgilaydi.
+> **Diqqat:** har bir faylning `acl localnet src ...` qatoridagi IP diapazonlarini o'z
+> ichki tarmog'ingizga moslang (`sudo nano /etc/squid/squid-filiallar.conf` va h.k.) — bu
+> qaysi qurilmalar shu Squid orqali proxy bo'lishga ruxsat olishini belgilaydi. Nusxalangan
+> holatdagi keng diapazon (`10.0.0.0/8` va h.k.) faqat sinov uchun xavfsiz, real ishlatishga
+> emas.
 
 ### 2.5 4 ta Squid'ni systemd orqali ishga tushirish
 
-Har bir instance uchun umumiy shablon (`squid-instance@.service`) yaratamiz. Bu — rasmiy
-Ubuntu `squid` paketi bilan birga keladigan `/lib/systemd/system/squid.service`ning aynan
-o'zi (`Type=notify`, `--foreground -sYC`), faqat har bir instance o'z `-f` konfiguratsiya
-fayli va o'z PID faylini ishlatadigan qilib moslashtirilgan:
+Umumiy shablon ham `deploy/squid/`da tayyor (rasmiy Ubuntu `squid` paketining
+`/lib/systemd/system/squid.service`iga asoslangan, faqat har bir instance o'z `-f`
+konfiguratsiya fayli va PID faylini ishlatadigan qilib moslashtirilgan):
 
 ```bash
-sudo tee /etc/systemd/system/squid-instance@.service > /dev/null <<'EOF'
-[Unit]
-Description=Squid Proxy instance: %i
-Documentation=man:squid(8)
-After=local-fs.target network.target network-online.target nss-lookup.target
-
-[Service]
-Type=notify
-PIDFile=/run/squid-%i.pid
-Group=proxy
-ExecStartPre=/usr/sbin/squid -f /etc/squid/squid-%i.conf --foreground -z
-ExecStart=/usr/sbin/squid -f /etc/squid/squid-%i.conf --foreground -sYC
-ExecReload=/bin/kill -HUP $MAINPID
-KillMode=mixed
-NotifyAccess=all
-Restart=on-failure
-RestartSec=5
-
-[Install]
-WantedBy=multi-user.target
-EOF
-
+sudo cp deploy/squid/squid-instance@.service /etc/systemd/system/
 sudo systemctl daemon-reload
 sudo systemctl enable --now squid-instance@filiallar
-sudo systemctl enable --now squid-instance@bosh-ofis
-sudo systemctl enable --now squid-instance@umumiy
-sudo systemctl enable --now squid-instance@4chi
+sudo systemctl enable --now squid-instance@bosh_ofis
+sudo systemctl enable --now squid-instance@serverlar
+sudo systemctl enable --now squid-instance@trafik
 ```
 
 Tekshirish:
 
 ```bash
-sudo systemctl status squid-instance@filiallar squid-instance@bosh-ofis squid-instance@umumiy squid-instance@4chi
+sudo systemctl status squid-instance@filiallar squid-instance@bosh_ofis squid-instance@serverlar squid-instance@trafik
 ```
 
 Barcha to'rttasi `active (running)` bo'lishi kerak. Agar biror instance ishga tushmasa:
 `sudo journalctl -u squid-instance@filiallar -n 50` bilan xato sababini ko'ring (odatda —
 konfiguratsiya xatosi yoki papka ruxsati).
 
-### 2.6 `docker-compose.yml`'da 4 ta log manbasini ulash
+### 2.6 Dashboard'ni 4 ta log manbasiga ulash
 
-`backend` xizmatining `volumes` bo'limiga 4 ta log papkasini qo'shamiz (bularni men sizga
-qadamda o'zim tahrirlab beraman — shunchaki tayyor bo'lganingizda ayting), taxminan
-shunday ko'rinishda:
+`docker-compose.override.yml.example` faylidan nusxa oling va tahrirlang:
+
+```bash
+cp docker-compose.override.yml.example docker-compose.override.yml
+```
+
+`docker-compose.override.yml` faylini oching (`nano docker-compose.override.yml`) va
+ichini quyidagicha to'liq almashtiring:
 
 ```yaml
+services:
   backend:
-    <<: *backend-common
     environment:
       LOG_SOURCES: >-
-        [{"branch":"filiallar","path":"/data/squid-logs/filiallar/access.log"},
-         {"branch":"bosh_ofis","path":"/data/squid-logs/bosh-ofis/access.log"},
-         {"branch":"umumiy","path":"/data/squid-logs/umumiy/access.log"},
-         {"branch":"4chi","path":"/data/squid-logs/4chi/access.log"}]
+        [
+          {"branch":"filiallar","path":"/data/squid-logs/filiallar/access.log"},
+          {"branch":"bosh_ofis","path":"/data/squid-logs/bosh_ofis/access.log"},
+          {"branch":"serverlar","path":"/data/squid-logs/serverlar/access.log"},
+          {"branch":"trafik","path":"/data/squid-logs/trafik/access.log"}
+        ]
     volumes:
       - /var/log/squid-filiallar:/data/squid-logs/filiallar:ro
-      - /var/log/squid-bosh-ofis:/data/squid-logs/bosh-ofis:ro
-      - /var/log/squid-umumiy:/data/squid-logs/umumiy:ro
-      - /var/log/squid-4chi:/data/squid-logs/4chi:ro
-      - archive_data:/app/archives
+      - /var/log/squid-bosh_ofis:/data/squid-logs/bosh_ofis:ro
+      - /var/log/squid-serverlar:/data/squid-logs/serverlar:ro
+      - /var/log/squid-trafik:/data/squid-logs/trafik:ro
 ```
 
 (Bu `LOG_FILE_PATH` va yagona `squid_log_data` volume'ini almashtiradi — `LOG_SOURCES`
-belgilangan bo'lsa, `LOG_FILE_PATH` e'tiborga olinmaydi.)
+belgilangan bo'lsa, `LOG_FILE_PATH` e'tiborga olinmaydi. Bu fayl `.gitignore`da, hech
+qachon git'ga tushmaydi.)
 
-Har bir log papkasi Docker konteyneridan o'qilishi uchun, host tomonda ruxsat kerak bo'lishi
-mumkin (biz bugun sinaganimizda ko'rganimizdek):
+Har bir log fayli Docker konteyneridan o'qilishi uchun, host tomonda ruxsat kerak bo'lishi
+mumkin (Squid instance'lari ishga tushib, birinchi qatorlarni yozgandan keyin):
 
 ```bash
-sudo chmod o+r /var/log/squid-filiallar/access.log /var/log/squid-bosh-ofis/access.log \
-               /var/log/squid-umumiy/access.log /var/log/squid-4chi/access.log
+sudo chmod o+r /var/log/squid-filiallar/access.log /var/log/squid-bosh_ofis/access.log \
+               /var/log/squid-serverlar/access.log /var/log/squid-trafik/access.log
 ```
 
 ### 2.7 Qayta ishga tushirish (demo profilisiz)
@@ -414,11 +333,11 @@ docker compose up --build -d
 
 ### 2.8 Haqiqiy trafik yaratish
 
-Har bir Squid — o'z tarmoq segmenti (filiallar, bosh ofis, umumiy serverlar, 4-chi) uchun
+Har bir Squid — o'z tarmoq segmenti (filiallar, bosh ofis, serverlar, umumiy trafik) uchun
 proxy sifatida sozlanadi: shu segmentdagi qurilmalar/brauzerlarni tegishli Squid'ning
-`SERVER_IP:PORT` manziliga (3128=filiallar, 3129=bosh-ofis, 3130=umumiy, 3131=4chi) proxy
-qilib ko'rsating, so'ng bir nechta saytga kiring — bular tegishli Squid orqali o'tib, o'z
-`access.log`iga yoziladi.
+`SERVER_IP:PORT` manziliga (3128=filiallar, 3129=bosh_ofis, 3130=serverlar, 3131=trafik)
+proxy qilib ko'rsating, so'ng bir nechta saytga kiring — bular tegishli Squid orqali o'tib,
+o'z `access.log`iga yoziladi.
 
 ### 2.9 Tekshirish
 
@@ -427,10 +346,10 @@ curl http://localhost:8001/api/health
 ```
 
 Javobdagi `log_sources` massivida **4 ta yozuv** ko'rinishi kerak (`filiallar`,
-`bosh_ofis`, `umumiy`, `4chi`), har birining `parse_failure_rate`i alohida, `0`ga yaqin
-bo'lishi kerak. Agar biror branch `1.0` ko'rsatsa — **faqat o'sha** filialning
+`bosh_ofis`, `serverlar`, `trafik`), har birining `parse_failure_rate`i alohida, `0`ga
+yaqin bo'lishi kerak. Agar biror branch `1.0` ko'rsatsa — **faqat o'sha** filialning
 `squid.conf`idagi log format noto'g'ri (2.4-qadamni qaytadan tekshiring); qolgan filiallar
-bundan ta'sirlanmaydi (buni biz bugun aynan shu ssenariyda sinab tasdiqladik).
+bundan ta'sirlanmaydi (buni biz sinab tasdiqladik).
 
 Brauzerda `http://SERVER_IP:8082` ochib, dashboarddagi filial tanlagichi (Branch selector)
 orqali har bir filialni alohida ko'rib chiqing.

@@ -196,11 +196,24 @@ export interface ExportJob {
   until: string
   blocked_only: boolean
   branch: string | null
+  domain: string | null
+  category: string | null
+  client_ip: string | null
+  columns: string[] | null
   row_count: number | null
   file_size_bytes: number | null
+  checksum_sha256: string | null
   error_message: string | null
   created_at: string
   completed_at: string | null
+  share_link_active: boolean
+  share_link_expires_at: string | null
+}
+
+export interface ExportShareLink {
+  token: string
+  expires_at: string
+  download_url: string
 }
 
 export type ExportCleanupMode = 'time_based' | 'after_download'

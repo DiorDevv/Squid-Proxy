@@ -30,6 +30,10 @@ dependencies = [
     "bcrypt>=4.0,<4.1",
     "python-multipart>=0.0.17",
     "slowapi>=0.1.9,<0.2",
+    # xlsx export (write-only Workbook, see services/export_service.py) --
+    # 3.1+ for the write-only mode memory fixes needed to keep a
+    # multi-million-row export bounded.
+    "openpyxl>=3.1,<4",
     "websockets>=13.1,<14",
     "httpx>=0.27,<0.28",
     "sentry-sdk[fastapi]>=2.18,<3",

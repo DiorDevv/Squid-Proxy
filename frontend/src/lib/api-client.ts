@@ -2,7 +2,7 @@ import { API_BASE_URL } from '@/lib/constants'
 import { decodeAccessTokenRole, getAccessToken, useAuthStore } from '@/lib/auth-store'
 import { translate, useLocaleStore } from '@/i18n'
 import type { LoginResponse, RefreshResponse, Role, WsTicketResponse } from '@/types/auth'
-import type { ExportJob, UserSummary } from '@/types/api'
+import type { DomainCategoryLabel, ExportJob, ExportShareLink, UserSummary } from '@/types/api'
 
 export class ApiError extends Error {
   status: number
@@ -135,9 +135,13 @@ export const api = {
     range?: string
     fromTs?: string
     toTs?: string
-    format: 'csv' | 'json'
+    format: 'csv' | 'json' | 'xlsx'
     blockedOnly: boolean
     branch?: string | null
+    clientIp?: string | null
+    domain?: string | null
+    category?: DomainCategoryLabel | null
+    columns?: string[] | null
   }) =>
     apiFetch<ExportJob>('/api/export/jobs', {
       method: 'POST',
@@ -148,12 +152,26 @@ export const api = {
         format: params.format,
         blocked_only: params.blockedOnly,
         branch: params.branch ?? undefined,
+        client_ip: params.clientIp ?? undefined,
+        domain: params.domain ?? undefined,
+        category: params.category ?? undefined,
+        // Same comma-separated shape ExportJob.columns is stored/parsed as
+        // server-side (see export_job_service.create_job /
+        // api/routes/export.py's _parse_columns) -- omitted entirely (not
+        // an empty string) when every column is wanted, so the backend's
+        // own "None means all" default applies rather than a 400 from an
+        // empty column list.
+        columns: params.columns && params.columns.length > 0 ? params.columns.join(',') : undefined,
       },
     }),
   getExportJob: (jobId: string) => apiFetch<ExportJob>(`/api/export/jobs/${encodeURIComponent(jobId)}`),
   listExportJobs: () => apiFetch<ExportJob[]>('/api/export/jobs'),
   cancelExportJob: (jobId: string) =>
     apiFetch<ExportJob>(`/api/export/jobs/${encodeURIComponent(jobId)}/cancel`, { method: 'POST' }),
+  createExportShareLink: (jobId: string) =>
+    apiFetch<ExportShareLink>(`/api/export/jobs/${encodeURIComponent(jobId)}/share`, { method: 'POST' }),
+  revokeExportShareLink: (jobId: string) =>
+    apiFetch<ExportJob>(`/api/export/jobs/${encodeURIComponent(jobId)}/share/revoke`, { method: 'POST' }),
 }
 
 /** Downloads a finished background export job's result file (see

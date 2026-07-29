@@ -1,9 +1,11 @@
 import { useEffect, useState } from 'react'
 import { toast } from 'sonner'
-import { Download, X } from 'lucide-react'
+import { Download, X, ChevronDown } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Label } from '@/components/ui/label'
+import { Input } from '@/components/ui/input'
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import {
   Select,
   SelectContent,
@@ -24,14 +26,35 @@ import { useCancelExportJob, useCreateExportJob, useExportJob } from '@/hooks/us
 import { useBranches } from '@/hooks/useBranches'
 import { useFiltersStore } from '@/lib/filters-store'
 import { formatNumber, toDatetimeLocalValue } from '@/lib/format'
-import { POLLING_FALLBACK_INTERVAL_MS } from '@/lib/constants'
-import { useTranslation } from '@/i18n'
-import type { RangeParam } from '@/types/api'
+import { EXPORT_COLUMNS, POLLING_FALLBACK_INTERVAL_MS } from '@/lib/constants'
+import { CATEGORY_LABEL_KEYS, CATEGORY_OPTIONS } from '@/lib/categories'
+import { useTranslation, type TranslationKey } from '@/i18n'
+import type { DomainCategoryLabel, RangeParam } from '@/types/api'
 
 const TERMINAL_STATUSES = new Set(['done', 'failed', 'cancelled'])
 const ALL_BRANCHES = 'all'
+const ALL_CATEGORIES = 'all'
 const CUSTOM_RANGE = 'custom'
 type ExportRangeValue = RangeParam | typeof CUSTOM_RANGE
+type ExportFormatValue = 'csv' | 'json' | 'xlsx'
+
+// Matches app/services/export_service.py's EXPORT_COLUMNS' own labels --
+// short, technical column names rather than full sentences, since this is
+// a picker for a CSV/JSON/XLSX field list, not prose.
+const EXPORT_COLUMN_LABEL_KEYS: Record<(typeof EXPORT_COLUMNS)[number], TranslationKey> = {
+  id: 'settings.exportColumnId',
+  timestamp: 'settings.exportColumnTimestamp',
+  client_ip: 'settings.exportColumnClientIp',
+  branch: 'settings.exportColumnBranch',
+  user: 'settings.exportColumnUser',
+  method: 'settings.exportColumnMethod',
+  url: 'settings.exportColumnUrl',
+  domain: 'settings.exportColumnDomain',
+  action: 'settings.exportColumnAction',
+  status_code: 'settings.exportColumnStatusCode',
+  bytes: 'settings.exportColumnBytes',
+  blocked: 'settings.exportColumnBlocked',
+}
 
 export default function SettingsPage() {
   const { t } = useTranslation()
@@ -56,9 +79,20 @@ export default function SettingsPage() {
       ? toDatetimeLocalValue(new Date(initialFilters.customTo))
       : toDatetimeLocalValue(new Date()),
   )
-  const [exportFormat, setExportFormat] = useState<'csv' | 'json'>('csv')
+  const [exportFormat, setExportFormat] = useState<ExportFormatValue>('csv')
   const [exportBranch, setExportBranch] = useState<string | null>(initialFilters.branch)
   const [blockedOnly, setBlockedOnly] = useState(false)
+  // Narrower filters than range/branch/blockedOnly above -- all optional,
+  // all forwarded straight through to GET /api/export/jobs (see
+  // event_query_service.build_event_conditions server-side for the same
+  // domain=substring vs category=exact-set distinction these two encode).
+  const [exportClientIp, setExportClientIp] = useState('')
+  const [exportDomain, setExportDomain] = useState('')
+  const [exportCategory, setExportCategory] = useState<DomainCategoryLabel | null>(null)
+  // null means "every column" (the picker's own default) -- matches the
+  // backend's own None-means-all convention (see resolve_columns), so an
+  // admin who never opens the picker gets exactly the pre-existing behavior.
+  const [exportColumns, setExportColumns] = useState<string[] | null>(null)
   const [jobId, setJobId] = useState<string | null>(null)
 
   const branches = useBranches()
@@ -102,6 +136,12 @@ export default function SettingsPage() {
   }, [job.data?.status, job.isError])
 
   function handleExport() {
+    const extraFilters = {
+      clientIp: exportClientIp.trim() || null,
+      domain: exportDomain.trim() || null,
+      category: exportCategory,
+      columns: exportColumns,
+    }
     let params: Parameters<typeof createJob.mutate>[0]
     if (exportRange === CUSTOM_RANGE) {
       const from = new Date(customFrom)
@@ -120,14 +160,31 @@ export default function SettingsPage() {
         format: exportFormat,
         blockedOnly,
         branch: exportBranch,
+        ...extraFilters,
       }
     } else {
-      params = { range: exportRange, format: exportFormat, blockedOnly, branch: exportBranch }
+      params = { range: exportRange, format: exportFormat, blockedOnly, branch: exportBranch, ...extraFilters }
     }
 
     createJob.mutate(params, {
       onSuccess: (created) => setJobId(created.id),
       onError: (err) => toast.error(err instanceof ApiError ? err.message : t('settings.exportErrorToast')),
+    })
+  }
+
+  function toggleExportColumn(column: string, checked: boolean) {
+    setExportColumns((current) => {
+      // First checkbox flip after "all columns" starts from the full list
+      // (not just the one being unchecked) -- unchecking "url" from "every
+      // column selected" should leave every *other* column still selected,
+      // not just id/url as if only two had ever been picked.
+      const base = current ?? [...EXPORT_COLUMNS]
+      const next = checked ? [...new Set([...base, column])] : base.filter((c) => c !== column)
+      // Re-collapse back to "all" (null) once every column is checked again
+      // -- keeps the picker's own displayed state consistent with what a
+      // fresh page load would show, and avoids sending a full, spelled-out
+      // column list to the API when "no filter at all" means the same thing.
+      return next.length === EXPORT_COLUMNS.length ? null : next
     })
   }
 
@@ -209,13 +266,14 @@ export default function SettingsPage() {
             </div>
             <div className="flex flex-col gap-1.5">
               <Label>{t('settings.format')}</Label>
-              <Select value={exportFormat} onValueChange={(v) => setExportFormat(v as 'csv' | 'json')}>
+              <Select value={exportFormat} onValueChange={(v) => setExportFormat(v as ExportFormatValue)}>
                 <SelectTrigger>
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="csv">CSV</SelectItem>
                   <SelectItem value="json">JSON</SelectItem>
+                  <SelectItem value="xlsx">Excel (.xlsx)</SelectItem>
                 </SelectContent>
               </Select>
             </div>
@@ -251,6 +309,79 @@ export default function SettingsPage() {
               <Label htmlFor="blocked-only-export" className="font-normal">
                 {t('common.blockedOnly')}
               </Label>
+            </div>
+          </div>
+
+          {/* Narrower filters than range/branch/blocked-only above -- kept
+              in their own row since they're used less often, rather than
+              crowding the primary controls. */}
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-4">
+            <div className="flex flex-col gap-1.5">
+              <Label htmlFor="export-domain">{t('settings.exportDomainFilter')}</Label>
+              <Input
+                id="export-domain"
+                placeholder={t('settings.exportDomainFilterPlaceholder')}
+                value={exportDomain}
+                onChange={(e) => setExportDomain(e.target.value)}
+              />
+            </div>
+            <div className="flex flex-col gap-1.5">
+              <Label htmlFor="export-client-ip">{t('settings.exportClientIpFilter')}</Label>
+              <Input
+                id="export-client-ip"
+                placeholder="10.0.0.5"
+                value={exportClientIp}
+                onChange={(e) => setExportClientIp(e.target.value)}
+              />
+            </div>
+            <div className="flex flex-col gap-1.5">
+              <Label>{t('domains.categoryFilter')}</Label>
+              <Select
+                value={exportCategory ?? ALL_CATEGORIES}
+                onValueChange={(v) => setExportCategory(v === ALL_CATEGORIES ? null : (v as DomainCategoryLabel))}
+              >
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value={ALL_CATEGORIES}>{t('domains.allCategories')}</SelectItem>
+                  {CATEGORY_OPTIONS.map((option) => (
+                    <SelectItem key={option} value={option}>
+                      {t(CATEGORY_LABEL_KEYS[option])}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="flex flex-col gap-1.5">
+              <Label>{t('settings.exportColumns')}</Label>
+              <Popover>
+                <PopoverTrigger asChild>
+                  <Button variant="outline" className="justify-between font-normal">
+                    {exportColumns === null
+                      ? t('settings.exportAllColumns')
+                      : t('settings.exportColumnsSelected', { count: exportColumns.length })}
+                    <ChevronDown className="h-4 w-4 opacity-60" aria-hidden="true" />
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent align="start" className="flex w-56 flex-col gap-2">
+                  {EXPORT_COLUMNS.map((column) => {
+                    const checked = exportColumns === null || exportColumns.includes(column)
+                    return (
+                      <div key={column} className="flex items-center gap-2">
+                        <Checkbox
+                          id={`export-column-${column}`}
+                          checked={checked}
+                          onCheckedChange={(v) => toggleExportColumn(column, v === true)}
+                        />
+                        <Label htmlFor={`export-column-${column}`} className="font-normal">
+                          {t(EXPORT_COLUMN_LABEL_KEYS[column])}
+                        </Label>
+                      </div>
+                    )
+                  })}
+                </PopoverContent>
+              </Popover>
             </div>
           </div>
 

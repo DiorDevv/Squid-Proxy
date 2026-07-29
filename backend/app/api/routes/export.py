@@ -7,11 +7,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.deps import CurrentUser, get_current_user, get_db, require_admin
 from app.core.config import get_settings
 from app.core.rate_limit import limiter
+from app.models.domain_category import DomainCategoryLabel
 from app.models.export_job import ExportJobStatus
 from app.schemas.common import EffectiveRange, resolve_range
-from app.schemas.export import ExportJobOut
+from app.schemas.export import ExportJobOut, ExportShareLinkOut
 from app.services import export_job_service
-from app.services.export_service import download_csv, download_json
+from app.services.export_service import EXPORT_COLUMNS, download_csv, download_json
 
 router = APIRouter(prefix="/api", tags=["export"])
 
@@ -19,6 +20,28 @@ router = APIRouter(prefix="/api", tags=["export"])
 class ExportFormat(str, Enum):
     CSV = "csv"
     JSON = "json"
+    XLSX = "xlsx"
+
+
+def _parse_columns(columns: str | None) -> list[str] | None:
+    """`columns` arrives as a comma-separated query param (matching how
+    ExportJob.columns is stored, see export_job_service.create_job) --
+    `None`/empty means "every column", the long-standing default. Raises a
+    clean 400 immediately on an unknown name rather than letting it surface
+    later as a confusing error mid-stream or mid-job."""
+    if columns is None or not columns.strip():
+        return None
+    requested = [c.strip() for c in columns.split(",") if c.strip()]
+    unknown = [c for c in requested if c not in EXPORT_COLUMNS]
+    if unknown:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=(
+                f"Unknown export column(s): {', '.join(unknown)}. "
+                f"Valid columns: {', '.join(EXPORT_COLUMNS)}."
+            ),
+        )
+    return requested
 
 
 @router.get("/export", dependencies=[Depends(require_admin)])
@@ -29,7 +52,25 @@ async def export_events(
     format: ExportFormat = Query(default=ExportFormat.CSV),
     blocked_only: bool = Query(default=False),
     branch: str | None = Query(default=None),
+    client_ip: str | None = Query(default=None),
+    domain: str | None = Query(default=None),
+    category: DomainCategoryLabel | None = Query(default=None),
+    columns: str | None = Query(default=None, description="Comma-separated subset of the export columns."),
 ) -> StreamingResponse:
+    # xlsx can't be produced as a genuine incremental stream (see
+    # export_service.py's "XLSX, job-only" section) -- rejected here rather
+    # than silently buffering a potentially unbounded range in memory to
+    # fake the same StreamingResponse contract this endpoint otherwise
+    # guarantees. POST /export/jobs (the background-job path) already
+    # writes a complete file to disk before serving anything, so it has no
+    # such constraint.
+    if format == ExportFormat.XLSX:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="xlsx is only available via POST /api/export/jobs (background export), not this "
+            "synchronous endpoint. Create a job and download it once done.",
+        )
+
     # Custom from_ts/to_ts ranges have no RangeParam label -- fall back to a
     # timestamp-based filename suffix so it's still descriptive.
     if effective_range.range:
@@ -37,16 +78,24 @@ async def export_events(
     else:
         range_label = effective_range.until.date().isoformat()
 
+    resolved_columns = _parse_columns(columns)
+
     # Streamed (see export_service.download_csv/json), so a full range --
     # even one covering millions of rows, e.g. the 7d preset at real
     # traffic volumes -- downloads without being capped or built in memory
     # server-side.
     if format == ExportFormat.CSV:
-        body = download_csv(effective_range.since, effective_range.until, blocked_only, branch)
+        body = download_csv(
+            effective_range.since, effective_range.until, blocked_only, branch,
+            client_ip=client_ip, domain=domain, category=category, columns=resolved_columns,
+        )
         media_type = "text/csv"
         filename = f"squid-events-{range_label}.csv"
     else:
-        body = download_json(effective_range.since, effective_range.until, blocked_only, branch)
+        body = download_json(
+            effective_range.since, effective_range.until, blocked_only, branch,
+            client_ip=client_ip, domain=domain, category=category, columns=resolved_columns,
+        )
         media_type = "application/json"
         filename = f"squid-events-{range_label}.json"
 
@@ -65,6 +114,10 @@ async def create_export_job(
     format: ExportFormat = Query(default=ExportFormat.CSV),
     blocked_only: bool = Query(default=False),
     branch: str | None = Query(default=None),
+    client_ip: str | None = Query(default=None),
+    domain: str | None = Query(default=None),
+    category: DomainCategoryLabel | None = Query(default=None),
+    columns: str | None = Query(default=None, description="Comma-separated subset of the export columns."),
     db: AsyncSession = Depends(get_db),
     current_user: CurrentUser = Depends(get_current_user),
 ) -> ExportJobOut:
@@ -79,6 +132,8 @@ async def create_export_job(
             detail="Too many exports are already running. Wait for one to finish and try again.",
         )
 
+    resolved_columns = _parse_columns(columns)
+
     job = await export_job_service.create_job(
         db,
         effective_range.since,
@@ -87,6 +142,10 @@ async def create_export_job(
         blocked_only,
         branch,
         current_user.user_id,
+        client_ip=client_ip,
+        domain=domain,
+        category=category.value if category is not None else None,
+        columns=resolved_columns,
     )
     export_job_service.start(job.id)
     return export_job_service.to_out(job)
@@ -149,7 +208,89 @@ async def download_export_job(
 
     return FileResponse(
         job.file_path,
-        media_type="application/zip",
-        filename=export_job_service.zip_filename(job),
+        media_type=_media_type_for(job.format),
+        filename=export_job_service.result_filename(job),
+        background=background_tasks,
+    )
+
+
+def _media_type_for(format: str) -> str:
+    if format == "xlsx":
+        return "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    return "application/zip"
+
+
+@router.post("/export/jobs/{job_id}/share", dependencies=[Depends(require_admin)])
+@limiter.limit(get_settings().SENSITIVE_ACTION_RATE_LIMIT)
+async def share_export_job(
+    request: Request,
+    job_id: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: CurrentUser = Depends(get_current_user),
+) -> ExportShareLinkOut:
+    """Issues a time-limited (EXPORT_SHARE_LINK_TTL_HOURS) link that
+    downloads this job's result without a dashboard login -- see GET
+    /export/jobs/{id}/shared-download. Only one active link per job; calling
+    this again replaces whichever one existed before (see
+    export_job_service.create_share_link)."""
+    job = await export_job_service.get_job(db, job_id)
+    if job is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Export job not found.")
+    if job.status != ExportJobStatus.DONE or not job.file_path:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"Export job is not ready yet (status: {job.status.value}).",
+        )
+    return await export_job_service.create_share_link(db, job, current_user.user_id)
+
+
+@router.post("/export/jobs/{job_id}/share/revoke", dependencies=[Depends(require_admin)])
+async def revoke_export_job_share(job_id: str, db: AsyncSession = Depends(get_db)) -> ExportJobOut:
+    job = await export_job_service.get_job(db, job_id)
+    if job is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Export job not found.")
+    await export_job_service.revoke_share_link(db, job)
+    return export_job_service.to_out(job)
+
+
+@router.get("/export/jobs/{job_id}/shared-download")
+@limiter.limit(get_settings().SENSITIVE_ACTION_RATE_LIMIT)
+async def download_shared_export_job(
+    request: Request,
+    job_id: str,
+    token: str,
+    background_tasks: BackgroundTasks,
+    db: AsyncSession = Depends(get_db),
+) -> FileResponse:
+    """Deliberately outside `require_admin`/`get_current_user` -- the whole
+    point of a share link is downloading without a dashboard account. The
+    token itself (256 bits, only its hash ever stored, see
+    export_job_service.verify_share_token) is the only credential; the rate
+    limit above is defense-in-depth against guessing it, not the primary
+    protection."""
+    job = await export_job_service.verify_share_token(db, job_id, token)
+    if job is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Invalid, expired, or revoked share link."
+        )
+    if job.status != ExportJobStatus.DONE or not job.file_path:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"Export job is not ready yet (status: {job.status.value}).",
+        )
+
+    # actor_user_id is whoever *issued* the link, not whoever's browser is
+    # sitting here right now -- see record_download's via_share_link
+    # docstring for why that's the right attribution for this audit entry.
+    await export_job_service.record_download(
+        db, job, job.share_created_by or "unknown", via_share_link=True
+    )
+
+    background_tasks.add_task(export_job_service.delete_file_if_after_download_mode, job_id)
+
+    return FileResponse(
+        job.file_path,
+        media_type=_media_type_for(job.format),
+        filename=export_job_service.result_filename(job),
         background=background_tasks,
     )

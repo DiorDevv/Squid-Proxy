@@ -16,6 +16,11 @@ class AuditAction(str, enum.Enum):
     USER_DELETED = "user_deleted"
     EXPORT_CREATED = "export_created"
     EXPORT_DOWNLOADED = "export_downloaded"
+    # A share link (see export_job_service.create_share_link) is neither of
+    # the above -- distinct from EXPORT_CREATED (queuing the underlying job)
+    # so an admin reviewing the audit log can tell "someone ran this export"
+    # apart from "someone made this export downloadable without a login."
+    EXPORT_SHARED = "export_shared"
 
 
 class AuditLogEntry(Base):

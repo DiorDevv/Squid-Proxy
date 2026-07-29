@@ -22,3 +22,25 @@ export const RANGE_OPTIONS = [
   { value: '24h', label: '24h' },
   { value: '7d', label: '7d' },
 ] as const
+
+/** Mirrors backend/app/services/export_service.py's EXPORT_COLUMNS exactly
+ * (name and order) -- the column picker in SettingsPage sends a subset of
+ * these back verbatim, and the backend re-validates against its own copy
+ * regardless, so a drift here would only ever show a wrong-looking picker,
+ * never a security issue. Kept as a plain constant rather than fetched from
+ * an endpoint since this list changes about as often as the export schema
+ * itself, i.e. essentially never. */
+export const EXPORT_COLUMNS = [
+  'id',
+  'timestamp',
+  'client_ip',
+  'branch',
+  'user',
+  'method',
+  'url',
+  'domain',
+  'action',
+  'status_code',
+  'bytes',
+  'blocked',
+] as const

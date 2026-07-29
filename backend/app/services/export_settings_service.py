@@ -6,7 +6,6 @@ app/services/undownloaded_export_monitor.py.
 
 from datetime import UTC, datetime
 
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.export_settings import ExportCleanupMode, ExportSettings

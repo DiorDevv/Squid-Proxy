@@ -106,6 +106,12 @@ class Settings(BaseSettings):
     # has no size cap of its own. This bounds how many PENDING/RUNNING jobs
     # can exist at the same time so that can't fill the disk.
     EXPORT_JOB_MAX_CONCURRENT: int = 3
+    # How long a share link (see export_job_service.create_share_link) stays
+    # valid for once an admin issues one -- deliberately an env var, not an
+    # admin-tunable setting like ExportSettings' cleanup policy: this is a
+    # security boundary (how long a no-login download stays reachable), the
+    # same category as ACCESS_TOKEN_EXPIRE_MINUTES above, not business policy.
+    EXPORT_SHARE_LINK_TTL_HOURS: int = 24
 
     # --- Time-spent-per-domain estimation ---
     # Consecutive requests to the same domain more than this many minutes

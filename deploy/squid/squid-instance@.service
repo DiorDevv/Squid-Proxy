@@ -1,0 +1,39 @@
+# Templated systemd unit for running multiple squid instances from one
+# binary, each with its own config/PID file -- based on the official Ubuntu
+# squid package's own /lib/systemd/system/squid.service (same Type=notify,
+# --foreground -sYC invocation), just parameterized by %i (the instance
+# name after the @).
+#
+# Install once, then enable per instance (see vm-test-qollanma/QOLLANMA.md,
+# 2.5-BOSQICH):
+#
+#   sudo cp deploy/squid/squid-instance@.service /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now squid-instance@filiallar
+#   sudo systemctl enable --now squid-instance@bosh_ofis
+#   sudo systemctl enable --now squid-instance@serverlar
+#   sudo systemctl enable --now squid-instance@trafik
+#
+# Each %i must match the corresponding deploy/squid/squid-<name>.conf's own
+# filename stem and the branch tag used in docker-compose.override.yml's
+# LOG_SOURCES.
+
+[Unit]
+Description=Squid Proxy instance: %i
+Documentation=man:squid(8)
+After=local-fs.target network.target network-online.target nss-lookup.target
+
+[Service]
+Type=notify
+PIDFile=/run/squid-%i.pid
+Group=proxy
+ExecStartPre=/usr/sbin/squid -f /etc/squid/squid-%i.conf --foreground -z
+ExecStart=/usr/sbin/squid -f /etc/squid/squid-%i.conf --foreground -sYC
+ExecReload=/bin/kill -HUP $MAINPID
+KillMode=mixed
+NotifyAccess=all
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

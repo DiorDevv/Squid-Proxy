@@ -1,11 +1,14 @@
 import asyncio
+import hashlib
 import json
 import time
 import zipfile
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
+import pytest
 from httpx import AsyncClient
+from openpyxl import load_workbook
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
@@ -727,3 +730,216 @@ async def test_create_export_job_route_429_at_max_concurrent(
 
     response = await app_client.post("/api/export/jobs?format=csv", headers=auth_headers(admin_token))
     assert response.status_code == 429
+
+
+async def test_create_job_stores_and_echoes_filters_and_columns(db_session: AsyncSession):
+    job = await export_job_service.create_job(
+        db_session, RangeParam.ONE_HOUR.since(), datetime.now(UTC), "csv", False, None, "test-admin",
+        client_ip="10.0.0.5", domain="example.com", category="social_media", columns=["id", "domain"],
+    )
+
+    assert job.client_ip == "10.0.0.5"
+    assert job.domain == "example.com"
+    assert job.category == "social_media"
+    assert job.columns == "id,domain"
+
+    out = export_job_service.to_out(job)
+    assert out.client_ip == "10.0.0.5"
+    assert out.columns == ["id", "domain"]
+
+
+async def test_create_job_rejects_unknown_column(db_session: AsyncSession):
+    with pytest.raises(ValueError, match="not-a-real-column"):
+        await export_job_service.create_job(
+            db_session, RangeParam.ONE_HOUR.since(), datetime.now(UTC), "csv", False, None, "test-admin",
+            columns=["not-a-real-column"],
+        )
+
+
+async def test_run_job_respects_client_ip_filter(db_session: AsyncSession, tmp_path: Path, monkeypatch):
+    monkeypatch.setattr(export_job_service, "_jobs_dir", lambda: tmp_path)
+    import app.models.db as db_module
+
+    monkeypatch.setattr(db_module, "AsyncSessionLocal", lambda: db_session)
+
+    db_session.add_all([_make_event(client_ip="10.0.0.1"), _make_event(client_ip="10.0.0.2")])
+    await db_session.commit()
+
+    job = await export_job_service.create_job(
+        db_session, RangeParam.ONE_HOUR.since(), datetime.now(UTC), "csv", False, None, "test-admin",
+        client_ip="10.0.0.2",
+    )
+    await export_job_service.run_job(job.id)
+
+    refreshed = await db_session.get(ExportJob, job.id)
+    assert refreshed.status == ExportJobStatus.DONE
+    assert refreshed.row_count == 1
+
+
+async def test_run_job_writes_xlsx_and_marks_done(db_session: AsyncSession, tmp_path: Path, monkeypatch):
+    monkeypatch.setattr(export_job_service, "_jobs_dir", lambda: tmp_path)
+    import app.models.db as db_module
+
+    monkeypatch.setattr(db_module, "AsyncSessionLocal", lambda: db_session)
+
+    db_session.add_all([_make_event(client_ip=f"10.0.0.{i}") for i in range(4)])
+    await db_session.commit()
+
+    job = await export_job_service.create_job(
+        db_session, RangeParam.ONE_HOUR.since(), datetime.now(UTC), "xlsx", False, None, "test-admin",
+        columns=["client_ip", "domain"],
+    )
+    await export_job_service.run_job(job.id)
+
+    refreshed = await db_session.get(ExportJob, job.id)
+    assert refreshed.status == ExportJobStatus.DONE
+    assert refreshed.row_count == 4
+    # No outer zip for xlsx (see result_filename's docstring).
+    assert refreshed.file_path.endswith(".xlsx")
+    assert refreshed.checksum_sha256 is not None
+    assert len(refreshed.checksum_sha256) == 64  # sha256 hex digest length
+
+    workbook = load_workbook(refreshed.file_path, read_only=True)
+    rows = list(workbook["events"].iter_rows(values_only=True))
+    assert rows[0] == ("client_ip", "domain")
+    assert len(rows) == 5  # header + 4 rows
+
+
+async def test_run_job_sets_checksum_for_csv(db_session: AsyncSession, tmp_path: Path, monkeypatch):
+    monkeypatch.setattr(export_job_service, "_jobs_dir", lambda: tmp_path)
+    import app.models.db as db_module
+
+    monkeypatch.setattr(db_module, "AsyncSessionLocal", lambda: db_session)
+
+    db_session.add(_make_event())
+    await db_session.commit()
+
+    job = await export_job_service.create_job(
+        db_session, RangeParam.ONE_HOUR.since(), datetime.now(UTC), "csv", False, None, "test-admin"
+    )
+    await export_job_service.run_job(job.id)
+
+    refreshed = await db_session.get(ExportJob, job.id)
+    assert refreshed.checksum_sha256 == hashlib.sha256(Path(refreshed.file_path).read_bytes()).hexdigest()
+
+
+async def test_share_link_create_verify_and_revoke(db_session: AsyncSession, tmp_path: Path, monkeypatch):
+    monkeypatch.setattr(export_job_service, "_jobs_dir", lambda: tmp_path)
+    import app.models.db as db_module
+
+    monkeypatch.setattr(db_module, "AsyncSessionLocal", lambda: db_session)
+
+    job = await export_job_service.create_job(
+        db_session, RangeParam.ONE_HOUR.since(), datetime.now(UTC), "csv", False, None, "test-admin"
+    )
+    await export_job_service.run_job(job.id)
+    job = await db_session.get(ExportJob, job.id)
+
+    link = await export_job_service.create_share_link(db_session, job, "admin-1")
+    assert link.token
+    assert job.share_token_hash is not None
+
+    # The right token verifies...
+    verified = await export_job_service.verify_share_token(db_session, job.id, link.token)
+    assert verified is not None
+    assert verified.id == job.id
+
+    # ...a wrong one doesn't.
+    assert await export_job_service.verify_share_token(db_session, job.id, "wrong-token") is None
+
+    # An expired one doesn't either.
+    job.share_token_expires_at = datetime.now(UTC) - timedelta(seconds=1)
+    await db_session.commit()
+    assert await export_job_service.verify_share_token(db_session, job.id, link.token) is None
+
+    # Revoking clears the link entirely, regardless of expiry.
+    job.share_token_expires_at = datetime.now(UTC) + timedelta(hours=1)
+    await db_session.commit()
+    await export_job_service.revoke_share_link(db_session, job)
+    assert job.share_token_hash is None
+    assert await export_job_service.verify_share_token(db_session, job.id, link.token) is None
+
+
+async def test_create_share_link_records_export_shared_audit_entry(
+    db_session: AsyncSession, tmp_path: Path, monkeypatch
+):
+    monkeypatch.setattr(export_job_service, "_jobs_dir", lambda: tmp_path)
+    import app.models.db as db_module
+
+    monkeypatch.setattr(db_module, "AsyncSessionLocal", lambda: db_session)
+
+    job = await export_job_service.create_job(
+        db_session, RangeParam.ONE_HOUR.since(), datetime.now(UTC), "csv", False, None, "test-admin"
+    )
+    await export_job_service.run_job(job.id)
+    job = await db_session.get(ExportJob, job.id)
+
+    await export_job_service.create_share_link(db_session, job, "admin-1")
+
+    entry = (
+        await db_session.execute(
+            select(AuditLogEntry).where(AuditLogEntry.action == AuditAction.EXPORT_SHARED)
+        )
+    ).scalar_one()
+    assert entry.actor_user_id == "admin-1"
+    assert f"job_id={job.id}" in entry.detail
+
+
+async def test_shared_download_route_works_with_valid_token(
+    app_client: AsyncClient, admin_token, auth_headers, tmp_path: Path, monkeypatch
+):
+    monkeypatch.setattr(export_job_service, "_jobs_dir", lambda: tmp_path)
+
+    create_response = await app_client.post(
+        "/api/export/jobs?range=1h&format=csv", headers=auth_headers(admin_token)
+    )
+    job_id = create_response.json()["id"]
+    for _ in range(20):
+        status_response = await app_client.get(
+            f"/api/export/jobs/{job_id}", headers=auth_headers(admin_token)
+        )
+        if status_response.json()["status"] == "done":
+            break
+        await asyncio.sleep(0.05)
+    else:
+        raise AssertionError("export job never reached done")
+
+    share_response = await app_client.post(
+        f"/api/export/jobs/{job_id}/share", headers=auth_headers(admin_token)
+    )
+    assert share_response.status_code == 200
+    token = share_response.json()["token"]
+
+    # No Authorization header at all -- the token alone is the credential.
+    download_response = await app_client.get(
+        f"/api/export/jobs/{job_id}/shared-download", params={"token": token}
+    )
+    assert download_response.status_code == 200
+
+
+async def test_shared_download_route_rejects_invalid_token(
+    app_client: AsyncClient, admin_token, auth_headers, tmp_path: Path, monkeypatch
+):
+    monkeypatch.setattr(export_job_service, "_jobs_dir", lambda: tmp_path)
+
+    create_response = await app_client.post(
+        "/api/export/jobs?range=1h&format=csv", headers=auth_headers(admin_token)
+    )
+    job_id = create_response.json()["id"]
+
+    response = await app_client.get(
+        f"/api/export/jobs/{job_id}/shared-download", params={"token": "definitely-not-valid"}
+    )
+    assert response.status_code == 404
+
+
+async def test_share_export_job_route_404_before_ready(
+    app_client: AsyncClient, admin_token, auth_headers, monkeypatch
+):
+    monkeypatch.setattr(export_job_service, "start", lambda job_id: None)
+
+    create_response = await app_client.post("/api/export/jobs?format=csv", headers=auth_headers(admin_token))
+    job_id = create_response.json()["id"]
+
+    response = await app_client.post(f"/api/export/jobs/{job_id}/share", headers=auth_headers(admin_token))
+    assert response.status_code == 409

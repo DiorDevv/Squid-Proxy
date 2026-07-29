@@ -24,6 +24,7 @@ def build_event_conditions(
     user: str | None = None,
     search: str | None = None,
     branch: str | None = None,
+    domain_in: set[str] | None = None,
 ) -> list:
     conditions = [RawEvent.timestamp >= since, RawEvent.timestamp <= until]
     if blocked_only:
@@ -48,7 +49,33 @@ def build_event_conditions(
                 RawEvent.user.ilike(needle),
             )
         )
+    # Generic "restrict to this exact set of domains" filter -- distinct from
+    # `domain` above (a substring match against a single admin-typed term).
+    # export_service.py is the only caller today, resolving a *category*
+    # (business logic in category_inference.py, not expressible as SQL) down
+    # to the concrete domain set first; kept generic here rather than
+    # category-specific so this module stays free of that business logic,
+    # matching stats_service.get_top_domains' same separation.
+    if domain_in is not None:
+        conditions.append(RawEvent.domain.in_(domain_in))
     return conditions
+
+
+async def distinct_domains(
+    session: AsyncSession, since: datetime, until: datetime, branch: str | None = None
+) -> list[str]:
+    """Every distinct domain seen by a raw event in [since, until] -- the
+    candidate set export_service._resolve_category_domains() narrows down to
+    a single category by running category_inference.effective_category()
+    over each one, the same two-pass shape stats_service._domains_in_category
+    uses against the aggregate table."""
+    conditions = [RawEvent.timestamp >= since, RawEvent.timestamp <= until]
+    if branch:
+        conditions.append(RawEvent.branch == branch)
+    rows = (
+        await session.execute(select(RawEvent.domain).where(*conditions).distinct())
+    ).scalars().all()
+    return [domain for domain in rows if domain]
 
 
 async def get_events(

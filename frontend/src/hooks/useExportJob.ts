@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from '@/lib/api-client'
-import type { ExportJob } from '@/types/api'
+import type { DomainCategoryLabel, ExportJob } from '@/types/api'
 
 const ACTIVE_STATUSES = new Set<ExportJob['status']>(['pending', 'running'])
 const POLL_INTERVAL_MS = 2_000
@@ -10,9 +10,13 @@ interface CreateExportJobParams {
   range?: string
   fromTs?: string
   toTs?: string
-  format: 'csv' | 'json'
+  format: 'csv' | 'json' | 'xlsx'
   blockedOnly: boolean
   branch?: string | null
+  clientIp?: string | null
+  domain?: string | null
+  category?: DomainCategoryLabel | null
+  columns?: string[] | null
 }
 
 export function useCreateExportJob() {
@@ -64,5 +68,32 @@ export function useExportJobs() {
     queryKey: EXPORT_JOBS_QUERY_KEY,
     queryFn: () => api.listExportJobs(),
     refetchInterval: POLL_INTERVAL_MS * 5,
+  })
+}
+
+/** Issues a fresh share link for a DONE job (see ExportJobsPanel) --
+ * invalidates both the single-job and list queries since share_link_active/
+ * share_link_expires_at on the job row change as a side effect (see
+ * export_job_service.create_share_link), even though the raw token itself
+ * (this mutation's actual return value) is never stored in either cache. */
+export function useCreateExportShareLink() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (jobId: string) => api.createExportShareLink(jobId),
+    onSuccess: (_, jobId) => {
+      queryClient.invalidateQueries({ queryKey: ['export-job', jobId] })
+      queryClient.invalidateQueries({ queryKey: EXPORT_JOBS_QUERY_KEY })
+    },
+  })
+}
+
+export function useRevokeExportShareLink() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (jobId: string) => api.revokeExportShareLink(jobId),
+    onSuccess: (_, jobId) => {
+      queryClient.invalidateQueries({ queryKey: ['export-job', jobId] })
+      queryClient.invalidateQueries({ queryKey: EXPORT_JOBS_QUERY_KEY })
+    },
   })
 }

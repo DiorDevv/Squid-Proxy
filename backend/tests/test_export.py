@@ -3,17 +3,25 @@ import io
 import json
 from datetime import UTC, datetime
 
+import pytest
 from httpx import AsyncClient
+from openpyxl import load_workbook
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.models.domain_category import DomainCategoryLabel
 from app.models.raw_event import RawEvent
 from app.schemas.common import RangeParam
 from app.services.export_service import (
+    EXPORT_COLUMNS,
     EXPORT_ROW_LIMIT,
+    download_csv,
     export_as_csv,
     export_as_json,
+    new_xlsx_workbook,
+    resolve_columns,
     stream_csv,
     stream_json,
+    write_xlsx_rows,
 )
 
 
@@ -165,3 +173,146 @@ async def test_export_route_returns_json(app_client: AsyncClient, admin_token, a
     assert response.status_code == 200
     assert response.headers["content-type"].startswith("application/json")
     assert json.loads(response.text) == []
+
+
+async def test_export_route_rejects_xlsx(app_client: AsyncClient, admin_token, auth_headers):
+    # xlsx can't be produced as a genuine incremental stream (see
+    # export_service.py's "XLSX, job-only" section) -- only reachable via
+    # the background job path.
+    response = await app_client.get("/api/export?format=xlsx", headers=auth_headers(admin_token))
+    assert response.status_code == 400
+    assert "export/jobs" in response.json()["detail"]
+
+
+def test_resolve_columns_returns_all_by_default():
+    assert resolve_columns(None) == EXPORT_COLUMNS
+
+
+def test_resolve_columns_preserves_requested_order():
+    assert resolve_columns(["domain", "id"]) == ["domain", "id"]
+
+
+def test_resolve_columns_rejects_unknown_column():
+    with pytest.raises(ValueError, match="not-a-real-column"):
+        resolve_columns(["id", "not-a-real-column"])
+
+
+def test_resolve_columns_rejects_empty_list():
+    with pytest.raises(ValueError):
+        resolve_columns([])
+
+
+async def test_stream_csv_projects_selected_columns_only(db_session: AsyncSession):
+    db_session.add(_make_event(client_ip="10.0.0.1", domain="example.com"))
+    await db_session.commit()
+
+    chunks = [
+        chunk
+        async for chunk in stream_csv(
+            db_session, RangeParam.ONE_HOUR.since(), datetime.now(UTC), blocked_only=False,
+            columns=["client_ip", "domain"],
+        )
+    ]
+    reader = csv.DictReader(io.StringIO("".join(chunks)))
+    row = next(reader)
+    assert reader.fieldnames == ["client_ip", "domain"]
+    assert row == {"client_ip": "10.0.0.1", "domain": "example.com"}
+
+
+async def test_stream_json_projects_selected_columns_only(db_session: AsyncSession):
+    db_session.add(_make_event(client_ip="10.0.0.1", domain="example.com"))
+    await db_session.commit()
+
+    chunks = [
+        chunk
+        async for chunk in stream_json(
+            db_session, RangeParam.ONE_HOUR.since(), datetime.now(UTC), blocked_only=False,
+            columns=["client_ip", "domain"],
+        )
+    ]
+    parsed = json.loads("".join(chunks))
+    assert parsed == [{"client_ip": "10.0.0.1", "domain": "example.com"}]
+
+
+async def test_stream_csv_respects_client_ip_filter(db_session: AsyncSession):
+    db_session.add_all(
+        [
+            _make_event(client_ip="10.0.0.1"),
+            _make_event(client_ip="10.0.0.2"),
+        ]
+    )
+    await db_session.commit()
+
+    chunks = [
+        chunk
+        async for chunk in stream_csv(
+            db_session, RangeParam.ONE_HOUR.since(), datetime.now(UTC), blocked_only=False,
+            client_ip="10.0.0.2",
+        )
+    ]
+    reader = csv.DictReader(io.StringIO("".join(chunks)))
+    rows = list(reader)
+    assert len(rows) == 1
+    assert rows[0]["client_ip"] == "10.0.0.2"
+
+
+async def test_download_csv_respects_category_filter(db_session: AsyncSession, monkeypatch):
+    # example.com isn't in the built-in curated category list, so it falls
+    # back to UNCATEGORIZED via category_inference.infer_category --
+    # exercising resolve_category_domains without needing a DomainCategory
+    # override row for either domain.
+    import app.models.db as db_module
+
+    monkeypatch.setattr(db_module, "AsyncSessionLocal", lambda: db_session)
+
+    db_session.add_all(
+        [
+            _make_event(client_ip="10.0.0.1", domain="example.com"),
+            _make_event(client_ip="10.0.0.2", domain="facebook.com"),
+        ]
+    )
+    await db_session.commit()
+
+    chunks = [
+        chunk
+        async for chunk in download_csv(
+            RangeParam.ONE_HOUR.since(), datetime.now(UTC), blocked_only=False,
+            category=DomainCategoryLabel.SOCIAL_MEDIA,
+        )
+    ]
+
+    reader = csv.DictReader(io.StringIO("".join(chunks)))
+    rows = list(reader)
+    assert len(rows) == 1
+    assert rows[0]["domain"] == "facebook.com"
+
+
+async def test_write_xlsx_rows_produces_readable_workbook(db_session: AsyncSession, tmp_path):
+    db_session.add_all(
+        [
+            _make_event(client_ip="10.0.0.1", domain="example.com"),
+            _make_event(client_ip="10.0.0.2", domain="=evil.com"),  # formula-injection risk
+        ]
+    )
+    await db_session.commit()
+
+    columns = ["client_ip", "domain"]
+    workbook, worksheet = new_xlsx_workbook(columns)
+    row_counter = [0]
+    async for _ in write_xlsx_rows(
+        worksheet, db_session, RangeParam.ONE_HOUR.since(), datetime.now(UTC), False,
+        None, None, None, None, columns, row_counter,
+    ):
+        pass
+    out_path = tmp_path / "events.xlsx"
+    workbook.save(str(out_path))
+    workbook.close()
+
+    assert row_counter[0] == 2
+    loaded = load_workbook(out_path, read_only=True)
+    ws = loaded["events"]
+    rows = list(ws.iter_rows(values_only=True))
+    assert rows[0] == ("client_ip", "domain")
+    assert ("10.0.0.1", "example.com") in rows
+    # Formula-injection escaping applies to xlsx cells too, not just CSV.
+    assert ("10.0.0.2", "'=evil.com") in rows

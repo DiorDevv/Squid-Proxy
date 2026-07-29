@@ -1,19 +1,29 @@
-"""CSV/JSON export of raw events for a time range. Admin-only (see api/routes/export.py)."""
+"""CSV/JSON/XLSX export of raw events for a time range. Admin-only (see api/routes/export.py)."""
 
 import csv
 import io
 import json
 from collections.abc import AsyncIterator
 from datetime import datetime
+from typing import Any
 
+from openpyxl import Workbook
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models import db as db_module
+from app.models.domain_category import DomainCategoryLabel
 from app.models.raw_event import RawEvent
-from app.services.event_query_service import build_event_conditions
+from app.services.category_inference import effective_category
+from app.services.domain_category_service import get_overrides_map
+from app.services.event_query_service import build_event_conditions, distinct_domains
 
-_COLUMNS = [
+# Public (not `_`-prefixed): api/routes/export.py validates a requested
+# `columns` list against this before it ever reaches a query, and
+# schemas/export.py echoes it back for the frontend's column picker -- one
+# canonical order/spelling every layer agrees on, rather than each
+# re-declaring its own copy that could quietly drift from this one.
+EXPORT_COLUMNS = [
     "id",
     "timestamp",
     "client_ip",
@@ -29,6 +39,43 @@ _COLUMNS = [
 ]
 
 EXPORT_ROW_LIMIT = 100_000
+
+
+def resolve_columns(columns: list[str] | None) -> list[str]:
+    """`columns=None` (the long-standing default) means every column, in
+    EXPORT_COLUMNS' canonical order -- a caller-supplied list is used
+    verbatim (including its order) but only after every entry is confirmed
+    to be a real, known column. Never trust it straight from a query string:
+    it ends up as `csv.DictWriter(fieldnames=...)`, and an unrecognized name
+    there would fail with a confusing KeyError deep inside the streaming
+    loop instead of a clean 400 at the API boundary (see api/routes/export.py)."""
+    if columns is None:
+        return list(EXPORT_COLUMNS)
+    unknown = [c for c in columns if c not in EXPORT_COLUMNS]
+    if unknown:
+        raise ValueError(f"Unknown export column(s): {', '.join(unknown)}")
+    if not columns:
+        raise ValueError("At least one export column must be selected.")
+    return columns
+
+
+async def resolve_category_domains(
+    session: AsyncSession,
+    since: datetime,
+    until: datetime,
+    category: DomainCategoryLabel,
+    branch: str | None = None,
+) -> set[str]:
+    """Turns a `category` filter into the concrete domain set
+    build_event_conditions' `domain_in` actually filters on -- which
+    category a domain falls under is Python business logic
+    (category_inference.py), not something expressible as SQL, the same
+    reason stats_service.get_top_domains resolves it in a separate pass
+    rather than in its own query (see that function's docstring)."""
+    overrides = await get_overrides_map(session)
+    domains = await distinct_domains(session, since, until, branch)
+    return {domain for domain in domains if effective_category(domain, overrides) == category}
+
 
 # Columns that can carry attacker-influenced text (from Squid log lines) and
 # so need CSV formula-injection escaping before being opened in a spreadsheet.
@@ -62,6 +109,13 @@ async def _fetch_rows(
     return (await session.execute(query)).scalars().all()
 
 
+def _escape_record(record: dict) -> dict:
+    for column in _FORMULA_RISK_COLUMNS:
+        if column in record:
+            record[column] = _escape_csv_formula(record[column])
+    return record
+
+
 def _row_to_dict(row: RawEvent) -> dict:
     return {
         "id": row.id,
@@ -84,13 +138,10 @@ async def export_as_csv(
 ) -> str:
     rows = await _fetch_rows(session, since, until, blocked_only, branch)
     buffer = io.StringIO()
-    writer = csv.DictWriter(buffer, fieldnames=_COLUMNS)
+    writer = csv.DictWriter(buffer, fieldnames=EXPORT_COLUMNS)
     writer.writeheader()
     for row in rows:
-        record = _row_to_dict(row)
-        for column in _FORMULA_RISK_COLUMNS:
-            record[column] = _escape_csv_formula(record[column])
-        writer.writerow(record)
+        writer.writerow(_escape_record(_row_to_dict(row)))
     return buffer.getvalue()
 
 
@@ -116,9 +167,24 @@ _STREAM_BATCH_SIZE = 5_000
 
 
 async def _iter_batches(
-    session: AsyncSession, since: datetime, until: datetime, blocked_only: bool, branch: str | None = None
+    session: AsyncSession,
+    since: datetime,
+    until: datetime,
+    blocked_only: bool,
+    branch: str | None = None,
+    client_ip: str | None = None,
+    domain: str | None = None,
+    domain_in: set[str] | None = None,
 ) -> AsyncIterator[list[RawEvent]]:
-    conditions = build_event_conditions(since, until, blocked_only=blocked_only, branch=branch)
+    conditions = build_event_conditions(
+        since,
+        until,
+        blocked_only=blocked_only,
+        branch=branch,
+        client_ip=client_ip,
+        domain=domain,
+        domain_in=domain_in,
+    )
     last_id = 0
     while True:
         query = (
@@ -143,6 +209,10 @@ async def stream_csv(
     blocked_only: bool,
     branch: str | None = None,
     row_counter: list[int] | None = None,
+    client_ip: str | None = None,
+    domain: str | None = None,
+    domain_in: set[str] | None = None,
+    columns: list[str] | None = None,
 ) -> AsyncIterator[str]:
     """row_counter, if given, is incremented (as a one-element out-param --
     an async generator can't return a value alongside its yields) by the
@@ -151,22 +221,27 @@ async def stream_csv(
     a fixed range but this table keeps getting new matching rows inserted in
     real time, a follow-up count query can (and, under real traffic, will)
     see rows that arrived after streaming already finished, so it doesn't
-    reliably describe what ended up in the file."""
+    reliably describe what ended up in the file.
+
+    `columns`, if given, must already be validated (see resolve_columns) --
+    it's handed straight to csv.DictWriter as the column order. Extra keys
+    on each row's dict (every column not selected) are silently dropped via
+    extrasaction="ignore" rather than this function re-filtering every
+    record itself."""
+    resolved_columns = resolve_columns(columns)
     buffer = io.StringIO()
-    writer = csv.DictWriter(buffer, fieldnames=_COLUMNS)
+    writer = csv.DictWriter(buffer, fieldnames=resolved_columns, extrasaction="ignore")
     writer.writeheader()
     yield buffer.getvalue()
 
-    async for batch in _iter_batches(session, since, until, blocked_only, branch):
+    batches = _iter_batches(session, since, until, blocked_only, branch, client_ip, domain, domain_in)
+    async for batch in batches:
         if row_counter is not None:
             row_counter[0] += len(batch)
         buffer.seek(0)
         buffer.truncate(0)
         for row in batch:
-            record = _row_to_dict(row)
-            for column in _FORMULA_RISK_COLUMNS:
-                record[column] = _escape_csv_formula(record[column])
-            writer.writerow(record)
+            writer.writerow(_escape_record(_row_to_dict(row)))
         yield buffer.getvalue()
 
 
@@ -177,23 +252,38 @@ async def stream_json(
     blocked_only: bool,
     branch: str | None = None,
     row_counter: list[int] | None = None,
+    client_ip: str | None = None,
+    domain: str | None = None,
+    domain_in: set[str] | None = None,
+    columns: list[str] | None = None,
 ) -> AsyncIterator[str]:
-    """See stream_csv's docstring for row_counter."""
+    """See stream_csv's docstring for row_counter and columns."""
+    resolved_columns = resolve_columns(columns)
     yield "["
     first = True
-    async for batch in _iter_batches(session, since, until, blocked_only, branch):
+    batches = _iter_batches(session, since, until, blocked_only, branch, client_ip, domain, domain_in)
+    async for batch in batches:
         if row_counter is not None:
             row_counter[0] += len(batch)
         parts = []
         for row in batch:
-            parts.append(("" if first else ",") + json.dumps(_row_to_dict(row)))
+            record = _row_to_dict(row)
+            projected = {column: record[column] for column in resolved_columns}
+            parts.append(("" if first else ",") + json.dumps(projected))
             first = False
         yield "".join(parts)
     yield "]"
 
 
 async def download_csv(
-    since: datetime, until: datetime, blocked_only: bool, branch: str | None = None
+    since: datetime,
+    until: datetime,
+    blocked_only: bool,
+    branch: str | None = None,
+    client_ip: str | None = None,
+    domain: str | None = None,
+    category: DomainCategoryLabel | None = None,
+    columns: list[str] | None = None,
 ) -> AsyncIterator[str]:
     """Route-facing entry point for GET /api/export: opens and holds its own
     session for the whole streaming duration.
@@ -206,15 +296,91 @@ async def download_csv(
     generator itself sidesteps that entirely.
     """
     async with db_module.AsyncSessionLocal() as session:
-        async for chunk in stream_csv(session, since, until, blocked_only, branch):
+        domain_in = (
+            await resolve_category_domains(session, since, until, category, branch)
+            if category is not None
+            else None
+        )
+        async for chunk in stream_csv(
+            session, since, until, blocked_only, branch,
+            client_ip=client_ip, domain=domain, domain_in=domain_in, columns=columns,
+        ):
             yield chunk
 
 
 async def download_json(
-    since: datetime, until: datetime, blocked_only: bool, branch: str | None = None
+    since: datetime,
+    until: datetime,
+    blocked_only: bool,
+    branch: str | None = None,
+    client_ip: str | None = None,
+    domain: str | None = None,
+    category: DomainCategoryLabel | None = None,
+    columns: list[str] | None = None,
 ) -> AsyncIterator[str]:
     """download_csv's JSON counterpart -- see its docstring for why this
     owns its own session instead of taking one via FastAPI's DI."""
     async with db_module.AsyncSessionLocal() as session:
-        async for chunk in stream_json(session, since, until, blocked_only, branch):
+        domain_in = (
+            await resolve_category_domains(session, since, until, category, branch)
+            if category is not None
+            else None
+        )
+        async for chunk in stream_json(
+            session, since, until, blocked_only, branch,
+            client_ip=client_ip, domain=domain, domain_in=domain_in, columns=columns,
+        ):
             yield chunk
+
+
+# --- XLSX, job-only ---
+#
+# Unlike CSV/JSON (plain text, genuinely streamable one chunk at a time),
+# .xlsx is a zip container whose central directory can only be written once
+# every row is known -- openpyxl's write-only Workbook still keeps memory
+# bounded (it spills worksheet data to a temp file as rows are appended,
+# rather than holding every Cell object), but there's no way to hand
+# Starlette a StreamingResponse that sends useful bytes before the very end.
+# That's fine for the background-job path (already writes a complete file
+# to disk before anything is served, see export_job_service.run_job) but
+# wrong for GET /api/export's synchronous streaming contract, so xlsx is
+# rejected there (see api/routes/export.py) rather than silently buffering
+# an unbounded range in memory to fake the same interface.
+
+
+async def write_xlsx_rows(
+    worksheet,
+    session: AsyncSession,
+    since: datetime,
+    until: datetime,
+    blocked_only: bool,
+    branch: str | None,
+    client_ip: str | None,
+    domain: str | None,
+    domain_in: set[str] | None,
+    columns: list[str],
+    row_counter: list[int],
+) -> AsyncIterator[None]:
+    """Appends rows to an already-open write-only worksheet (header row
+    already written by the caller) one DB batch at a time, yielding once per
+    batch with no payload -- purely a checkpoint run_job hooks progress
+    commits and cancellation checks onto, the same rhythm stream_csv/
+    stream_json give it via their own per-chunk yields."""
+    batches = _iter_batches(session, since, until, blocked_only, branch, client_ip, domain, domain_in)
+    async for batch in batches:
+        row_counter[0] += len(batch)
+        for row in batch:
+            record = _escape_record(_row_to_dict(row))
+            worksheet.append([record[column] for column in columns])
+        yield
+
+
+def new_xlsx_workbook(columns: list[str]) -> tuple[Workbook, Any]:
+    """write_only=True is what keeps this bounded for a multi-million-row
+    export -- openpyxl streams each appended row straight to a temp file
+    instead of building the whole sheet as in-memory Cell objects, the xlsx
+    equivalent of stream_csv's chunked StringIO."""
+    workbook = Workbook(write_only=True)
+    worksheet = workbook.create_sheet("events")
+    worksheet.append(columns)
+    return workbook, worksheet

@@ -71,8 +71,15 @@ def _extract_domain(url: str, method: str) -> str | None:
         # CONNECT / tunneled requests are logged as "host:port", no scheme.
         host = url.rsplit(":", 1)[0] if ":" in url else url
         return host or None
-    hostname = urlsplit(url).hostname
-    return hostname
+    try:
+        return urlsplit(url).hostname
+    except ValueError:
+        # urlsplit() raises on malformed authority components (e.g. an
+        # unbalanced IPv6 bracket) -- Squid logs the client's requested URL
+        # verbatim, so a malformed one is client-controlled input, not
+        # something we can assume is well-formed. Same "never raise" contract
+        # as every other field here: treat it as "no domain", not a crash.
+        return None
 
 
 def _validate_client_ip(raw: str, line: str) -> str | None:

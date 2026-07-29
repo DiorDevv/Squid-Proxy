@@ -162,6 +162,7 @@ async def logout(request: Request, response: Response, db: AsyncSession = Depend
 
 
 @router.post("/ws-ticket", response_model=WsTicketResponse)
+@limiter.limit(get_settings().SENSITIVE_ACTION_RATE_LIMIT)
 async def issue_ws_ticket(
     request: Request, current_user: CurrentUser = Depends(get_current_user)
 ) -> WsTicketResponse:

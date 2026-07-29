@@ -43,20 +43,31 @@ def _summarize_sessions(timestamps: list[datetime], gap: timedelta) -> tuple[int
 
 
 async def get_time_spent(
-    session: AsyncSession, client_ip: str, since: datetime, until: datetime
+    session: AsyncSession,
+    client_ip: str,
+    since: datetime,
+    until: datetime,
+    branch: str | None = None,
 ) -> list[DomainTimeSpent]:
     gap = timedelta(minutes=get_settings().SESSION_GAP_MINUTES)
 
+    conditions = [
+        RawEvent.client_ip == client_ip,
+        RawEvent.timestamp >= since,
+        RawEvent.timestamp <= until,
+        RawEvent.domain.is_not(None),
+    ]
+    if branch:
+        # Without this, a client IP that appears in more than one branch
+        # (e.g. reused behind separate NATs) gets its per-domain time spent
+        # merged across branches instead of scoped to the one being viewed
+        # -- every sibling client/domain endpoint already threads `branch`
+        # through, this was the one pair of gaps.
+        conditions.append(RawEvent.branch == branch)
+
     rows = (
         await session.execute(
-            select(RawEvent.domain, RawEvent.timestamp)
-            .where(
-                RawEvent.client_ip == client_ip,
-                RawEvent.timestamp >= since,
-                RawEvent.timestamp <= until,
-                RawEvent.domain.is_not(None),
-            )
-            .order_by(RawEvent.timestamp)
+            select(RawEvent.domain, RawEvent.timestamp).where(*conditions).order_by(RawEvent.timestamp)
         )
     ).all()
 
@@ -76,7 +87,11 @@ async def get_time_spent(
 
 
 async def get_time_spent_by_category(
-    session: AsyncSession, client_ip: str, since: datetime, until: datetime
+    session: AsyncSession,
+    client_ip: str,
+    since: datetime,
+    until: datetime,
+    branch: str | None = None,
 ) -> list[CategoryTimeSpent]:
     """Rolls up get_time_spent()'s per-domain totals by effective category
     (admin override, else the auto-inferred guess -- see
@@ -86,7 +101,7 @@ async def get_time_spent_by_category(
     since a cross-domain "category session" (e.g. treating a YouTube tab
     then a Netflix tab as one continuous video-watching session) is a
     different, harder-to-justify definition this doesn't attempt."""
-    domain_items = await get_time_spent(session, client_ip, since, until)
+    domain_items = await get_time_spent(session, client_ip, since, until, branch)
     overrides = await get_overrides_map(session)
 
     totals: dict[DomainCategoryLabel, dict[str, int]] = defaultdict(lambda: {"seconds": 0, "sessions": 0})

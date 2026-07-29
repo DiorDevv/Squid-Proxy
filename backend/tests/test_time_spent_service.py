@@ -39,11 +39,12 @@ def test_summarize_sessions_long_gap_splits_into_two_sessions():
     assert session_count == 2
 
 
-def _raw_event(client_ip: str, domain: str, timestamp: datetime) -> RawEvent:
+def _raw_event(client_ip: str, domain: str, timestamp: datetime, branch: str = "default") -> RawEvent:
     return RawEvent(
         timestamp=timestamp,
         duration_ms=1,
         client_ip=client_ip,
+        branch=branch,
         action="TCP_MISS",
         status_code=200,
         bytes=100,
@@ -77,6 +78,36 @@ async def test_get_time_spent_groups_by_domain_and_sorts_by_duration(db_session:
     assert [item.domain for item in items] == ["long.example", "short.example"]
     assert items[0].total_seconds == 20 * 60
     assert items[1].total_seconds == 0
+
+
+async def test_get_time_spent_scopes_to_branch_when_given(db_session: AsyncSession):
+    # Same client IP active on two branches (e.g. reused behind separate
+    # NATs) -- without branch scoping these would incorrectly merge into one
+    # inflated total for whichever branch's page an admin is viewing.
+    db_session.add_all(
+        [
+            _raw_event("10.0.0.1", "hq.example", BASE, branch="hq"),
+            _raw_event("10.0.0.1", "hq.example", BASE + timedelta(minutes=10), branch="hq"),
+            _raw_event("10.0.0.1", "branch2.example", BASE, branch="branch2"),
+        ]
+    )
+    await db_session.commit()
+
+    hq_items = await get_time_spent(
+        db_session, "10.0.0.1", BASE - timedelta(hours=1), BASE + timedelta(hours=1), branch="hq"
+    )
+    assert [item.domain for item in hq_items] == ["hq.example"]
+    assert hq_items[0].total_seconds == 10 * 60
+
+    branch2_items = await get_time_spent(
+        db_session, "10.0.0.1", BASE - timedelta(hours=1), BASE + timedelta(hours=1), branch="branch2"
+    )
+    assert [item.domain for item in branch2_items] == ["branch2.example"]
+
+    all_items = await get_time_spent(
+        db_session, "10.0.0.1", BASE - timedelta(hours=1), BASE + timedelta(hours=1)
+    )
+    assert {item.domain for item in all_items} == {"hq.example", "branch2.example"}
 
 
 async def test_get_time_spent_by_category_rolls_up_domains_sharing_a_category(db_session: AsyncSession):

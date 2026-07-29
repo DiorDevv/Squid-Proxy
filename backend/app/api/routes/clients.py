@@ -79,9 +79,10 @@ async def read_client_activity(
 async def read_client_time_spent(
     client_ip: str,
     effective_range: EffectiveRange = Depends(resolve_range),
+    branch: str | None = Query(default=None),
     db: AsyncSession = Depends(get_db),
 ) -> TimeSpentResponse:
-    items = await get_time_spent(db, client_ip, effective_range.since, effective_range.until)
+    items = await get_time_spent(db, client_ip, effective_range.since, effective_range.until, branch)
     return TimeSpentResponse(items=items)
 
 
@@ -93,7 +94,10 @@ async def read_client_time_spent(
 async def read_client_time_spent_by_category(
     client_ip: str,
     effective_range: EffectiveRange = Depends(resolve_range),
+    branch: str | None = Query(default=None),
     db: AsyncSession = Depends(get_db),
 ) -> CategoryTimeSpentResponse:
-    items = await get_time_spent_by_category(db, client_ip, effective_range.since, effective_range.until)
+    items = await get_time_spent_by_category(
+        db, client_ip, effective_range.since, effective_range.until, branch
+    )
     return CategoryTimeSpentResponse(items=items)

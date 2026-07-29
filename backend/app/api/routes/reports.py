@@ -1,3 +1,4 @@
+import logging
 from datetime import UTC, datetime, timedelta
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -11,6 +12,7 @@ from app.schemas.reports import ReportStatusOut, SendReportNowResponse
 from app.services.report_scheduler import STATE_ROW_ID
 from app.services.report_service import generate_and_send_report
 
+logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/reports", tags=["reports"], dependencies=[Depends(require_admin)])
 
 
@@ -49,6 +51,13 @@ async def send_report_now(
         for target_branch in branches:
             await generate_and_send_report(db, since, now, target_branch)
     except Exception as exc:
-        raise HTTPException(status.HTTP_502_BAD_GATEWAY, f"Failed to send report: {exc}") from exc
+        # Full detail (which can include SMTP host/config internals) goes to
+        # the log only -- same "log the real error, return a generic one"
+        # contract as the app-wide handler in core/exceptions.py, which a
+        # raised HTTPException here bypasses.
+        logger.exception("Failed to send report on demand", extra={"branch": branch})
+        raise HTTPException(
+            status.HTTP_502_BAD_GATEWAY, "Failed to send report. Check server logs for details."
+        ) from exc
 
     return SendReportNowResponse(sent=True, since=since, until=now)

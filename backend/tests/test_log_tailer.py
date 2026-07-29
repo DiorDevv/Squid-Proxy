@@ -156,6 +156,45 @@ async def test_high_failure_rate_logs_a_summary_warning(tmp_path, caplog):
     assert any("parse failure rate" in record.message for record in caplog.records)
 
 
+async def test_embedded_carriage_return_does_not_fragment_a_line(tmp_path):
+    """A raw \\r byte inside a field (e.g. an unescaped control character in
+    a malformed request URL) must not be treated as an extra line boundary
+    -- confirmed against a real multi-million-line production access.log,
+    where ~2.3M such bytes were present and, under Python's default
+    universal-newline text mode, fragmented well-formed lines into ragged
+    pieces (a 69% apparent parse-failure rate that dropped to the file's
+    real ~53%, all genuinely malformed non-Squid-format traffic, once this
+    line-boundary bug was fixed). Squid terminates records with \\n only, so
+    the file must be read the same way -- this test only asserts the line
+    *count* stays correct; the \\r-containing line itself still fails to
+    parse (`.split()`'s own whitespace tokenizing splits on the embedded \\r
+    too, same as a real space would), which is a separate, secondary
+    concern from the line-fragmentation bug this fixes."""
+    log_path = tmp_path / "access.log"
+    log_path.write_bytes(b"")
+
+    tailer, events = make_tailer(log_path)
+    await tailer.poll_once()  # opens at EOF of empty file
+
+    line_with_embedded_cr = (
+        b"1737100800.123 45 10.0.0.5 TCP_MISS/200 1024 GET "
+        b"http://exa\rmple.com/ alice HIER_DIRECT/93.184.216.34 text/html\n"
+    )
+    with log_path.open("ab") as f:
+        f.write(line_with_embedded_cr)
+        f.write(squid_line("after.com").encode())
+
+    await tailer.poll_once()
+
+    # Exactly two real lines were written (two trailing \n bytes) -- a
+    # universal-newlines bug would count three, treating the embedded \r as
+    # its own line boundary and shredding both records instead of just
+    # failing to tokenize the one that actually contains it.
+    assert tailer.lines_seen == 2
+    assert [e.domain for e in events] == ["after.com"]
+    assert [e.domain for e in events][-1] == "after.com"
+
+
 async def test_backoff_recovers_once_file_reappears(tmp_path):
     log_path = tmp_path / "access.log"
     tailer, events = make_tailer(log_path)

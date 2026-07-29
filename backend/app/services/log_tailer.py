@@ -245,7 +245,17 @@ class LogTailer:
           documented "don't ingest a possibly-massive pre-existing log on
           first deploy" behavior.
         """
-        fh = open(self.path, encoding="utf-8", errors="replace")  # noqa: SIM115
+        # newline="" disables universal-newline translation: without it, a
+        # bare \r anywhere in a line (e.g. a raw control byte Squid logged
+        # verbatim from a malformed request URL -- confirmed against a real
+        # multi-million-line access.log, where ~2.3M such bytes fragmented
+        # ~35% of otherwise well-formed lines into garbage) is treated as an
+        # extra line boundary by Python's text-mode reader, silently
+        # shredding real records before _flush_complete_lines's own explicit
+        # split("\n") ever sees them. Splitting on "\n" only, ourselves,
+        # matches both wc -l's definition of a line and how Squid actually
+        # terminates records.
+        fh = open(self.path, encoding="utf-8", errors="replace", newline="")  # noqa: SIM115
         inode = os.fstat(fh.fileno()).st_ino
         state = self._load_state()
 
@@ -261,7 +271,7 @@ class LogTailer:
         self._partial = ""
 
     def _open_at_start(self) -> None:
-        fh = open(self.path, encoding="utf-8", errors="replace")  # noqa: SIM115
+        fh = open(self.path, encoding="utf-8", errors="replace", newline="")  # noqa: SIM115
         self._fh = fh
         self._inode = os.fstat(fh.fileno()).st_ino
         self._partial = ""

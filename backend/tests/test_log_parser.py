@@ -82,3 +82,17 @@ def test_blocked_action_sets_blocked_flag():
 def test_invalid_timestamp_skips_line():
     line = "not-a-timestamp 45 10.0.0.5 TCP_MISS/200 1024 GET http://example.com/ alice HIER_DIRECT/93.184.216.34 text/html"
     assert parse_line(line) is None
+
+
+def test_malformed_url_authority_does_not_raise():
+    # A malformed IPv6 bracket in the requested URL (client-controlled input,
+    # logged verbatim by Squid) used to make urlsplit() raise ValueError
+    # inside _extract_domain, breaking the "never raise" contract and wedging
+    # the log tailer that reads this line. The rest of the event is still
+    # valid and useful -- only the domain is unknown.
+    line = "1737100800.123 45 10.0.0.5 TCP_MISS/200 1024 GET http://[::1/path alice HIER_DIRECT/93.184.216.34 text/html"
+    event = parse_line(line)
+
+    assert event is not None
+    assert event.domain is None
+    assert event.client_ip == "10.0.0.5"

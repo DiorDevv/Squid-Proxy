@@ -22,6 +22,12 @@ logger = logging.getLogger(__name__)
 class WebSocketManager:
     BATCH_WINDOW_SECONDS = 0.2
     MAX_BATCH_SIZE = 200
+    # A stalled peer (backgrounded mobile browser, dead TCP connection the
+    # OS hasn't reaped yet) would otherwise hang send_json() indefinitely,
+    # delaying delivery to every other connection queued behind it in the
+    # same flush pass -- bound it and treat a timeout the same as any other
+    # send failure: drop that connection, keep going for the rest.
+    SEND_TIMEOUT_SECONDS = 5.0
 
     def __init__(self) -> None:
         self._connections: set[WebSocket] = set()
@@ -80,7 +86,7 @@ class WebSocketManager:
         dead: list[WebSocket] = []
         for connection in list(self._connections):
             try:
-                await connection.send_json(batch)
+                await asyncio.wait_for(connection.send_json(batch), timeout=self.SEND_TIMEOUT_SECONDS)
             except Exception:
                 logger.warning("Dropping /ws/live connection after send failure", exc_info=True)
                 dead.append(connection)

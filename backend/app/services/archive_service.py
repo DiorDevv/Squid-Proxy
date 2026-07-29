@@ -49,6 +49,7 @@ own docstring).
 
 import gzip
 import logging
+import os
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
@@ -87,6 +88,13 @@ async def archive(output_dir: Path, keep_days: int) -> None:
 
             filename = f"squid-events-{source.branch}-{since.date()}_{now.date()}.csv.gz"
             path = output_dir / filename
+            # Write to a temp path and only rename into place once the whole
+            # export has streamed successfully -- a crash or a full disk
+            # mid-write must never leave a truncated/corrupt .csv.gz sitting
+            # under the real filename, since that's indistinguishable from a
+            # good archive until someone actually opens it (same reasoning
+            # as log_tailer.py's state-file persistence).
+            tmp_path = path.with_name(path.name + ".tmp")
 
             # stream_csv's first chunk is exactly the header row; every
             # chunk after that is one full batch of already-terminated CSV
@@ -95,13 +103,14 @@ async def archive(output_dir: Path, keep_days: int) -> None:
             # anything about the query itself.
             row_count = 0
             is_header_chunk = True
-            with gzip.open(path, "wt", encoding="utf-8", newline="") as f:
+            with gzip.open(tmp_path, "wt", encoding="utf-8", newline="") as f:
                 async for chunk in stream_csv(session, since, now, blocked_only=False, branch=source.branch):
                     f.write(chunk)
                     if is_header_chunk:
                         is_header_chunk = False
                     else:
                         row_count += chunk.count("\r\n")
+            os.replace(tmp_path, path)  # atomic on POSIX
 
             logger.info(
                 "Archived raw events",

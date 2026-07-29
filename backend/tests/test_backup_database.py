@@ -33,10 +33,12 @@ def test_sqlite_db_path_rejects_a_url_with_a_host_part():
 
 def test_backup_postgres_strips_asyncpg_driver_suffix_and_uses_custom_format(monkeypatch, tmp_path):
     calls = []
+    kwargs_seen = []
     monkeypatch.setattr(
         backup_database.subprocess,
         "run",
-        lambda args, **kwargs: calls.append(args) or subprocess.CompletedProcess(args, 0),
+        lambda args, **kwargs: (calls.append(args), kwargs_seen.append(kwargs))
+        and subprocess.CompletedProcess(args, 0),
     )
 
     dest = tmp_path / "backup.dump"
@@ -45,9 +47,16 @@ def test_backup_postgres_strips_asyncpg_driver_suffix_and_uses_custom_format(mon
     assert len(calls) == 1
     args = calls[0]
     assert args[0] == "pg_dump"
-    assert "--dbname=postgresql://squid:pw@postgres:5432/squid_dashboard" in args
     assert "--format=custom" in args
     assert f"--file={dest}" in args
+    assert "--host" in args and args[args.index("--host") + 1] == "postgres"
+    assert "--port" in args and args[args.index("--port") + 1] == "5432"
+    assert "--username" in args and args[args.index("--username") + 1] == "squid"
+    assert "--dbname=squid_dashboard" in args
+    # The password must never appear in argv (visible to other local users
+    # via `ps`/`/proc/<pid>/cmdline`) -- only in the subprocess's own env.
+    assert not any("pw" in arg for arg in args)
+    assert kwargs_seen[0]["env"]["PGPASSWORD"] == "pw"
 
 
 def test_backup_sqlite_uses_the_online_backup_command(monkeypatch, tmp_path):
@@ -117,6 +126,27 @@ def test_run_rejects_an_unsupported_database_url_scheme(monkeypatch, tmp_path):
 
     with pytest.raises(ValueError, match="Unsupported DATABASE_URL scheme"):
         backup_database.run(tmp_path, keep_days=30)
+
+
+def test_run_deletes_partial_backup_file_on_failure(monkeypatch, tmp_path):
+    monkeypatch.setattr(
+        backup_database,
+        "get_settings",
+        lambda: Settings(DATABASE_URL="sqlite+aiosqlite:///./db.sqlite3"),
+    )
+
+    def _fake_backup_sqlite(url, dest):
+        # A real pg_dump/sqlite3 invocation that fails partway through can
+        # still have written some bytes to dest before raising.
+        dest.write_bytes(b"partial")
+        raise subprocess.CalledProcessError(1, ["sqlite3"], stderr="boom")
+
+    monkeypatch.setattr(backup_database, "_backup_sqlite", _fake_backup_sqlite)
+
+    with pytest.raises(subprocess.CalledProcessError):
+        backup_database.run(tmp_path, keep_days=30)
+
+    assert list(tmp_path.glob("squid-dashboard-backup-*")) == []
 
 
 def test_prune_old_backups_deletes_files_older_than_keep_days(tmp_path):

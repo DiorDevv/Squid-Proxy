@@ -10,8 +10,9 @@ from app.services.ws_manager import WebSocketManager
 
 
 class _FakeWebSocket:
-    def __init__(self, fail: bool = False) -> None:
+    def __init__(self, fail: bool = False, hang: bool = False) -> None:
         self.fail = fail
+        self.hang = hang
         self.accepted = False
         self.sent: list[list[dict]] = []
 
@@ -21,6 +22,8 @@ class _FakeWebSocket:
     async def send_json(self, payload: list[dict]) -> None:
         if self.fail:
             raise RuntimeError("connection reset by peer")
+        if self.hang:
+            await asyncio.sleep(3600)  # simulates a stalled/half-open peer
         self.sent.append(payload)
 
 
@@ -102,6 +105,28 @@ async def test_flush_pending_drops_and_logs_dead_connections(caplog: pytest.LogC
         await manager._flush_pending()
 
     # The failing connection is dropped, the healthy one still gets the batch.
+    assert manager.connection_count == 1
+    assert len(healthy.sent) == 1
+    assert any("send failure" in record.message for record in caplog.records)
+
+
+async def test_flush_pending_drops_a_stalled_connection_without_blocking_others(
+    caplog: pytest.LogCaptureFixture,
+):
+    """A half-open/backgrounded peer whose send_json() never returns must not
+    hold up delivery to every other connection queued in the same flush --
+    the timeout should kick in and drop it instead of hanging forever."""
+    manager = WebSocketManager()
+    manager.SEND_TIMEOUT_SECONDS = 0.05
+    healthy = _FakeWebSocket()
+    stalled = _FakeWebSocket(hang=True)
+    await manager.connect(healthy)
+    await manager.connect(stalled)
+
+    manager._pending.append(manager._serialize(_event()))
+    with caplog.at_level(logging.WARNING):
+        await asyncio.wait_for(manager._flush_pending(), timeout=2)
+
     assert manager.connection_count == 1
     assert len(healthy.sent) == 1
     assert any("send failure" in record.message for record in caplog.records)

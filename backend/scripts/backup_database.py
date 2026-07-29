@@ -34,11 +34,12 @@ python scripts/backup_database.py`):
 
 import argparse
 import logging
+import os
 import subprocess
 import sys
 from datetime import UTC, datetime
 from pathlib import Path
-from urllib.parse import urlsplit
+from urllib.parse import unquote, urlsplit
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
@@ -60,16 +61,27 @@ def _prune_old_backups(output_dir: Path, keep_days: int) -> None:
 
 
 def _backup_postgres(database_url: str, dest: Path) -> None:
-    # pg_dump understands a plain postgresql:// URI directly -- strip the
-    # SQLAlchemy-specific "+asyncpg" driver suffix, which it wouldn't
-    # recognize as a valid scheme.
-    uri = database_url.replace("postgresql+asyncpg://", "postgresql://", 1)
-    subprocess.run(
-        ["pg_dump", f"--dbname={uri}", "--format=custom", f"--file={dest}"],
-        check=True,
-        capture_output=True,
-        text=True,
-    )
+    # Passing the password as part of a postgresql://user:pass@host/db URI
+    # in argv would put it in plain view of any local user via `ps aux` /
+    # `/proc/<pid>/cmdline` for the run's duration. Pass the individual
+    # connection parts as separate flags instead and hand the password to
+    # libpq the way backup_postgres_docker.sh already does -- via the
+    # PGPASSWORD environment variable, which isn't visible in argv.
+    parsed = urlsplit(database_url.replace("postgresql+asyncpg://", "postgresql://", 1))
+    env = os.environ.copy()
+    if parsed.password:
+        env["PGPASSWORD"] = unquote(parsed.password)
+
+    args = ["pg_dump", "--format=custom", f"--file={dest}"]
+    if parsed.hostname:
+        args += ["--host", parsed.hostname]
+    if parsed.port:
+        args += ["--port", str(parsed.port)]
+    if parsed.username:
+        args += ["--username", unquote(parsed.username)]
+    args.append(f"--dbname={parsed.path.lstrip('/')}")
+
+    subprocess.run(args, check=True, capture_output=True, text=True, env=env)
 
 
 def _sqlite_db_path(database_url: str) -> Path:
@@ -103,12 +115,22 @@ def run(output_dir: Path, keep_days: int) -> None:
 
     if settings.DATABASE_URL.startswith("postgresql"):
         dest = output_dir / f"{BACKUP_FILENAME_PREFIX}{timestamp}.dump"
-        _backup_postgres(settings.DATABASE_URL, dest)
+        backup_fn = _backup_postgres
     elif settings.DATABASE_URL.startswith("sqlite"):
         dest = output_dir / f"{BACKUP_FILENAME_PREFIX}{timestamp}.db"
-        _backup_sqlite(settings.DATABASE_URL, dest)
+        backup_fn = _backup_sqlite
     else:
         raise ValueError(f"Unsupported DATABASE_URL scheme: {settings.DATABASE_URL}")
+
+    try:
+        backup_fn(settings.DATABASE_URL, dest)
+    except subprocess.CalledProcessError:
+        # pg_dump/sqlite3 can still have written a partial file before
+        # failing -- leaving it under the normal naming convention would
+        # make it indistinguishable from a real, restorable backup until
+        # someone actually tries to restore from it.
+        dest.unlink(missing_ok=True)
+        raise
 
     logger.info(
         "Database backup complete", extra={"path": str(dest), "size_bytes": dest.stat().st_size}

@@ -60,6 +60,10 @@ async def test_archive_writes_gzip_csv_and_upserts_archive_run(
     assert run is not None
     assert (datetime.now(UTC) - run.archived_until) < timedelta(seconds=5)
 
+    # The temp file used for the atomic write/rename must never survive a
+    # successful run.
+    assert list(tmp_path.glob("*.tmp")) == []
+
 
 async def test_archive_extends_back_further_when_a_run_was_missed(
     db_session: AsyncSession, tmp_path: Path, monkeypatch

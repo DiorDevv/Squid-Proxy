@@ -10,6 +10,10 @@ x-logging: &default-logging
 x-backend-common: &backend-common
   build:
     context: ./backend
+    args:
+      HTTP_PROXY: ${HTTP_PROXY:-}
+      HTTPS_PROXY: ${HTTPS_PROXY:-}
+      NO_PROXY: ${NO_PROXY:-}
   logging: *default-logging
   environment:
     ENVIRONMENT: production
@@ -102,6 +106,9 @@ services:
       args:
         VITE_API_BASE_URL: ""
         VITE_WS_URL: ""
+        HTTP_PROXY: ${HTTP_PROXY:-}
+        HTTPS_PROXY: ${HTTPS_PROXY:-}
+        NO_PROXY: ${NO_PROXY:-}
     logging: *default-logging
     ports:
       - "${FRONTEND_PORT:-8080}:80"
@@ -155,6 +162,10 @@ services:
   demo-log-generator:
     build:
       context: ./backend
+      args:
+        HTTP_PROXY: ${HTTP_PROXY:-}
+        HTTPS_PROXY: ${HTTPS_PROXY:-}
+        NO_PROXY: ${NO_PROXY:-}
     profiles: ["demo"]
     logging: *default-logging
     volumes:

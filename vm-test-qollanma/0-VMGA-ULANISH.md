@@ -1,6 +1,6 @@
 # 0-QISM — VM'ga birinchi marta ulanish
 
-Bu — boshqa qo'llanmalar (`QOLLANMA.md`, `RSYSLOG-QOLLANMA.md`, `SSH-TAIL-QOLLANMA.md`)
+Bu — boshqa qo'llanmalar (`QOLLANMA.md`, `1-LOYIHANI-ISHGA-TUSHIRISH.md`)
 boshlanishidan **oldingi** qadam: VM'ga qanday ulanish. Boshqa qo'llanmalarning barchasi
 "VM'ga SSH orqali kirdingiz" degan joydan boshlanadi — mana shu qism aynan o'sha "kirish"
 jarayonini tushuntiradi.
@@ -125,6 +125,7 @@ Boshqa xato chiqsa — **xato matnini to'liq nusxalab yuboring**, birga hal qila
 ---
 
 Ulanib bo'lgach, keyingi qadam uchun quyidagilardan birini tanlang:
-- **`QOLLANMA.md`** — agar Squid va dashboard bitta serverda bo'lsa
-- **`RSYSLOG-QOLLANMA.md`** — agar Squid boshqa serverda, rsyslog orqali
-- **`SSH-TAIL-QOLLANMA.md`** — agar Squid boshqa serverda, sodda SSH usuli orqali
+- **`QOLLANMA.md`** — agar Squid va dashboard bitta serverda bo'lsa (barcha filiallar birga)
+- **`1-LOYIHANI-ISHGA-TUSHIRISH.md`** — agar Squid boshqa serverda bo'lsa (keyin
+  `2-SQUIDGA-ULASH.md` — sodda SSH usuli, yoki `2-SQUIDGA-ULASH-RSYSLOG.md` — rsyslog
+  orqali, davom etadi)

@@ -313,3 +313,19 @@ Brauzerda `http://VM_IP:8082`ni oching — "Jonli hodisalar"da haqiqiy trafik ko
 | Fayl bor, dashboard ko'rmayapti | Fayl ruxsati | `sudo chmod o+r /var/log/squid/filiallar.log` |
 
 Har qanday qadamda xato chiqsa — xato matnini **to'liq** nusxalab yuboring.
+
+---
+
+## Keyinroq yana filial qo'shish kerak bo'lsa
+
+Masalan "bosh_ofis" nomli yangi filial qo'shish uchun, yuqoridagi qadamlarni takrorlaysiz,
+faqat har joyda `filiallar` → `bosh_ofis` deb almashtirasiz:
+
+- 1-QADAM: yana bitta sertifikat juftligi (`branch-bosh_ofis.pem`/`-key.pem`)
+- 2-QADAM: markaziy `PermittedPeer` ro'yxatiga yangi hostname qo'shiladi (vergul bilan)
+- 4-QADAM: `LOG_SOURCES`ga yana bitta `{"branch":"bosh_ofis",...}` yozuvi va `volumes`da
+  o'zgarish shart emas (`/var/log/squid` papkasi umumiy — barcha filiallarning fayllari
+  shu bitta papkada, nomi bilan farqlanadi)
+- 3-QADAM: yangi filial serveriga xuddi shu ko'rsatma, `filiallar` o'rniga `bosh_ofis` bilan
+
+Bu qadamlarni kerak bo'lganda to'liq tayyor holda so'rab oling.

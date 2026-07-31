@@ -2,6 +2,18 @@ import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
 import type { RangeParam } from '@/types/api'
 
+/** crypto.randomUUID() only exists in secure contexts (HTTPS or
+ * http://localhost) -- this dashboard is commonly opened over plain HTTP via
+ * a bare VM IP (see vm-test-qollanma/*.md), where it's undefined. This id is
+ * just a React key/removal handle, not security-sensitive, so a non-crypto
+ * fallback is fine. */
+function generateId(): string {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return crypto.randomUUID()
+  }
+  return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`
+}
+
 /** A named snapshot of useFiltersStore's shape (lib/filters-store.ts) --
  * range/branch is the one filter combination shared across Dashboard/
  * Domains/Clients/Blocked (see ARCHITECTURE.md), so a saved preset applies
@@ -31,7 +43,7 @@ export const useSavedFiltersStore = create<SavedFiltersState>()(
       items: [],
       save: (filter) =>
         set((state) => ({
-          items: [...state.items, { ...filter, id: crypto.randomUUID() }],
+          items: [...state.items, { ...filter, id: generateId() }],
         })),
       remove: (id) => set((state) => ({ items: state.items.filter((item) => item.id !== id) })),
     }),

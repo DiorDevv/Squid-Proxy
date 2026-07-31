@@ -109,6 +109,10 @@ export const ru = {
   'insights.severityHigh': 'Высокий',
   'insights.severityCritical': 'Критический',
 
+  'notifications.bellLabel': 'Уведомления',
+  'notifications.title': 'Последние аномалии',
+  'notifications.empty': 'Аномалий не обнаружено. Трафик в норме.',
+
   'clients.title': 'Клиенты',
   'clients.filterPlaceholder': 'Фильтр по IP или пользователю…',
   'clients.filterAriaLabel': 'Фильтровать клиентов по IP или пользователю',

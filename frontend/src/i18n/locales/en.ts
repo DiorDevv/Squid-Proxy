@@ -119,6 +119,10 @@ export const en = {
   'insights.severityHigh': 'High',
   'insights.severityCritical': 'Critical',
 
+  'notifications.bellLabel': 'Notifications',
+  'notifications.title': 'Recent anomalies',
+  'notifications.empty': 'No anomalies detected. Traffic looks normal.',
+
   // --- Clients page ---
   'clients.title': 'Clients',
   'clients.filterPlaceholder': 'Filter by IP or user…',

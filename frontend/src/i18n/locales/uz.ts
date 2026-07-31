@@ -112,6 +112,10 @@ export const uz = {
   'insights.severityHigh': 'Yuqori',
   'insights.severityCritical': 'Kritik',
 
+  'notifications.bellLabel': 'Bildirishnomalar',
+  'notifications.title': "So'nggi anomaliyalar",
+  'notifications.empty': "Anomaliya aniqlanmadi. Trafik odatiy holatda.",
+
   'clients.title': 'Mijozlar',
   'clients.filterPlaceholder': 'IP yoki foydalanuvchi boʻyicha filtrlash…',
   'clients.filterAriaLabel': 'Mijozlarni IP yoki foydalanuvchi boʻyicha filtrlash',

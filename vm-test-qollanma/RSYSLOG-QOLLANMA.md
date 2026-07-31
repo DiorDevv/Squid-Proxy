@@ -387,3 +387,4 @@ faqat har joyda `filiallar` → `bosh_ofis` deb almashtirasiz:
 
 Bu qadamlarni kerak bo'lganda men sizga yana to'liq tayyor holda yozib beraman — hozircha
 shu bitta filial bilan ishlashni tugatib, tasdiqlab oling.
+

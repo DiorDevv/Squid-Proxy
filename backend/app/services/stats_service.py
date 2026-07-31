@@ -161,6 +161,7 @@ async def get_top_domains(
     order_by: Literal["requests", "blocked", "bytes"] | None = None,
     category: DomainCategoryLabel | None = None,
     branch: str | None = None,
+    search: str | None = None,
 ) -> list[DomainStat]:
     """`order_by` defaults to "blocked" when `blocked_only` is set (matching
     /api/top-blocked's intent) and "requests" otherwise, but can be
@@ -171,7 +172,11 @@ async def get_top_domains(
     see category_inference.effective_category) is resolved in a separate pass rather than in
     this query's SQL, since which category a domain falls under is Python
     business logic (category_inference.py), not something expressible as a
-    join/case in a way that stays portable across SQLite and Postgres."""
+    join/case in a way that stays portable across SQLite and Postgres.
+
+    `search`, when given, filters to domains containing it (case-insensitive
+    substring, same convention as client_service.list_clients) -- used by
+    /api/domains/search for the global search box."""
     request_total = func.sum(DomainMinuteAggregate.request_count)
     blocked_total = func.sum(DomainMinuteAggregate.blocked_count)
     bytes_total = func.sum(DomainMinuteAggregate.total_bytes)
@@ -190,6 +195,8 @@ async def get_top_domains(
         if not matching_domains:
             return []
         conditions.append(DomainMinuteAggregate.domain.in_(matching_domains))
+    if search and search.strip():
+        conditions.append(DomainMinuteAggregate.domain.ilike(f"%{search.strip()}%"))
 
     query = (
         select(DomainMinuteAggregate.domain, request_total, blocked_total, bytes_total)

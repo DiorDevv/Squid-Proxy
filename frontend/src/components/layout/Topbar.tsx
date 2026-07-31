@@ -1,5 +1,6 @@
 import { useLocation } from 'react-router-dom'
 import { ConnectionStatus } from '@/components/layout/ConnectionStatus'
+import { GlobalSearch } from '@/components/layout/GlobalSearch'
 import { MobileNav } from '@/components/layout/MobileNav'
 import { NotificationBell } from '@/components/layout/NotificationBell'
 import { useTranslation, type TranslationKey } from '@/i18n'
@@ -31,6 +32,7 @@ export function Topbar() {
         <h1 className="truncate text-sm font-semibold text-foreground">{pageTitle}</h1>
       </div>
       <div className="flex shrink-0 items-center gap-3">
+        <GlobalSearch />
         <NotificationBell />
         <ConnectionStatus />
       </div>

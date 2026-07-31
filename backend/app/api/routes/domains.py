@@ -11,6 +11,27 @@ from app.services.stats_service import get_top_domains, get_usage_by_category
 router = APIRouter(prefix="/api", tags=["domains"])
 
 
+@router.get("/domains/search", response_model=DomainStatsResponse, dependencies=[Depends(require_any_role)])
+async def search_domains(
+    q: str = Query(min_length=1, max_length=255),
+    effective_range: EffectiveRange = Depends(resolve_range),
+    limit: int = Query(default=10, ge=1, le=50),
+    branch: str | None = Query(default=None),
+    db: AsyncSession = Depends(get_db),
+) -> DomainStatsResponse:
+    items = await get_top_domains(
+        db,
+        effective_range.since,
+        effective_range.until,
+        limit,
+        blocked_only=False,
+        order_by="requests",
+        branch=branch,
+        search=q,
+    )
+    return DomainStatsResponse(items=items)
+
+
 @router.get("/top-domains", response_model=DomainStatsResponse, dependencies=[Depends(require_any_role)])
 async def read_top_domains(
     effective_range: EffectiveRange = Depends(resolve_range),

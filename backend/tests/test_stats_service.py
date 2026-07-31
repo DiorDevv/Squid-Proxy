@@ -27,6 +27,43 @@ async def test_get_top_domains_orders_by_request_count(db_session: AsyncSession)
     assert [item.domain for item in items] == ["a.com", "b.com"]
 
 
+async def test_get_top_domains_filters_by_search_substring(db_session: AsyncSession):
+    bucket = datetime.now(UTC).replace(second=0, microsecond=0)
+    db_session.add_all(
+        [
+            DomainMinuteAggregate(bucket_ts=bucket, domain="example.com", request_count=100, blocked_count=0),
+            DomainMinuteAggregate(bucket_ts=bucket, domain="other.net", request_count=50, blocked_count=0),
+        ]
+    )
+    await db_session.commit()
+
+    items = await get_top_domains(
+        db_session,
+        RangeParam.ONE_HOUR.since(),
+        datetime.now(UTC),
+        limit=10,
+        blocked_only=False,
+        search="EXAMP",
+    )
+    assert [item.domain for item in items] == ["example.com"]
+
+
+async def test_get_top_domains_search_is_case_insensitive_substring(db_session: AsyncSession):
+    bucket = datetime.now(UTC).replace(second=0, microsecond=0)
+    db_session.add(DomainMinuteAggregate(bucket_ts=bucket, domain="mail.google.com", request_count=10, blocked_count=0))
+    await db_session.commit()
+
+    items = await get_top_domains(
+        db_session,
+        RangeParam.ONE_HOUR.since(),
+        datetime.now(UTC),
+        limit=10,
+        blocked_only=False,
+        search="GOOGLE",
+    )
+    assert [item.domain for item in items] == ["mail.google.com"]
+
+
 async def test_get_top_domains_filters_by_inferred_category(db_session: AsyncSession):
     bucket = datetime.now(UTC).replace(second=0, microsecond=0)
     db_session.add_all(
@@ -230,3 +267,33 @@ async def test_timeseries_route_returns_points(
     )
     assert response.status_code == 200
     assert len(response.json()["points"]) == 1
+
+
+async def test_domain_search_route_requires_auth(app_client: AsyncClient):
+    response = await app_client.get("/api/domains/search?q=example")
+    assert response.status_code == 401
+
+
+async def test_domain_search_route_returns_matching_domains(
+    app_client: AsyncClient, db_session: AsyncSession, admin_token, auth_headers
+):
+    bucket = datetime.now(UTC).replace(second=0, microsecond=0)
+    db_session.add_all(
+        [
+            DomainMinuteAggregate(bucket_ts=bucket, domain="example.com", request_count=5, blocked_count=0),
+            DomainMinuteAggregate(bucket_ts=bucket, domain="unrelated.net", request_count=5, blocked_count=0),
+        ]
+    )
+    await db_session.commit()
+
+    response = await app_client.get(
+        "/api/domains/search?q=exam&range=1h", headers=auth_headers(admin_token)
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert [item["domain"] for item in body["items"]] == ["example.com"]
+
+
+async def test_domain_search_route_rejects_empty_query(app_client: AsyncClient, admin_token, auth_headers):
+    response = await app_client.get("/api/domains/search?q=", headers=auth_headers(admin_token))
+    assert response.status_code == 422

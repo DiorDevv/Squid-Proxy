@@ -120,6 +120,14 @@ export const ru = {
   'savedFilters.save': 'Сохранить текущий фильтр',
   'savedFilters.saveHint': 'Сохраняет текущий период и филиал. Применяется на любой странице с этой кнопкой.',
 
+  'globalSearch.triggerLabel': 'Поиск',
+  'globalSearch.placeholder': 'Поиск клиентов или доменов…',
+  'globalSearch.hint': 'Начните вводить IP, имя пользователя или домен.',
+  'globalSearch.error': 'Не удалось выполнить поиск. Попробуйте снова.',
+  'globalSearch.noResults': 'Нет клиентов или доменов по запросу «{{query}}».',
+  'globalSearch.clients': 'Клиенты',
+  'globalSearch.domains': 'Домены',
+
   'clients.title': 'Клиенты',
   'clients.filterPlaceholder': 'Фильтр по IP или пользователю…',
   'clients.filterAriaLabel': 'Фильтровать клиентов по IP или пользователю',

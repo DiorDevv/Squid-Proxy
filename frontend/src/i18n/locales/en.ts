@@ -130,6 +130,14 @@ export const en = {
   'savedFilters.save': 'Save current filter',
   'savedFilters.saveHint': 'Saves the current range and branch. Applies on any page that has this button.',
 
+  'globalSearch.triggerLabel': 'Search',
+  'globalSearch.placeholder': 'Search clients or domains…',
+  'globalSearch.hint': 'Start typing an IP, username, or domain.',
+  'globalSearch.error': 'Search failed. Try again.',
+  'globalSearch.noResults': 'No clients or domains match "{{query}}".',
+  'globalSearch.clients': 'Clients',
+  'globalSearch.domains': 'Domains',
+
   // --- Clients page ---
   'clients.title': 'Clients',
   'clients.filterPlaceholder': 'Filter by IP or user…',

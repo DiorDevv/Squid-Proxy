@@ -123,6 +123,14 @@ export const uz = {
   'savedFilters.save': 'Joriy filtrni saqlash',
   'savedFilters.saveHint': "Joriy davr va filialni saqlaydi. Bu tugma bor har qanday sahifada qo'llash mumkin.",
 
+  'globalSearch.triggerLabel': 'Qidiruv',
+  'globalSearch.placeholder': "Mijoz yoki domen qidirish…",
+  'globalSearch.hint': "IP, foydalanuvchi nomi yoki domenni yoza boshlang.",
+  'globalSearch.error': "Qidiruv amalga oshmadi. Qaytadan urinib ko'ring.",
+  'globalSearch.noResults': '"{{query}}" bo\'yicha mijoz yoki domen topilmadi.',
+  'globalSearch.clients': 'Mijozlar',
+  'globalSearch.domains': 'Domenlar',
+
   'clients.title': 'Mijozlar',
   'clients.filterPlaceholder': 'IP yoki foydalanuvchi boʻyicha filtrlash…',
   'clients.filterAriaLabel': 'Mijozlarni IP yoki foydalanuvchi boʻyicha filtrlash',

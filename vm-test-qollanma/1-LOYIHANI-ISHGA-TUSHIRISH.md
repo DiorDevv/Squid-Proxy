@@ -55,6 +55,20 @@ echo "Dashboard parolingiz: $ADMIN_PW"
 
 ## 4. Ishga tushirish
 
+Brauzer xavfsizlik cookie'sini (login sessiyasini yangilab turadigan) faqat HTTPS yoki
+`http://localhost` orqali qabul qiladi — VM esa haqiqiy IP orqali (`http://VM_IP:8082`)
+ochiladi, shuning uchun bitta sozlamani qo'shib qo'yamiz, aks holda login qilgach biroz
+vaqtdan keyin kutilmaganda chiqib ketasiz:
+
+```bash
+cat > docker-compose.override.yml <<'EOF'
+services:
+  backend:
+    environment:
+      ENVIRONMENT: development
+EOF
+```
+
 ```bash
 docker compose --profile demo up --build -d
 ```

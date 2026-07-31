@@ -132,6 +132,23 @@ Serverga qaytib ulaning (`ssh FOYDALANUVCHI@SERVER_IP`), keyin:
 
 ```bash
 cd ~/squid-watch
+```
+
+Brauzer login sessiyasini yangilab turadigan cookie'ni faqat HTTPS yoki
+`http://localhost` orqali qabul qiladi — bu server esa haqiqiy IP orqali
+(`http://SERVER_IP:8082`) ochiladi, shuning uchun bitta sozlama kerak, aks holda login
+qilgach biroz vaqtdan keyin kutilmaganda chiqib ketasiz:
+
+```bash
+cat > docker-compose.override.yml <<'EOF'
+services:
+  backend:
+    environment:
+      ENVIRONMENT: development
+EOF
+```
+
+```bash
 docker compose --profile demo up --build -d
 ```
 
@@ -293,12 +310,14 @@ cp docker-compose.override.yml.example docker-compose.override.yml
 ```
 
 `docker-compose.override.yml` faylini oching (`nano docker-compose.override.yml`) va
-ichini quyidagicha to'liq almashtiring:
+ichini quyidagicha to'liq almashtiring (`ENVIRONMENT: development` qatorini ham saqlab
+qoling — 1.4-qadamda login sessiyasi ishlashi uchun qo'shilgan edi, uni olib tashlamang):
 
 ```yaml
 services:
   backend:
     environment:
+      ENVIRONMENT: development
       LOG_SOURCES: >-
         [
           {"branch":"filiallar","path":"/data/squid-logs/filiallar/access.log"},

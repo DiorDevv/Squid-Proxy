@@ -10,6 +10,21 @@ waiting a full interval-from-scratch again, but only actually call archive()
 once ARCHIVE_MIN_INTERVAL_SECONDS (default weekly) has genuinely elapsed
 since the oldest branch's last successful run.
 
+start() also fires one immediate check (see Ut1BlacklistScheduler.start()
+for the same pattern and its own reasoning) rather than only the
+_run_forever loop below, which would otherwise wait a full
+check_interval_seconds before ever looking. Without this, a fresh
+deployment has no ArchiveRun row for any branch until that first wait
+elapses -- and RetentionJob.purge() runs on that same default interval, so
+whichever of the two happens to fire first each hour is a coin flip. If
+retention's purge wins that race even once, it correctly-but-confusingly
+logs/surfaces "purged raw_events never archived" for a branch that, in
+truth, had nothing old enough to purge yet and was about to be archived
+moments later anyway. Firing archiving's first check immediately removes
+that race for the common case: by the time retention's own first purge can
+possibly run (still gated on its own interval), archiving has already
+established an ArchiveRun row covering `now`.
+
 Unlike ReportScheduler, there's no separate persisted "last checked" state
 table to maintain here -- ArchiveRun.archived_until (upserted per-branch by
 archive() itself) already durably records the answer, so "is a run due" is
@@ -42,6 +57,12 @@ class ArchiveScheduler:
         self._stop_event = asyncio.Event()
 
     def start(self) -> None:
+        # Detached on purpose (not awaited, not stored) -- start() must
+        # return immediately either way, and _run_forever's own loop below
+        # still owns the ongoing schedule; this is strictly an extra,
+        # earlier first check. A slow/failed archive() here delays nothing
+        # else at startup (same reasoning as Ut1BlacklistScheduler.start()).
+        asyncio.create_task(self._check_catching_errors(), name="archive-scheduler-initial-check")
         self._task = asyncio.create_task(self._run_forever(), name="archive-scheduler")
 
     async def stop(self) -> None:

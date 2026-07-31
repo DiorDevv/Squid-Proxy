@@ -116,6 +116,13 @@ export const uz = {
   'notifications.title': "So'nggi anomaliyalar",
   'notifications.empty': "Anomaliya aniqlanmadi. Trafik odatiy holatda.",
 
+  'savedFilters.title': 'Saqlangan filtrlar',
+  'savedFilters.empty': "Hali saqlangan filtr yo'q.",
+  'savedFilters.remove': "O'chirish",
+  'savedFilters.namePlaceholder': 'Filtr nomi…',
+  'savedFilters.save': 'Joriy filtrni saqlash',
+  'savedFilters.saveHint': "Joriy davr va filialni saqlaydi. Bu tugma bor har qanday sahifada qo'llash mumkin.",
+
   'clients.title': 'Mijozlar',
   'clients.filterPlaceholder': 'IP yoki foydalanuvchi boʻyicha filtrlash…',
   'clients.filterAriaLabel': 'Mijozlarni IP yoki foydalanuvchi boʻyicha filtrlash',

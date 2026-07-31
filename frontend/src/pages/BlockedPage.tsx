@@ -4,6 +4,7 @@ import { ErrorState } from '@/components/common/ErrorState'
 import { SearchFilterInput } from '@/components/common/SearchFilterInput'
 import { RangeSelector } from '@/components/common/RangeSelector'
 import { BranchSelector } from '@/components/common/BranchSelector'
+import { SavedFiltersMenu } from '@/components/common/SavedFiltersMenu'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { BlockedEventsTable } from '@/components/blocked/BlockedEventsTable'
 import { EventDetailSheet } from '@/components/blocked/EventDetailSheet'
@@ -61,6 +62,7 @@ export default function BlockedPage() {
           <div className="flex flex-wrap items-center gap-2">
             <BranchSelector />
             <RangeSelector />
+            <SavedFiltersMenu />
             <div className="flex items-center gap-0.5 rounded-md border border-border bg-secondary/50 p-0.5">
               <button
                 type="button"

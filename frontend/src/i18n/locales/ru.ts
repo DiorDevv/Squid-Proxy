@@ -113,6 +113,13 @@ export const ru = {
   'notifications.title': 'Последние аномалии',
   'notifications.empty': 'Аномалий не обнаружено. Трафик в норме.',
 
+  'savedFilters.title': 'Сохранённые фильтры',
+  'savedFilters.empty': 'Пока нет сохранённых фильтров.',
+  'savedFilters.remove': 'Удалить',
+  'savedFilters.namePlaceholder': 'Название фильтра…',
+  'savedFilters.save': 'Сохранить текущий фильтр',
+  'savedFilters.saveHint': 'Сохраняет текущий период и филиал. Применяется на любой странице с этой кнопкой.',
+
   'clients.title': 'Клиенты',
   'clients.filterPlaceholder': 'Фильтр по IP или пользователю…',
   'clients.filterAriaLabel': 'Фильтровать клиентов по IP или пользователю',

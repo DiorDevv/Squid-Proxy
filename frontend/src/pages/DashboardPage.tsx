@@ -10,6 +10,7 @@ import { Panel } from '@/components/common/Panel'
 import { ErrorState } from '@/components/common/ErrorState'
 import { RangeSelector } from '@/components/common/RangeSelector'
 import { BranchSelector } from '@/components/common/BranchSelector'
+import { SavedFiltersMenu } from '@/components/common/SavedFiltersMenu'
 import { useRangeSearchParams } from '@/lib/filters-store'
 import { useSummary } from '@/hooks/useSummary'
 import { useTimeseries } from '@/hooks/useTimeseries'
@@ -35,6 +36,7 @@ export default function DashboardPage() {
       <div className="flex justify-end gap-2">
         <BranchSelector />
         <RangeSelector />
+        <SavedFiltersMenu />
       </div>
 
       {isEmptyRange && (

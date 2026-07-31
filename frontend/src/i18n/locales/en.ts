@@ -123,6 +123,13 @@ export const en = {
   'notifications.title': 'Recent anomalies',
   'notifications.empty': 'No anomalies detected. Traffic looks normal.',
 
+  'savedFilters.title': 'Saved filters',
+  'savedFilters.empty': 'No saved filters yet.',
+  'savedFilters.remove': 'Remove',
+  'savedFilters.namePlaceholder': 'Name this filter…',
+  'savedFilters.save': 'Save current filter',
+  'savedFilters.saveHint': 'Saves the current range and branch. Applies on any page that has this button.',
+
   // --- Clients page ---
   'clients.title': 'Clients',
   'clients.filterPlaceholder': 'Filter by IP or user…',

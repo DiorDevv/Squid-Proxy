@@ -5,6 +5,7 @@ import { ErrorState } from '@/components/common/ErrorState'
 import { SearchFilterInput } from '@/components/common/SearchFilterInput'
 import { RangeSelector } from '@/components/common/RangeSelector'
 import { BranchSelector } from '@/components/common/BranchSelector'
+import { SavedFiltersMenu } from '@/components/common/SavedFiltersMenu'
 import { ClientsTable } from '@/components/clients/ClientsTable'
 import { useClients } from '@/hooks/useClients'
 import { useDebouncedValue } from '@/hooks/useDebouncedValue'
@@ -54,6 +55,7 @@ export default function ClientsPage() {
           <div className="flex flex-wrap items-center gap-2">
             <BranchSelector />
             <RangeSelector />
+            <SavedFiltersMenu />
             <SearchFilterInput
               value={search}
               onChange={setSearch}

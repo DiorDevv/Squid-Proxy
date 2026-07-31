@@ -3,6 +3,7 @@ import { Panel } from '@/components/common/Panel'
 import { ErrorState } from '@/components/common/ErrorState'
 import { RangeSelector } from '@/components/common/RangeSelector'
 import { BranchSelector } from '@/components/common/BranchSelector'
+import { SavedFiltersMenu } from '@/components/common/SavedFiltersMenu'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { DomainRankingTable } from '@/components/domains/DomainRankingTable'
 import { CategoryBreakdown } from '@/components/domains/CategoryBreakdown'
@@ -53,6 +54,7 @@ export default function DomainsPage() {
         </Select>
         <BranchSelector />
         <RangeSelector />
+        <SavedFiltersMenu />
       </div>
 
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">

@@ -1,4 +1,5 @@
 import type { LucideIcon } from 'lucide-react'
+import { TrendingDown, TrendingUp } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { formatNumber } from '@/lib/format'
 import { useCountUp } from '@/hooks/useCountUp'
@@ -15,6 +16,13 @@ interface SummaryCardProps {
    * silently did nothing while the request is still in flight. */
   updating?: boolean
   formatValue?: (value: number) => string
+  /** Percentage change vs. the equivalent previous period (e.g. +12.4 or
+   * -8.1). null/undefined means "no comparison available" (still loading,
+   * or the previous period had zero to divide by) -- the badge is simply
+   * omitted rather than shown as "0%" or an error state. Purely directional
+   * (up/down), not "good/bad" -- a rise in blocked requests isn't
+   * necessarily worse than a fall, so tone stays neutral either way. */
+  deltaPercent?: number | null
 }
 
 const TONE_STYLES: Record<
@@ -56,9 +64,11 @@ export function SummaryCard({
   loading,
   updating,
   formatValue = formatNumber,
+  deltaPercent,
 }: SummaryCardProps) {
   const animated = useCountUp(value)
   const styles = TONE_STYLES[tone]
+  const delta = !loading && typeof deltaPercent === 'number' ? deltaPercent : null
 
   return (
     <div className="group relative flex flex-col gap-3 overflow-hidden rounded-xl border border-border bg-card p-4 transition-all duration-200 hover:border-border/60 hover:shadow-lg">
@@ -88,14 +98,32 @@ export function SummaryCard({
       {loading ? (
         <div className="h-8 w-24 animate-pulse rounded bg-muted" />
       ) : (
-        <span
-          className={cn(
-            'font-data text-3xl font-semibold tracking-tight text-foreground transition-opacity duration-200',
-            updating && 'opacity-50',
+        <div className="flex items-baseline gap-2">
+          <span
+            className={cn(
+              'font-data text-3xl font-semibold tracking-tight text-foreground transition-opacity duration-200',
+              updating && 'opacity-50',
+            )}
+          >
+            {formatValue(animated)}
+          </span>
+          {delta !== null && (
+            <span
+              className={cn(
+                'flex items-center gap-0.5 text-xs font-medium transition-opacity duration-200',
+                delta >= 0 ? 'text-success' : 'text-destructive',
+                updating && 'opacity-50',
+              )}
+            >
+              {delta >= 0 ? (
+                <TrendingUp className="h-3 w-3" aria-hidden="true" />
+              ) : (
+                <TrendingDown className="h-3 w-3" aria-hidden="true" />
+              )}
+              {Math.abs(delta) < 1000 ? Math.abs(delta).toFixed(1) : '999+'}%
+            </span>
           )}
-        >
-          {formatValue(animated)}
-        </span>
+        </div>
       )}
     </div>
   )

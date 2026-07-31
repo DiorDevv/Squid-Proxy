@@ -11,7 +11,8 @@ import { ErrorState } from '@/components/common/ErrorState'
 import { RangeSelector } from '@/components/common/RangeSelector'
 import { BranchSelector } from '@/components/common/BranchSelector'
 import { SavedFiltersMenu } from '@/components/common/SavedFiltersMenu'
-import { useRangeSearchParams } from '@/lib/filters-store'
+import { useFiltersStore, useRangeSearchParams } from '@/lib/filters-store'
+import { getPercentChange, getPreviousPeriodParams } from '@/lib/compare-period'
 import { useSummary } from '@/hooks/useSummary'
 import { useTimeseries } from '@/hooks/useTimeseries'
 import { useTopBlocked } from '@/hooks/useTopDomains'
@@ -21,6 +22,7 @@ import { useTranslation } from '@/i18n'
 export default function DashboardPage() {
   const { t } = useTranslation()
   const rangeParams = useRangeSearchParams()
+  const branch = useFiltersStore((state) => state.branch)
   const { connectionState } = useLiveEvents()
   const live = connectionState === 'open'
 
@@ -30,6 +32,13 @@ export default function DashboardPage() {
 
   const summary = summaryQuery.data
   const isEmptyRange = summaryQuery.isSuccess && summary?.total_requests === 0
+
+  // Reuses the *resolved* since/until the backend already computed for the
+  // current period (rather than re-deriving "what does '24h' mean" here) so
+  // the previous window is always an exact, equal-duration predecessor.
+  const previousPeriodParams = summary ? getPreviousPeriodParams(summary.since, summary.until, branch) : null
+  const previousSummaryQuery = useSummary(previousPeriodParams ?? {}, false, previousPeriodParams !== null)
+  const previousSummary = previousSummaryQuery.data
 
   return (
     <div className="flex flex-col gap-4">
@@ -54,6 +63,7 @@ export default function DashboardPage() {
           tone="info"
           loading={summaryQuery.isLoading}
           updating={summaryQuery.isFetching && !summaryQuery.isLoading}
+          deltaPercent={getPercentChange(summary?.total_requests ?? 0, previousSummary?.total_requests)}
         />
         <SummaryCard
           label={t('dashboard.blocked')}
@@ -62,6 +72,7 @@ export default function DashboardPage() {
           tone="warning"
           loading={summaryQuery.isLoading}
           updating={summaryQuery.isFetching && !summaryQuery.isLoading}
+          deltaPercent={getPercentChange(summary?.blocked_requests ?? 0, previousSummary?.blocked_requests)}
         />
         <SummaryCard
           label={t('dashboard.allowed')}
@@ -70,6 +81,7 @@ export default function DashboardPage() {
           tone="success"
           loading={summaryQuery.isLoading}
           updating={summaryQuery.isFetching && !summaryQuery.isLoading}
+          deltaPercent={getPercentChange(summary?.allowed_requests ?? 0, previousSummary?.allowed_requests)}
         />
         <SummaryCard
           label={t('dashboard.activeClients')}
@@ -78,6 +90,7 @@ export default function DashboardPage() {
           tone="purple"
           loading={summaryQuery.isLoading}
           updating={summaryQuery.isFetching && !summaryQuery.isLoading}
+          deltaPercent={getPercentChange(summary?.active_client_count ?? 0, previousSummary?.active_client_count)}
         />
       </div>
 

@@ -58,6 +58,33 @@ async def test_purge_deletes_raw_events_past_raw_retention_window(
     assert remaining[0].client_ip == "10.0.0.1"
 
 
+async def test_purge_deletes_raw_events_across_multiple_batches(db_session: AsyncSession, monkeypatch):
+    # Regression coverage for batching raw_events' delete: a single
+    # unbatched DELETE across a whole cutoff window used to hold locks
+    # against the aggregator's writes for however long a multi-million-row
+    # delete took. Forcing a tiny batch size here (instead of the real
+    # 5000-row default) makes the same multi-batch code path exercise with
+    # only a handful of rows, while still proving every batch iteration
+    # actually ran and the reported total is the sum across all of them, not
+    # just the first batch.
+    import app.services.retention as retention_module
+
+    monkeypatch.setattr(retention_module, "AsyncSessionLocal", lambda: db_session)
+    monkeypatch.setattr(retention_module, "_RAW_EVENTS_DELETE_BATCH_SIZE", 3)
+
+    settings = get_settings()
+    now = datetime.now(UTC)
+    old_ts = now - timedelta(days=settings.RETENTION_DAYS_RAW_EVENTS + 1)
+    db_session.add_all([_raw_event(old_ts, client_ip=f"10.0.0.{i}") for i in range(10)])
+    await db_session.commit()
+
+    job = RetentionJob()
+    await job.purge()
+
+    remaining = (await db_session.execute(select(RawEvent))).scalars().all()
+    assert remaining == []
+
+
 async def test_purge_keeps_raw_events_within_retention_window(db_session: AsyncSession, monkeypatch):
     import app.services.retention as retention_module
 

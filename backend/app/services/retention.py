@@ -31,6 +31,22 @@ from app.services.report_service import send_unarchived_purge_warning
 
 logger = logging.getLogger(__name__)
 
+# raw_events is the one table here that can hold millions of rows at real
+# traffic volumes (1-3M requests/day per the product brief, RETENTION_DAYS_
+# RAW_EVENTS default 7 days). Deleting a whole day's worth of aged-out rows
+# in a single DELETE/transaction -- as every other table here safely does,
+# since they're orders of magnitude smaller -- would hold row/page locks and
+# generate a large burst of WAL for however long that delete takes to run,
+# contending with the aggregator's own writes to the very same table for the
+# whole purge. Deleting in small batches, each its own committed
+# transaction, bounds how long any single lock is held and lets the
+# aggregator's writes interleave between batches instead of queuing behind
+# one multi-million-row delete. Same "big single-transaction op against a
+# huge table" family of problem as the raw_events index migrations (see
+# their own docstrings) -- there it was building indexes with CONCURRENTLY,
+# here it's the same table's ongoing purge, so it needs the same treatment.
+_RAW_EVENTS_DELETE_BATCH_SIZE = 5000
+
 
 class RetentionJob:
     def __init__(self, interval_seconds: int = 3600) -> None:
@@ -87,8 +103,19 @@ class RetentionJob:
             # (retention has to stay bounded regardless of whether anyone's
             # archiving), this only decides whether to warn about it.
             unarchived_branches = await self._find_unarchived_branches(session, settings, raw_cutoff)
+            await session.commit()
 
-            raw_result = await session.execute(delete(RawEvent).where(RawEvent.timestamp < raw_cutoff))
+        # Its own batched, multi-transaction pass -- see
+        # _RAW_EVENTS_DELETE_BATCH_SIZE's docstring above. Safe to run
+        # outside the transaction below: retention is idempotent (re-running
+        # against the same cutoff only ever deletes whatever's still left
+        # older than it), so splitting this from the smaller tables' delete
+        # below doesn't weaken the "purge eventually catches up" guarantee,
+        # it just means a crash between the two leaves a bit more raw_events
+        # data than aggregates for one extra cycle, not any inconsistency.
+        raw_deleted = await self._delete_raw_events_before(raw_cutoff)
+
+        async with AsyncSessionLocal() as session:
             await session.execute(
                 delete(MinuteAggregate).where(MinuteAggregate.bucket_ts < aggregate_cutoff)
             )
@@ -123,7 +150,7 @@ class RetentionJob:
 
         logger.info(
             "Retention purge complete",
-            extra={"raw_events_deleted": raw_result.rowcount, "raw_cutoff": raw_cutoff.isoformat()},
+            extra={"raw_events_deleted": raw_deleted, "raw_cutoff": raw_cutoff.isoformat()},
         )
 
         self.unarchived_branches = unarchived_branches
@@ -141,6 +168,27 @@ class RetentionJob:
                 await send_unarchived_purge_warning(unarchived_branches, raw_cutoff)
             except Exception:
                 logger.exception("Failed to send unarchived-purge warning email")
+
+    async def _delete_raw_events_before(self, cutoff: datetime) -> int:
+        """Deletes every raw_events row older than `cutoff`, in bounded
+        batches each committed as its own transaction -- see
+        _RAW_EVENTS_DELETE_BATCH_SIZE above for why. `id IN (subquery)`
+        rather than a plain `DELETE ... LIMIT`: the latter isn't portable
+        (SQLite rejects it by default; only Postgres supports it at all),
+        while a LIMIT inside the id subquery works identically on both, and
+        still lets the delete itself go straight to primary-key rows."""
+        total_deleted = 0
+        while True:
+            async with AsyncSessionLocal() as session:
+                batch_ids = select(RawEvent.id).where(RawEvent.timestamp < cutoff).limit(
+                    _RAW_EVENTS_DELETE_BATCH_SIZE
+                )
+                result = await session.execute(delete(RawEvent).where(RawEvent.id.in_(batch_ids)))
+                await session.commit()
+                deleted = result.rowcount
+            total_deleted += deleted
+            if deleted < _RAW_EVENTS_DELETE_BATCH_SIZE:
+                return total_deleted
 
     async def _find_unarchived_branches(
         self, session: AsyncSession, settings: Settings, raw_cutoff: datetime

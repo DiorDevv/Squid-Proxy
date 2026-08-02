@@ -76,8 +76,21 @@ test.describe.serial('authenticated', () => {
     await page.close()
   })
 
+  // Scoped to the sidebar's own "Primary" nav landmark (see
+  // components/layout/Sidebar.tsx), not a bare page-wide getByRole('link')
+  // -- against a live backend with real blocked traffic, the sidebar's
+  // Blocked link gets a live-count badge whose own aria-label ("N recent
+  // blocked events") folds into the *link's* accessible name too (correct,
+  // desirable ARIA behavior: a screen reader hears "Blocked, 4 recent
+  // blocked events"), which then substring-collides with the Dashboard's
+  // separate "Blocked page" quick-link card and makes an unscoped locator
+  // ambiguous ("strict mode violation: resolved to 2 elements"). This only
+  // ever showed up against live data (blockedCount > 0), which a
+  // no-real-traffic dev/demo run never exercises -- the sidebar scope makes
+  // the test both a stable selector and independent of whether any events
+  // happen to be blocked yet.
   test('Blocked page renders its filters and reaches a loaded state', async () => {
-    await page.getByRole('link', { name: 'Blocked' }).click()
+    await page.getByRole('navigation', { name: 'Primary' }).getByRole('link', { name: 'Blocked' }).click()
 
     await expect(page.getByRole('heading', { name: 'Blocked events', level: 1 })).toBeVisible()
     // Range selector (1h/24h/7d/Custom) is the new date-range control this
@@ -87,7 +100,7 @@ test.describe.serial('authenticated', () => {
   })
 
   test('Clients page renders its table and reaches a loaded state', async () => {
-    await page.getByRole('link', { name: 'Clients' }).click()
+    await page.getByRole('navigation', { name: 'Primary' }).getByRole('link', { name: 'Clients' }).click()
 
     await expect(page.getByRole('heading', { name: 'Clients', level: 1 })).toBeVisible()
     await expectPageLoadedWithoutError(page)

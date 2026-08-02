@@ -205,7 +205,24 @@ class LogTailer:
         worker thread via asyncio.to_thread -- must stay free of anything
         asyncio-bound. Returns (was_missing, parsed_events)."""
         if self._fh is None:
-            self._open_initial()
+            try:
+                self._open_initial()
+            except FileNotFoundError:
+                # The file not existing yet on this tailer's very first poll
+                # (e.g. a branch configured in LOG_SOURCES before its
+                # access.log is actually mounted -- an expected step in the
+                # phased multi-branch rollout the README documents) used to
+                # propagate out of this method entirely, since only the
+                # os.stat() below was guarded. poll_once()'s caller then
+                # caught it as a generic Exception and logged a full
+                # ERROR-level traceback ("Unexpected error while tailing log
+                # file") on every single retry, forever, instead of the
+                # graceful "Log file unavailable, retrying with backoff"
+                # WARNING _run_forever already emits for this exact
+                # situation -- functionally harmless (retry/backoff still
+                # ran correctly) but noisy enough to false-positive an
+                # ERROR-level log alert for a routine, expected condition.
+                return True, []
 
         try:
             st = os.stat(self.path)

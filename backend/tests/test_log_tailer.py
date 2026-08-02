@@ -50,6 +50,32 @@ async def test_missing_file_reports_unavailable_and_does_not_raise(tmp_path):
     assert events == []
 
 
+async def test_missing_file_on_first_poll_does_not_log_an_error(tmp_path, caplog):
+    # Regression test: a file that's missing on this tailer's very first
+    # poll (self._fh is None) used to raise FileNotFoundError out of
+    # _open_initial(), which had no handler of its own -- it was only ever
+    # caught by poll_once()'s broad `except Exception`, which logs a full
+    # ERROR-level traceback ("Unexpected error while tailing log file") on
+    # every single retry, forever, instead of being treated the same as the
+    # os.stat()-detected "missing" case a few lines below (which correctly
+    # stays silent here and lets _run_forever's own WARNING-level backoff
+    # message describe it). This matters because a branch's log file
+    # legitimately not existing yet during a phased multi-branch rollout
+    # (see README) is an expected, routine condition -- it shouldn't trip
+    # an ERROR-level log alert.
+    import logging
+
+    missing_path = tmp_path / "not-yet-mounted.log"
+    tailer, _events = make_tailer(missing_path)
+
+    with caplog.at_level(logging.DEBUG, logger="app.services.log_tailer"):
+        was_missing = await tailer.poll_once()
+
+    assert was_missing is True
+    assert not any(record.levelno >= logging.ERROR for record in caplog.records)
+    assert not any(record.exc_info for record in caplog.records)
+
+
 async def test_malformed_line_is_skipped_without_crashing(tmp_path):
     log_path = tmp_path / "access.log"
     log_path.write_text("")

@@ -25,7 +25,18 @@ class Base(DeclarativeBase):
 
 _settings = get_settings()
 
-engine = create_async_engine(_settings.DATABASE_URL, echo=False, future=True)
+engine = create_async_engine(
+    _settings.DATABASE_URL,
+    echo=False,
+    future=True,
+    # A pooled connection that's gone stale (Postgres restarted, a
+    # NAT/load-balancer idle-timeout silently dropped it) would otherwise
+    # surface as a request-killing error on whichever caller happens to
+    # check it out next -- pre_ping runs a cheap liveness check before
+    # handing a pooled connection back out and transparently reconnects if
+    # it's dead, instead of letting a stale connection fail a real request.
+    pool_pre_ping=True,
+)
 
 if _settings.DATABASE_URL.startswith("sqlite"):
 

@@ -123,10 +123,18 @@ export default function SettingsPage() {
     }
     if (!job.data) return
     if (job.data.status === 'done') {
-      downloadExportJob(jobId)
+      const downloadingJobId = jobId
+      downloadExportJob(downloadingJobId)
         .then(() => toast.success(t('settings.exportSuccessToast')))
         .catch((err) => toast.error(err instanceof ApiError ? err.message : t('settings.exportErrorToast')))
-        .finally(() => setJobId(null))
+        .finally(() =>
+          // Only clear the tracker if it's still pointing at *this*
+          // download -- if the admin already started a second export while
+          // this one's blob fetch was still in flight, jobId has moved on
+          // to the new job's id, and clobbering it here would silently
+          // stop the UI from tracking/auto-downloading that second export.
+          setJobId((current) => (current === downloadingJobId ? null : current)),
+        )
     } else if (job.data.status === 'failed') {
       toast.error(job.data.error_message || t('settings.exportErrorToast'))
     } else if (job.data.status === 'cancelled') {

@@ -112,3 +112,34 @@ def test_malformed_url_authority_does_not_raise():
     assert event is not None
     assert event.domain is None
     assert event.client_ip == "10.0.0.5"
+
+
+def test_oversized_domain_is_truncated_to_column_length():
+    # A client-requested URL with a hostname longer than RawEvent.domain's
+    # String(255) column used to reach the aggregator's bulk INSERT
+    # untouched; on Postgres that raises a VARCHAR-length violation that
+    # rolls back the whole flush transaction, and since _last_flushed_id
+    # only advances on a successful commit, the poisoned event gets retried
+    # and fails identically forever, wedging aggregation instance-wide.
+    long_host = "a" * 300 + ".example.com"
+    line = f"1737100800.123 45 10.0.0.5 TCP_MISS/200 1024 GET http://{long_host}/ alice HIER_DIRECT/93.184.216.34 text/html"
+    event = parse_line(line)
+
+    assert event is not None
+    assert event.domain is not None
+    assert len(event.domain) == 255
+    assert event.domain == long_host[:255]
+
+
+def test_oversized_content_type_and_user_are_truncated_to_column_length():
+    long_user = "u" * 300
+    long_content_type = "text/plain; charset=" + "x" * 300
+    line = (
+        f"1737100800.123 45 10.0.0.5 TCP_MISS/200 1024 GET http://example.com/ "
+        f"{long_user} HIER_DIRECT/93.184.216.34 {long_content_type}"
+    )
+    event = parse_line(line)
+
+    assert event is not None
+    assert event.user is not None and len(event.user) == 255
+    assert event.content_type is not None and len(event.content_type) == 128

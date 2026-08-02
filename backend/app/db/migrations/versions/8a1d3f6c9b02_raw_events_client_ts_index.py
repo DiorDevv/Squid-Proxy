@@ -28,10 +28,21 @@ _NEW_INDEX = "ix_raw_events_client_ts"
 
 
 def upgrade() -> None:
-    op.drop_index(_OLD_INDEX, table_name="raw_events")
-    op.create_index(_NEW_INDEX, "raw_events", ["client_ip", "timestamp"])
+    # CONCURRENTLY + its own autocommit block: on the 3.2M-row table this
+    # was measured against, a plain CREATE/DROP INDEX takes a lock that
+    # blocks the aggregator's writes for the whole build, which
+    # `alembic upgrade head` running automatically before every app start
+    # (see ARCHITECTURE.md) would otherwise turn into a live-deploy stall.
+    with op.get_context().autocommit_block():
+        op.drop_index(_OLD_INDEX, table_name="raw_events", postgresql_concurrently=True)
+        op.create_index(
+            _NEW_INDEX, "raw_events", ["client_ip", "timestamp"], postgresql_concurrently=True
+        )
 
 
 def downgrade() -> None:
-    op.drop_index(_NEW_INDEX, table_name="raw_events")
-    op.create_index(_OLD_INDEX, "raw_events", ["timestamp", "client_ip"])
+    with op.get_context().autocommit_block():
+        op.drop_index(_NEW_INDEX, table_name="raw_events", postgresql_concurrently=True)
+        op.create_index(
+            _OLD_INDEX, "raw_events", ["timestamp", "client_ip"], postgresql_concurrently=True
+        )

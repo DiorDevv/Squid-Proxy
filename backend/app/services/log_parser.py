@@ -27,6 +27,32 @@ EXPECTED_FIELD_COUNT = 10
 # Squid marks "no value" fields with a literal dash.
 _EMPTY = "-"
 
+# Mirror RawEvent's column lengths (app/models/raw_event.py) so a field that
+# doesn't fit is truncated here, at parse time, rather than reaching the
+# INSERT and raising a VARCHAR-length violation. On Postgres that violation
+# rolls back the whole aggregator flush transaction; since _last_flushed_id
+# only advances after a successful commit (by design, to avoid data loss),
+# an untruncated oversized field -- e.g. a client-requested URL with a long
+# hostname, or a long Content-Type from an origin server -- would otherwise
+# make every flush attempt reprocess and fail on the same event forever,
+# wedging aggregation for the whole instance. SQLite doesn't enforce VARCHAR
+# length, so this was invisible in dev/demo and only bit the Postgres path.
+_MAX_ACTION_LEN = 64
+_MAX_METHOD_LEN = 16
+_MAX_DOMAIN_LEN = 255
+_MAX_USER_LEN = 255
+_MAX_HIERARCHY_LEN = 64
+_MAX_PEER_LEN = 64
+_MAX_CONTENT_TYPE_LEN = 128
+
+
+def _truncate(value: str, max_len: int) -> str:
+    return value if len(value) <= max_len else value[:max_len]
+
+
+def _truncate_opt(value: str | None, max_len: int) -> str | None:
+    return None if value is None else _truncate(value, max_len)
+
 _DENIED_PREFIXES = ("TCP_DENIED", "TCP_DENIED_REPLY")
 
 
@@ -191,16 +217,16 @@ def parse_line(line: str, branch: str = DEFAULT_BRANCH) -> ParsedEvent | None:
         timestamp=timestamp,
         duration_ms=duration_ms,
         client_ip=client_ip,
-        action=action,
+        action=_truncate(action, _MAX_ACTION_LEN),
         status_code=status_code,
         bytes=num_bytes,
-        method=method,
+        method=_truncate(method, _MAX_METHOD_LEN),
         url=url,
-        domain=domain,
-        user=user,
-        hierarchy=hierarchy,
-        peer=peer,
-        content_type=content_type,
+        domain=_truncate_opt(domain, _MAX_DOMAIN_LEN),
+        user=_truncate_opt(user, _MAX_USER_LEN),
+        hierarchy=_truncate_opt(hierarchy, _MAX_HIERARCHY_LEN),
+        peer=_truncate_opt(peer, _MAX_PEER_LEN),
+        content_type=_truncate_opt(content_type, _MAX_CONTENT_TYPE_LEN),
         blocked=blocked,
         branch=branch,
     )

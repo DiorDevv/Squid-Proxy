@@ -26,8 +26,17 @@ _INDEX = "ix_raw_events_ts_blocked"
 
 
 def upgrade() -> None:
-    op.create_index(_INDEX, "raw_events", ["timestamp", "blocked"])
+    # CONCURRENTLY + its own autocommit block: on the multi-million-row
+    # scale raw_events reaches in production, a plain CREATE INDEX takes a
+    # lock that blocks the aggregator's writes for the whole build, which
+    # `alembic upgrade head` running automatically before every app start
+    # (see ARCHITECTURE.md) would otherwise turn into a live-deploy stall.
+    with op.get_context().autocommit_block():
+        op.create_index(
+            _INDEX, "raw_events", ["timestamp", "blocked"], postgresql_concurrently=True
+        )
 
 
 def downgrade() -> None:
-    op.drop_index(_INDEX, table_name="raw_events")
+    with op.get_context().autocommit_block():
+        op.drop_index(_INDEX, table_name="raw_events", postgresql_concurrently=True)

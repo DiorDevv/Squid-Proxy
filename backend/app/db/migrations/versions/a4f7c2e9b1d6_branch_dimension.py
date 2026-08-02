@@ -34,9 +34,21 @@ def _branch_column() -> sa.Column:
 def upgrade() -> None:
     # raw_events: plain column + a (branch, timestamp) index for per-branch
     # event/export queries; no uniqueness concern here (raw_events is a
-    # plain append, never upserted).
+    # plain append, never upserted). Built CONCURRENTLY, in its own
+    # autocommit block: raw_events is the one table here that can be in the
+    # millions of rows (see the 8a1d3f6c9b02/2b9c6a3ff517 migrations' own
+    # docstrings for the measured scale), so a plain CREATE INDEX would hold
+    # an exclusive lock against the aggregator's writes for the whole build.
+    # The other tables touched below are the much smaller per-minute/hourly
+    # aggregates, where that risk doesn't apply.
     op.add_column('raw_events', _branch_column())
-    op.create_index('ix_raw_events_branch_ts', 'raw_events', ['branch', 'timestamp'])
+    with op.get_context().autocommit_block():
+        op.create_index(
+            'ix_raw_events_branch_ts',
+            'raw_events',
+            ['branch', 'timestamp'],
+            postgresql_concurrently=True,
+        )
 
     # minute_aggregates: bucket_ts alone used to be the whole unique key (one
     # global total per minute); now (bucket_ts, branch), since each branch
@@ -150,5 +162,8 @@ def downgrade() -> None:
     )
     op.drop_column('minute_aggregates', 'branch')
 
-    op.drop_index('ix_raw_events_branch_ts', table_name='raw_events')
+    with op.get_context().autocommit_block():
+        op.drop_index(
+            'ix_raw_events_branch_ts', table_name='raw_events', postgresql_concurrently=True
+        )
     op.drop_column('raw_events', 'branch')

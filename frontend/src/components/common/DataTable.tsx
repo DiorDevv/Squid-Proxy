@@ -1,3 +1,4 @@
+import { useEffect } from 'react'
 import {
   flexRender,
   getCoreRowModel,
@@ -57,7 +58,19 @@ export function DataTable<T>({
   const page = Math.floor(offset / limit) + 1
   const totalPages = Math.max(1, Math.ceil(total / limit))
 
-  if (!isLoading && data.length === 0) {
+  // If the page we're parked on comes back empty while offset > 0, the
+  // underlying result set shrank out from under us (e.g. a rolling relative
+  // range ageing old rows out between WS-driven refetches) rather than the
+  // user having changed any filter -- step back to the last page that
+  // actually has rows instead of showing a dead-end "no data" empty state
+  // with no pager to get back.
+  useEffect(() => {
+    if (isLoading || data.length > 0 || offset === 0) return
+    const lastValidOffset = total > 0 ? Math.max(0, (Math.ceil(total / limit) - 1) * limit) : 0
+    if (lastValidOffset !== offset) onOffsetChange(lastValidOffset)
+  }, [isLoading, data.length, offset, total, limit, onOffsetChange])
+
+  if (!isLoading && data.length === 0 && offset === 0) {
     return <EmptyState message={emptyMessage} />
   }
 

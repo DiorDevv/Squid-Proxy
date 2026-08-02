@@ -15,6 +15,8 @@ export function RangeSelector() {
   const { t } = useTranslation()
   const range = useFiltersStore((state) => state.range)
   const mode = useFiltersStore((state) => state.mode)
+  const customFrom = useFiltersStore((state) => state.customFrom)
+  const customTo = useFiltersStore((state) => state.customTo)
   const setRange = useFiltersStore((state) => state.setRange)
   const setCustomRange = useFiltersStore((state) => state.setCustomRange)
 
@@ -96,7 +98,25 @@ export function RangeSelector() {
         open={open}
         onOpenChange={(next) => {
           setOpen(next)
-          if (next) setError(null)
+          if (next) {
+            setError(null)
+            // Reload the draft from the currently active custom range (if
+            // any) every time the popover opens -- otherwise these fields
+            // kept showing whatever default they had on first mount, so
+            // reopening to tweak an already-applied custom range silently
+            // offered to replace it with that stale default instead of the
+            // range actually in effect.
+            setDraftFrom(
+              mode === 'custom' && customFrom
+                ? toDatetimeLocalValue(new Date(customFrom))
+                : toDatetimeLocalValue(new Date(Date.now() - 24 * 60 * 60 * 1000)),
+            )
+            setDraftTo(
+              mode === 'custom' && customTo
+                ? toDatetimeLocalValue(new Date(customTo))
+                : toDatetimeLocalValue(new Date()),
+            )
+          }
         }}
       >
         <PopoverTrigger asChild>

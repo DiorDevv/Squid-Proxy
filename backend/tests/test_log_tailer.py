@@ -240,6 +240,41 @@ async def test_resumes_from_persisted_position_after_restart(tmp_path):
     assert [e.domain for e in second_events] == ["written-while-down.com"]
 
 
+async def test_restart_mid_line_recovers_the_full_line_via_persisted_partial(tmp_path):
+    """If the process restarts exactly while Squid had only flushed part of
+    a line, the tailer must not lose that record: on restart it needs the
+    in-flight partial text it had already buffered, not just the byte
+    offset -- offset alone would resume reading right after those
+    already-consumed bytes and see only the line's tail as if it were a
+    fresh, malformed line, silently dropping the record instead of ever
+    reassembling it once Squid finishes the write."""
+    log_path = tmp_path / "access.log"
+    state_dir = tmp_path / "state"
+    log_path.write_text("")
+
+    first_tailer, first_events = make_tailer(log_path, state_dir=state_dir)
+    await first_tailer.poll_once()  # opens at EOF of empty file
+
+    full_line = squid_line("mid-write.com")
+    split_point = full_line.index("TCP_MISS") + 4  # partway through a field
+    with log_path.open("a") as f:
+        f.write(full_line[:split_point])  # no trailing "\n" -- an in-flight write
+    await first_tailer.poll_once()
+    assert first_events == []  # nothing complete yet, but the partial bytes are consumed
+
+    # "Restart": a brand-new LogTailer takes over with only the persisted
+    # state, then Squid finishes writing the rest of the same line.
+    with log_path.open("a") as f:
+        f.write(full_line[split_point:])
+
+    second_tailer, second_events = make_tailer(log_path, state_dir=state_dir)
+    was_missing = await second_tailer.poll_once()
+
+    assert was_missing is False
+    assert len(second_events) == 1
+    assert second_events[0].domain == "mid-write.com"
+
+
 async def test_rotation_while_down_starts_new_file_from_beginning(tmp_path):
     """If the file was rotated (logrotate 'create' mode) while the process
     was down, the persisted inode no longer matches -- the old file's

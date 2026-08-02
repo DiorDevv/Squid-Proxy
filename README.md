@@ -348,12 +348,17 @@ cd backend
 Either way, each run streams in batches rather than holding rows in memory, so there's no row
 limit — a week of raw events at real traffic volumes is routinely millions of rows.
 
-`GET /api/export` (also the **Export** button on **Settings**) streams the same way and is equally
-uncapped — pick `range=7d` there for an ad-hoc download of the full week straight from the browser,
-no server access needed. The difference is what each is *for*: the browser download is a plain,
-uncompressed CSV/JSON, fine for an occasional manual pull but sized (and timed) proportionally to
-however many rows are in range — at millions of rows that's several hundred MB and several
-minutes. Archiving is the one built for unattended, ongoing retention, since it also
+`GET /api/export` streams the same way and is equally uncapped — pick `range=7d` there for an
+ad-hoc download of the full week straight from the browser, no server access needed. The **Export**
+button on **Settings** covers the same ad-hoc use case but goes through `POST /api/export/jobs`
+instead (a background job, polled via `GET /api/export/jobs/{id}` and downloaded once `DONE`) rather
+than calling `GET /api/export` directly — the UI trades a held-open connection for a progress-visible
+job it can also share a time-limited download link for (`POST /api/export/jobs/{id}/share`), without
+giving up the row limit either way. The difference from archiving below is what each is *for*: an
+ad-hoc pull (either endpoint) is fine for an occasional manual download, but its output isn't
+gzip-compressed and isn't pruned automatically the way an archive is (background-job results do get
+cleaned up per **Settings → Export cleanup settings**, but that's retention housekeeping, not
+long-term storage). Archiving is the one built for unattended, ongoing retention, since it also
 gzip-compresses (roughly 15x smaller) and prunes its own old files.
 
 **If archiving ever stops running** (disabled, disk full, etc.), you're not left finding out the

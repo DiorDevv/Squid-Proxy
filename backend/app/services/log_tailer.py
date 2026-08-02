@@ -19,12 +19,18 @@ push. Only `on_event` (which may schedule asyncio tasks -- see
 WebSocketManager.broadcast_nowait) is dispatched back on the event-loop
 thread, since asyncio primitives aren't safe to touch from a worker thread.
 
-Read position (inode + byte offset) is persisted to `state_dir` (if set)
-after every poll, so a routine restart (deploy, crash, systemd
-Restart=on-failure) resumes exactly where it left off instead of silently
-skipping whatever was written while the process was down -- previously
-every fresh LogTailer always opened at the file's current end, regardless
-of whether this was truly the first run or just a restart.
+Read position (inode + byte offset), plus any not-yet-terminated trailing
+line already read into memory, is persisted to `state_dir` (if set) after
+every poll, so a routine restart (deploy, crash, systemd Restart=on-failure)
+resumes exactly where it left off instead of silently skipping whatever was
+written while the process was down -- previously every fresh LogTailer
+always opened at the file's current end, regardless of whether this was
+truly the first run or just a restart. The in-flight partial line is
+persisted too, not just the byte offset: without it, a restart landing
+exactly while Squid had flushed only part of a line would still resume
+reading *after* those already-consumed bytes (the file position moved past
+them the moment they were read), silently losing that one record instead of
+ever reassembling it once Squid finishes writing the rest.
 """
 
 import asyncio
@@ -67,12 +73,12 @@ def _load_persisted_state(state_dir: str, branch: str) -> dict | None:
     return None
 
 
-def _save_persisted_state(state_dir: str, branch: str, inode: int, offset: int) -> None:
+def _save_persisted_state(state_dir: str, branch: str, inode: int, offset: int, partial: str) -> None:
     Path(state_dir).mkdir(parents=True, exist_ok=True)
     path = _state_file_path(state_dir, branch)
     tmp_path = path.with_suffix(".json.tmp")
     with open(tmp_path, "w", encoding="utf-8") as f:
-        json.dump({"inode": inode, "offset": offset}, f)
+        json.dump({"inode": inode, "offset": offset, "partial": partial}, f)
     os.replace(tmp_path, path)  # atomic on POSIX -- never leaves a half-written state file
 
 
@@ -261,14 +267,21 @@ class LogTailer:
 
         if state is not None and state["inode"] == inode:
             fh.seek(state["offset"])
+            # Resume the exact in-flight partial line too, not just the byte
+            # offset -- see the module docstring for why skipping this would
+            # silently drop the one record that was mid-write at the moment
+            # of the restart.
+            partial = state.get("partial", "")
+            self._partial = partial if isinstance(partial, str) else ""
         elif state is not None:
             fh.seek(0)
+            self._partial = ""
         else:
             fh.seek(0, os.SEEK_END)
+            self._partial = ""
 
         self._fh = fh
         self._inode = inode
-        self._partial = ""
 
     def _open_at_start(self) -> None:
         fh = open(self.path, encoding="utf-8", errors="replace", newline="")  # noqa: SIM115
@@ -350,7 +363,9 @@ class LogTailer:
         if self.state_dir is None or self._fh is None or self._inode is None:
             return
         try:
-            _save_persisted_state(self.state_dir, self.branch, self._inode, self._fh.tell())
+            _save_persisted_state(
+                self.state_dir, self.branch, self._inode, self._fh.tell(), self._partial
+            )
         except OSError:
             logger.warning("Failed to persist log tailer position", extra={"path": self.path})
 

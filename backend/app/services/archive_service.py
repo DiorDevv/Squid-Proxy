@@ -96,20 +96,20 @@ async def archive(output_dir: Path, keep_days: int) -> None:
             # as log_tailer.py's state-file persistence).
             tmp_path = path.with_name(path.name + ".tmp")
 
-            # stream_csv's first chunk is exactly the header row; every
-            # chunk after that is one full batch of already-terminated CSV
-            # rows, so counting those (and skipping the header chunk) gives
-            # an exact row count for the log line below without re-deriving
-            # anything about the query itself.
-            row_count = 0
-            is_header_chunk = True
+            # row_counter is incremented by stream_csv itself, once per
+            # actual row written -- counting "\r\n" occurrences in the
+            # output text instead (as this used to) overcounts whenever a
+            # field's raw value contains a literal "\r\n" byte pair (Squid
+            # can log raw control bytes verbatim from a malformed request
+            # URL, see log_tailer.py's docstring), since csv.writer quotes
+            # such a field rather than stripping it.
+            row_counter: list[int] = [0]
             with gzip.open(tmp_path, "wt", encoding="utf-8", newline="") as f:
-                async for chunk in stream_csv(session, since, now, blocked_only=False, branch=source.branch):
+                async for chunk in stream_csv(
+                    session, since, now, blocked_only=False, branch=source.branch, row_counter=row_counter
+                ):
                     f.write(chunk)
-                    if is_header_chunk:
-                        is_header_chunk = False
-                    else:
-                        row_count += chunk.count("\r\n")
+            row_count = row_counter[0]
             os.replace(tmp_path, path)  # atomic on POSIX
 
             logger.info(

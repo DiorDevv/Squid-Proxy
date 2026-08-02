@@ -91,6 +91,19 @@ def _validate_client_ip(raw: str, line: str) -> str | None:
         return None
 
 
+def _looks_like_valid_prefix(tokens: list[str]) -> bool:
+    """Sanity-checks the two fields Squid always logs in a rigid "TAG/value"
+    shape (%Ss/%03>Hs action/status, %Sh/%<A hierarchy/peer) -- used only to
+    decide whether an unexpected token count is safe to reinterpret as a
+    content-type value containing whitespace, rather than actual corruption
+    in an earlier field that happens to whitespace-split the same way (see
+    parse_line). Not a general field validator: this project's ordinary
+    tolerance for a missing "/" in these fields (see below) still applies
+    once a line passes this gate and reaches the real per-field parsing."""
+    action_status, hierarchy_from = tokens[3], tokens[8]
+    return "/" in action_status and ("/" in hierarchy_from or hierarchy_from == _EMPTY)
+
+
 def parse_line(line: str, branch: str = DEFAULT_BRANCH) -> ParsedEvent | None:
     """Parse a single Squid access.log line. Never raises; returns None on failure."""
     stripped = line.strip()
@@ -99,13 +112,31 @@ def parse_line(line: str, branch: str = DEFAULT_BRANCH) -> ParsedEvent | None:
 
     tokens = stripped.split()
     if len(tokens) != EXPECTED_FIELD_COUNT:
-        logger.warning(
-            "Log line has %d fields, expected %d, skipping",
-            len(tokens),
-            EXPECTED_FIELD_COUNT,
-            extra={"line": stripped},
-        )
-        return None
+        # Not the expected shape under a plain split. The most common real
+        # cause is a content-type value with an embedded space (e.g. "text/
+        # html; charset=UTF-8", which real servers do send) -- but that's
+        # indistinguishable at the token-count level alone from actual
+        # corruption earlier in the line (e.g. a raw control byte in a
+        # malformed URL, which whitespace-splits the exact same way). Retry
+        # with the split capped so only the last field can absorb extra
+        # whitespace, then require the two fields with a rigid,
+        # Squid-guaranteed "TAG/value" shape (action/status, hierarchy/peer)
+        # to still look intact under that reading -- if either doesn't, the
+        # excess token(s) came from corruption earlier in the line shifting
+        # everything after it, not a multi-word content type, and this line
+        # is rejected exactly as it always was rather than silently turned
+        # into a garbled event with the wrong fields in the wrong places.
+        lenient_tokens = stripped.split(maxsplit=EXPECTED_FIELD_COUNT - 1)
+        if len(lenient_tokens) == EXPECTED_FIELD_COUNT and _looks_like_valid_prefix(lenient_tokens):
+            tokens = lenient_tokens
+        else:
+            logger.warning(
+                "Log line has %d fields, expected %d, skipping",
+                len(tokens),
+                EXPECTED_FIELD_COUNT,
+                extra={"line": stripped},
+            )
+            return None
 
     (
         raw_ts,

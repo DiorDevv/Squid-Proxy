@@ -70,6 +70,22 @@ def test_wrong_field_count_skips_line():
     assert parse_line("1737100800.123 45 10.0.0.5 TCP_MISS/200 1024 GET") is None
 
 
+def test_content_type_with_embedded_space_still_parses():
+    # Some real servers send a Content-Type with a charset parameter (e.g.
+    # "text/html; charset=UTF-8"), which Squid can log verbatim -- a naive
+    # split() would see this as an 11th field and reject the whole line even
+    # though every other field is well-formed.
+    line = (
+        "1737100800.123 45 10.0.0.5 TCP_MISS/200 1024 GET http://example.com/ "
+        "alice HIER_DIRECT/93.184.216.34 text/html; charset=UTF-8"
+    )
+    event = parse_line(line)
+
+    assert event is not None
+    assert event.content_type == "text/html; charset=UTF-8"
+    assert event.client_ip == "10.0.0.5"
+
+
 def test_blocked_action_sets_blocked_flag():
     line = "1737100800.123 5 10.0.0.9 TCP_DENIED/403 0 GET http://blocked-site.com/ dave HIER_NONE/- -"
     event = parse_line(line)

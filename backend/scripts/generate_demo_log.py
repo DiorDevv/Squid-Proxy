@@ -10,6 +10,22 @@ so it can run standalone against any target path:
 Traffic shape matches the numbers from the product brief: ~20-40 req/s on
 average, with periodic bursts to 200+/s. A small fraction of lines are
 intentionally malformed to exercise the parser's error-tolerance path live.
+
+Also doubles as a load-testing tool for capacity sizing (see "Capacity
+planning for large deployments" in README.md): --clients N generates N
+unique synthetic client_ip/user pairs instead of the 8 fixed demo clients,
+so the client-indexed queries, per-client anomaly checks, and category
+aggregation are exercised at realistic cardinality, not just raw line
+rate. A single process has a real CPU-bound throughput ceiling somewhere
+in the low thousands of lines/sec depending on hardware -- to reach a
+higher target rate (e.g. simulating a ~30,000-client deployment's peak),
+run several copies concurrently against the same --output path, each
+appends independently:
+
+    for i in 1 2 3 4; do
+        python scripts/generate_demo_log.py --rate 2000 --clients 30000 \
+            --output /path/to/access.log &
+    done
 """
 
 import argparse
@@ -70,10 +86,28 @@ def _random_peer_ip() -> str:
     return ".".join(str(o) for o in octets)
 
 
-def make_line() -> str:
+def generate_clients(n: int) -> list[tuple[str, str | None]]:
+    """n unique synthetic (client_ip, user) pairs across a private /12
+    (10.16.0.0/12, ~1M addresses) -- gives this script realistic
+    client_ip cardinality for load-testing the client-indexed raw_events
+    queries, per-client anomaly checks, and category aggregation at a
+    scale closer to a real large deployment than the 8 fixed CLIENTS
+    above. ~75% get a "user" value, matching CLIENTS' 6-named/8-total
+    ratio (the parser/aggregation both need to handle the anonymous case
+    too, not just the common one)."""
+    clients: list[tuple[str, str | None]] = []
+    for i in range(n):
+        octet2 = 16 + (i // 65536) % 16
+        octet3, octet4 = (i // 256) % 256, i % 256
+        user = f"user{i}" if random.random() < 0.75 else None
+        clients.append((f"10.{octet2}.{octet3}.{octet4}", user))
+    return clients
+
+
+def make_line(clients: list[tuple[str, str | None]] = CLIENTS) -> str:
     now = datetime.now(UTC).timestamp()
     duration_ms = random.randint(2, 800)
-    client_ip, user = random.choice(CLIENTS)
+    client_ip, user = random.choice(clients)
     method = random.choice(METHODS)
 
     is_blocked = random.random() < 0.15
@@ -125,8 +159,17 @@ def make_malformed_line() -> str:
     return random.choice(samples) + "\n"
 
 
-def run(output_path: str, avg_rate: float, malformed_rate: float, duration_seconds: float | None) -> None:
-    print(f"Writing synthetic Squid access.log lines to {output_path} at ~{avg_rate}/s")
+def run(
+    output_path: str,
+    avg_rate: float,
+    malformed_rate: float,
+    duration_seconds: float | None,
+    clients: list[tuple[str, str | None]] = CLIENTS,
+) -> None:
+    print(
+        f"Writing synthetic Squid access.log lines to {output_path} at ~{avg_rate}/s "
+        f"across {len(clients)} client(s)"
+    )
     print("Press Ctrl+C to stop.")
 
     started_at = time.monotonic()
@@ -140,8 +183,15 @@ def run(output_path: str, avg_rate: float, malformed_rate: float, duration_secon
                 burst_until = tick_start + random.uniform(2, 6)
                 print(f"[burst] traffic spike for {burst_until - tick_start:.1f}s")
 
-            current_rate = random.uniform(150, 250) if tick_start < burst_until else random.uniform(
-                avg_rate * 0.6, avg_rate * 1.4
+            # Scaled relative to avg_rate (not a hardcoded 150-250) so a
+            # "burst" is meaningfully faster than sustained traffic at any
+            # --rate, not just the ~30/s demo default -- at --rate 30 this
+            # reproduces the same 150-240 range the old hardcoded constants
+            # gave; at load-test rates (--rate 2000+) it scales up with it.
+            current_rate = (
+                random.uniform(avg_rate * 5, avg_rate * 8)
+                if tick_start < burst_until
+                else random.uniform(avg_rate * 0.6, avg_rate * 1.4)
             )
             lines_this_tick = max(1, int(current_rate / 10))  # ticks run ~10x/sec
 
@@ -149,7 +199,7 @@ def run(output_path: str, avg_rate: float, malformed_rate: float, duration_secon
                 if random.random() < malformed_rate:
                     f.write(make_malformed_line())
                 else:
-                    f.write(make_line())
+                    f.write(make_line(clients))
             f.flush()
 
             elapsed = time.monotonic() - tick_start
@@ -169,10 +219,22 @@ def main() -> None:
     parser.add_argument(
         "--duration", type=float, default=None, help="Stop after this many seconds (default: run forever)."
     )
+    parser.add_argument(
+        "--clients",
+        type=int,
+        default=None,
+        help=(
+            "Generate this many unique synthetic clients instead of the 8 fixed demo "
+            "clients (default: unchanged demo behavior). Use for load-testing at "
+            "realistic client_ip cardinality -- see this module's docstring."
+        ),
+    )
     args = parser.parse_args()
 
+    clients = generate_clients(args.clients) if args.clients else CLIENTS
+
     try:
-        run(args.output, args.rate, args.malformed_rate, args.duration)
+        run(args.output, args.rate, args.malformed_rate, args.duration, clients)
     except KeyboardInterrupt:
         print("\nStopped.")
 

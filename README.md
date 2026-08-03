@@ -27,6 +27,7 @@ See [ARCHITECTURE.md](ARCHITECTURE.md) for the reasoning behind the major design
 - [Quick start (without Docker)](#quick-start-without-docker)
 - [Tests & linting](#tests--linting)
 - [Configuration reference](#configuration-reference)
+- [Capacity planning for large deployments](#capacity-planning-for-large-deployments)
 - [Domain categorization](#domain-categorization)
 - [Category/quota alerting and scheduled reports](#categoryquota-alerting-and-scheduled-reports)
 - [Archiving raw event detail before it's purged](#archiving-raw-event-detail-before-its-purged)
@@ -265,6 +266,58 @@ Key ones to know:
 | `JWT_SECRET` | Signs access tokens — must be set to a real secret in any non-dev environment |
 | `RETENTION_DAYS_RAW_EVENTS` / `RETENTION_DAYS_AGGREGATES` | How long raw vs. aggregated data is kept |
 | `ADMIN_EMAIL` / `ADMIN_PASSWORD` | First-boot admin bootstrap (only used if the `users` table is empty) |
+| `RING_BUFFER_MAX_EVENTS` / `AGGREGATION_INTERVAL_SECONDS` | In-memory event buffer size and flush interval — see "Capacity planning" below |
+| `DATABASE_POOL_SIZE` / `DATABASE_MAX_OVERFLOW` | Postgres connection pool sizing (ignored for SQLite) — see "Capacity planning" below |
+
+## Capacity planning for large deployments
+
+The defaults above are sized for evaluating the project or a small deployment, not validated
+against a specific large client count. If you're deploying against a large population of proxied
+clients (tens of thousands of employees/devices through Squid — not concurrent dashboard logins,
+a much smaller and different kind of load), size these deliberately instead of leaving them at
+their demo-scale defaults. See "Sizing for a large client count" in `ARCHITECTURE.md` for the full
+reasoning (traffic-math derivation, ring-buffer runway table, why pool size isn't actually driven
+by client count) — summarized here:
+
+**For a ~30,000-client deployment**, set in `.env` (docker-compose picks these up automatically —
+see `.env.example`):
+```
+RING_BUFFER_MAX_EVENTS=1000000
+AGGREGATION_INTERVAL_SECONDS=30
+DATABASE_POOL_SIZE=10
+DATABASE_MAX_OVERFLOW=20
+```
+and copy the large-deployment block from `docker-compose.override.yml.example` for host resource
+limits (backend ~6GB RAM/2 CPU, Postgres ~8GB RAM/4 CPU with write-heavy-workload tuning flags).
+
+**Required host sizing at this scale** (see `ARCHITECTURE.md` for the derivation):
+
+| Resource | Approximate requirement | Why |
+|---|---|---|
+| Backend RAM | ~6GB | ~1GB for a 1M-event ring buffer + app baseline + burst-parsing margin |
+| Backend CPU | ~2 cores | Off-event-loop log parsing (`asyncio.to_thread`) + API serving |
+| Postgres RAM | ~8GB | Write-heavy bulk-upsert workload (every `AGGREGATION_INTERVAL_SECONDS`) |
+| Postgres CPU | ~4 cores | Same, plus hourly batched retention purge |
+| Disk (`raw_events`) | ~150-200GB | 7-day default retention at the computed request volume — see the formula in `ARCHITECTURE.md`; lower `RETENTION_DAYS_RAW_EVENTS` or rely on `ARCHIVE_ENABLED`'s compression path if disk is constrained |
+
+**Verifying this actually holds up, before go-live:**
+
+1. Deploy with the settings above.
+2. Warm up: `backend/scripts/generate_demo_log.py --rate 2000 --clients 30000` for ~10-15 minutes
+   (run several concurrent copies against the same `--output` path to reach higher rates — a
+   single process has a real CPU-bound ceiling, see the script's docstring).
+3. Burst: let the script's built-in burst logic fire, or run a second instance at `--rate 8000`
+   for a few minutes to simulate a peak-minute concentration.
+4. Poll `GET /api/health` throughout. **Hard pass/fail gate: `aggregator_events_likely_lost` must
+   stay `false` for the entire run, including the burst.** Also watch `aggregator_backlog_ratio`
+   (should stay well under `0.8`), `log_parse_failure_rate` (should track the injected
+   `--malformed-rate`), and `log_tailer_alive` (must stay `true`).
+5. While under load, loop-curl a couple of real dashboard endpoints (e.g. `/api/summary`,
+   `/api/clients`) and check backend logs for connection-pool exhaustion errors — confirms the
+   pool settings hold under human-driven traffic layered on top of the ingest burst.
+6. After stopping the load, confirm `aggregator_backlog_ratio` drains back toward `0` within a
+   couple of `AGGREGATION_INTERVAL_SECONDS`, and that `docker stats`/disk growth during the run
+   stayed within the resource table above.
 
 ## Domain categorization
 

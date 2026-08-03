@@ -25,18 +25,34 @@ class Base(DeclarativeBase):
 
 _settings = get_settings()
 
-engine = create_async_engine(
-    _settings.DATABASE_URL,
-    echo=False,
-    future=True,
-    # A pooled connection that's gone stale (Postgres restarted, a
-    # NAT/load-balancer idle-timeout silently dropped it) would otherwise
-    # surface as a request-killing error on whichever caller happens to
-    # check it out next -- pre_ping runs a cheap liveness check before
-    # handing a pooled connection back out and transparently reconnects if
-    # it's dead, instead of letting a stale connection fail a real request.
-    pool_pre_ping=True,
-)
+
+def _build_engine_kwargs(settings) -> dict:
+    """kwargs for create_async_engine, split out as a pure function so pool
+    sizing can be unit-tested without opening a real connection (see
+    tests/test_db.py). pool_size/max_overflow are only meaningful for a
+    real connection-pooled DBAPI (Postgres); sqlite's single local file
+    gets no benefit from a bigger pool, and passing these kwargs through to
+    aiosqlite's pool class isn't something worth depending on, so they're
+    only added for non-sqlite URLs."""
+    kwargs: dict = dict(
+        echo=False,
+        future=True,
+        # A pooled connection that's gone stale (Postgres restarted, a
+        # NAT/load-balancer idle-timeout silently dropped it) would
+        # otherwise surface as a request-killing error on whichever caller
+        # happens to check it out next -- pre_ping runs a cheap liveness
+        # check before handing a pooled connection back out and
+        # transparently reconnects if it's dead, instead of letting a
+        # stale connection fail a real request.
+        pool_pre_ping=True,
+    )
+    if not settings.DATABASE_URL.startswith("sqlite"):
+        kwargs["pool_size"] = settings.DATABASE_POOL_SIZE
+        kwargs["max_overflow"] = settings.DATABASE_MAX_OVERFLOW
+    return kwargs
+
+
+engine = create_async_engine(_settings.DATABASE_URL, **_build_engine_kwargs(_settings))
 
 if _settings.DATABASE_URL.startswith("sqlite"):
 

@@ -18,3 +18,38 @@ services:
       # Left side: the real path to Squid's log directory on this host.
       # Common defaults: /var/log/squid (Debian/Ubuntu), /var/log/squid3.
       - /var/log/squid:/data/squid-logs:ro
+
+# --- Large-deployment capacity tuning (~30,000+ proxied clients) ---
+# Commented out -- this is a second example, not applied by default. If
+# you're sizing for a large deployment, merge the keys below into the
+# `backend`/`postgres` blocks above (adding a `postgres:` block if you
+# don't have one yet) instead of copying this whole section verbatim, and
+# adjust the numbers to your actual measured load -- see "Capacity
+# planning for large deployments" in README.md for the reasoning behind
+# these specific values and how to verify them against your own hardware.
+#
+# services:
+#   backend:
+#     environment:
+#       RING_BUFFER_MAX_EVENTS: 1000000
+#       AGGREGATION_INTERVAL_SECONDS: 30
+#       DATABASE_POOL_SIZE: 10
+#       DATABASE_MAX_OVERFLOW: 20
+#     # ~1GB for the 1M-event ring buffer + Python/uvicorn/FastAPI baseline
+#     # + UT1 blacklist headroom (if enabled) + burst-parsing margin.
+#     mem_limit: 6g
+#     cpus: "2.0"
+#   postgres:
+#     # Write-heavy workload (bulk upserts every AGGREGATION_INTERVAL_SECONDS
+#     # + hourly batched retention purge) benefits far more from these than
+#     # Postgres's own light-workload defaults.
+#     command:
+#       - "postgres"
+#       - "-c"
+#       - "shared_buffers=2GB"
+#       - "-c"
+#       - "effective_cache_size=6GB"
+#       - "-c"
+#       - "max_wal_size=4GB"
+#     mem_limit: 8g
+#     cpus: "4.0"

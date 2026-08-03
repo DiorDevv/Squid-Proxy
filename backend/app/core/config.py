@@ -59,13 +59,36 @@ class Settings(BaseSettings):
 
     # --- Database ---
     DATABASE_URL: str = "sqlite+aiosqlite:///./squid_dashboard.db"
+    # Ignored for sqlite -- a single local file gets no benefit from a
+    # bigger connection pool (see app/models/db.py). Defaults match
+    # SQLAlchemy's own library defaults exactly, so this is a no-op until a
+    # deployment's real concurrency needs more. What actually drives pool
+    # contention isn't proxy-client count (Squid clients never touch the
+    # DB) but the ~9 independent background jobs in main.py plus concurrent
+    # dashboard/API traffic -- for a large deployment (tens of thousands of
+    # proxied clients, correspondingly larger tables and longer-held
+    # connections per query), DATABASE_POOL_SIZE=10 / DATABASE_MAX_OVERFLOW=20
+    # (30-connection ceiling) is a reasonable starting point; see "Sizing
+    # for a large client count" in ARCHITECTURE.md.
+    DATABASE_POOL_SIZE: int = 5
+    DATABASE_MAX_OVERFLOW: int = 10
 
     # --- In-memory ring buffer ---
+    # Sized for demo/small-deployment scale by default. At high sustained
+    # ingest rates, buffer capacity ÷ peak events/sec is the runway before
+    # AGGREGATION_INTERVAL_SECONDS below has to keep up or events start
+    # being silently dropped (surfaced via Aggregator.backlog_ratio /
+    # /api/health's aggregator_backlog_ratio, not actually silent -- see
+    # aggregator.py) -- see "Sizing for a large client count" in
+    # ARCHITECTURE.md for a worked example and recommended values.
     RING_BUFFER_MAX_EVENTS: int = 500_000
 
     # --- Retention ---
     RETENTION_DAYS_RAW_EVENTS: int = 7
     RETENTION_DAYS_AGGREGATES: int = 400
+    # How often the ring buffer flushes to DB aggregates. Lower = less
+    # runway needed in RING_BUFFER_MAX_EVENTS above per flush cycle, at the
+    # cost of more frequent (still bulk-upsert, see db_upsert.py) writes.
     AGGREGATION_INTERVAL_SECONDS: int = 60
     RETENTION_PURGE_INTERVAL_SECONDS: int = 3600
     # client_minute_aggregates rows older than this get compressed into

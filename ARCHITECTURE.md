@@ -73,7 +73,8 @@ hours of raw events in memory would be several hundred MB to >1GB depending on r
 `RING_BUFFER_MAX_EVENTS` defaults to a smaller, safer window and is meant to be tuned to the
 deployment's actual RAM budget — `raw_events` in the database is the real long-window source of
 truth for detail queries, so a conservative in-memory window doesn't lose data, it just changes
-where a detail query is served from.
+where a detail query is served from. See "Sizing for a large client count" below for a concrete
+worked example of tuning this against a specific target load, not just RAM budget in the abstract.
 
 ## WebSocket + REST polling fallback, not WebSocket-only
 
@@ -179,6 +180,126 @@ demo scale, without changing the deployment model:
   within a short window (`BATCH_WINDOW_SECONDS`, default 0.2s, or immediately at
   `MAX_BATCH_SIZE`) into one array per send, so cost no longer scales as (events × viewers) with
   zero batching.
+
+## Sizing for a large client count: a ~30,000-client worked example
+
+The changes above were "measured and hardened," but not against any one stated client count. This
+section turns "~30,000 Squid clients" (employees/devices proxied through Squid -- not concurrent
+dashboard logins, a different and much smaller kind of load) into concrete config values, sized
+against the single-process model above, not around it.
+
+**Traffic math.** Squid clients never talk to the backend/DB directly -- they only produce log
+lines `LogTailer` reads from disk. So "30,000 clients" only matters as an input to (a) log lines/sec
+the ingest pipeline must absorb, and (b) unique `client_ip` cardinality the client-indexed queries
+must handle.
+
+| Step | Reasoning | Value |
+|---|---|---|
+| Provisioned clients | Given | 30,000 |
+| Concurrently active, business hours | Meetings, hybrid work, time away from desk | 70% → 21,000 |
+| Logged req/s per active client, average | Squid logs one line per `CONNECT`/request, not per browser sub-resource -- enterprise proxy sizing typically lands around 0.1-0.3 req/s/user during active periods | 0.1 (avg) |
+| Logged req/s per active client, peak | Same range, top end, plus synchronized activity (login storms, meeting-end spikes) | 0.3 (peak) |
+| **Average target** | 21,000 × 0.1 | **≈2,000 req/s** |
+| **Peak target** | 21,000 × 0.3, +30% engineering headroom | **≈8,000 req/s** |
+
+Cross-check: the "1-3M requests/day" figure this codebase's retention batching was already
+designed around (see `RetentionJob`'s docstring) implies a much smaller population than 30,000 at
+these rates -- that existing assumption was never validated at this scale, so the values below are
+sizing *up* from it, not re-confirming it. This is why the load test in step 4 matters as much as
+the arithmetic: whether Postgres actually sustains multi-thousand-row bulk-upsert flushes at this
+volume on real hardware has to be measured, not just calculated.
+
+**Ring buffer runway.** Buffer capacity ÷ peak events/sec = seconds of runway before
+`Aggregator.backlog_ratio`/`events_likely_lost` can go true (see "Ring buffer sizing" above):
+
+| | `RING_BUFFER_MAX_EVENTS` | `AGGREGATION_INTERVAL_SECONDS` | Peak eps | Runway | Headroom |
+|---|---|---|---|---|---|
+| Demo/small-deployment default | 500,000 | 60s | 8,000 | 62.5s | **<1 flush cycle** |
+| **Recommended for ~30k clients** | 1,000,000 | 30s | 8,000 | 125s | **~4 flush cycles** |
+
+At the computed peak, the demo default holds barely more than one flush cycle's worth of events --
+a single delayed flush (a transient DB hiccup, a slow query) during a burst risks silent event loss
+before it's ever persisted. The recommended values roughly quadruple that runway. Memory cost: at
+roughly ~1KB/event, 1,000,000 buffered events costs on the order of ~1GB RAM.
+
+**Recommended settings** (set via `.env`/`docker-compose.override.yml` -- see "Capacity planning
+for large deployments" in README.md for how these reach the container):
+
+```
+RING_BUFFER_MAX_EVENTS=1000000
+AGGREGATION_INTERVAL_SECONDS=30
+DATABASE_POOL_SIZE=10
+DATABASE_MAX_OVERFLOW=20
+```
+
+`DATABASE_POOL_SIZE`/`DATABASE_MAX_OVERFLOW` aren't driven by client count at all -- Squid clients
+never touch the DB. What drives pool contention is the ~9 independent background jobs in
+`main.py` (each opens its own session when it runs, and can overlap) plus larger tables at this
+volume meaning individual queries hold their connection longer. A 30-connection ceiling
+(10 + 20 overflow) comfortably covers all background jobs overlapping plus ~20 concurrent
+API/dashboard requests, well under Postgres's default `max_connections=100`.
+
+**Load-testing this before going live.** `backend/scripts/generate_demo_log.py --clients 30000
+--rate 2000` (see its module docstring for running several concurrent copies to reach the full
+8,000 req/s peak target) generates realistic client cardinality and rate to exercise this
+empirically against `/api/health`'s existing observability fields
+(`aggregator_backlog_ratio`, `aggregator_events_likely_lost`, `log_parse_failure_rate`) rather than
+trusting the math alone. See README.md's "Capacity planning for large deployments" for the full
+verification procedure.
+
+**Disk.** At the average target (~2,000 req/s over a ~10h business day) and the default
+`RETENTION_DAYS_RAW_EVENTS=7`, rough volume is ~70-80M `raw_events` rows/day; at an estimated
+~300-400 bytes/row (row + index overhead), that's **~150-200GB just for `raw_events` at steady
+state with 7-day retention** -- shown as a formula, not false precision, since actual row size
+depends on domain-name/URL length distribution in real traffic. The two existing levers if this is
+a constraint: `RETENTION_DAYS_RAW_EVENTS` (lower it) and `ARCHIVE_ENABLED`'s existing compression
+path (already on by default).
+
+**Measured numbers.** Ran the verification procedure at a scale reduced to fit the dev sandbox
+it was run on (12 CPUs, ~2.7GB available RAM shared with other processes — not the ~6GB
+backend/~8GB Postgres target hardware above), using `--clients 10000` (not 30000) and rates
+scaled proportionally: `RING_BUFFER_MAX_EVENTS=200000`, `AGGREGATION_INTERVAL_SECONDS=30`,
+`DATABASE_POOL_SIZE=10`, `DATABASE_MAX_OVERFLOW=20` (pool settings unchanged from the 30k
+recommendation — pool sizing isn't RAM-bound). Results, and what they mean for the 30k target:
+
+- **Sustained ~300 events/s** (roughly this test's proportional equivalent of the ~2,000 req/s
+  30k-client average target): `aggregator_backlog_ratio` stayed around 0.15, well clear of the
+  0.8 warning threshold, `aggregator_events_likely_lost` stayed `false` throughout, backend RSS
+  stayed under 160MB. No surprises here — matches the calculated runway.
+- **Burst — a real, important finding.** Layering a 4x burst (~1,200 events/s on top of the
+  ~300/s sustained load, ~1,500 events/s combined) on this reduced config pushed
+  `aggregator_backlog_ratio` to **1.33** and `aggregator_events_likely_lost` to **`true`** —
+  despite buffer-capacity math (200,000 ÷ 1,500 ≈ 133s runway vs. a 30s flush interval) predicting
+  comfortable headroom. **The actual bottleneck wasn't buffer size — it was Postgres CPU,
+  which hit 98% during the burst** (visible via `docker stats`), meaning the aggregator's
+  bulk-upsert flush itself became the throughput ceiling, not ring-buffer capacity. This is the
+  concrete reason the load test in the verification procedure isn't optional: **buffer-runway
+  math alone is necessary but not sufficient — DB write throughput under concurrent flush load is
+  a separate, real constraint that has to be measured against the actual provisioned
+  CPU/Postgres tuning, not assumed adequate because the buffer math checks out.** On real
+  30k-scale hardware (4 dedicated Postgres CPUs + the tuning flags in
+  `docker-compose.override.yml.example`, vs. this test's shared, untuned Postgres container),
+  this ceiling should sit much higher — but that specific claim is exactly what still needs
+  verifying against real target hardware before go-live, not assumed from this smaller run.
+- **Recovery was clean.** Once the burst generator stopped, `aggregator_backlog_ratio` drained
+  back to 0.07 within about a minute — no deadlock, no stuck state, no manual intervention
+  needed.
+- **Connection pool held up.** 40 concurrent API requests (mixed authenticated/unauthenticated)
+  fired throughout the burst, overlapping with Postgres's CPU saturation — zero connection
+  timeouts, zero pool-exhaustion errors in the backend logs, only expected `401`/`200` responses.
+  Confirms `DATABASE_POOL_SIZE=10`/`DATABASE_MAX_OVERFLOW=20` (§2) isn't the constraint here even
+  under DB-CPU pressure; the constraint was raw Postgres compute, a hardware/tuning question, not
+  a pool-sizing one.
+- **Memory was never close to a limit** at this scale (peak backend 463MB, peak Postgres 171MB) —
+  reinforces that the binding constraint for the burst case was CPU/DB-throughput, not RAM, which
+  changes where effort should go when provisioning real hardware: don't over-index on the RAM
+  figures above at the expense of the Postgres CPU/tuning ones.
+
+**Still open**: a run at the full `--clients 30000`, `RING_BUFFER_MAX_EVENTS=1000000`,
+`AGGREGATION_INTERVAL_SECONDS=30` scale, against hardware actually matching the resource table
+above (dedicated Postgres CPUs, the tuning flags applied) — to confirm the burst-vs-Postgres-CPU
+finding above doesn't reproduce at the full target scale once Postgres is properly resourced and
+tuned, not just scaled down proportionally.
 
 ## Not yet built: running more than one backend instance
 

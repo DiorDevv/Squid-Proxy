@@ -1,6 +1,7 @@
 # Real Squid'ni dashboard'ga ulash — rsyslog orqali
 
-Bu qo'llanma **dashboard allaqachon VM'da ishlab turgan** holatdan boshlanadi. Maqsad —
+Bu qo'llanma **dashboard allaqachon VM'da ishlab turgan** holatdan boshlanadi (agar hali
+ishga tushirmagan bo'lsangiz, avval `1-LOYIHANI-ISHGA-TUSHIRISH.md`ni bajaring). Maqsad —
 boshqa serverda ishlayotgan Squid'ning haqiqiy trafigini, `rsyslog` orqali, shifrlangan
 tarzda dashboard'ga yetkazish.
 
@@ -135,20 +136,46 @@ sudo systemctl status rsyslog --no-pager
 
 `active (running)` bo'lishi kerak, qizil xato bo'lmasligi kerak.
 
-**Firewall** (agar `ufw` ishlatilsa) — filial serverining IP'i ma'lum bo'lgach:
+**Firewall** (agar `ufw` ishlatilsa) — filial serverining IP'i ma'lum bo'lgach, shu ikki
+qatorni to'ldirib bajaring (1-qator — haqiqiy qiymat bilan, 2-qator o'zgarishsiz):
 ```bash
-sudo ufw allow from FILIAL_SERVER_IP to any port 6514 proto tcp
+FILIAL_SERVER_IP="203.0.113.10"          # <-- filial (Squid) serverining haqiqiy IP'i
+sudo ufw allow from $FILIAL_SERVER_IP to any port 6514 proto tcp
 ```
 
 ---
 
-## 3-QADAM — Squid serveriga yuborish
+## 3-QADAM — Squid serverida bajarish
 
-Squid serverini boshqaradigan odamga **shu qismni to'liq nusxalab yuboring**, va
-`~/squid-certs/ca.pem`, `branch.pem`, `branch-key.pem` fayllarini xavfsiz kanal orqali
-(email emas — SCP yoki shifrlangan xabar) alohida uzating.
+**Agar Squid serverini boshqa odam boshqarsa**: shu bo'limni (3.1–3.3) to'liq nusxalab
+unga yuboring, va `~/squid-certs/ca.pem`, `branch.pem`, `branch-key.pem` fayllarini
+xavfsiz kanal orqali (email emas — SCP yoki shifrlangan xabar) alohida uzating.
 
-> **Sizning serveringizda quyidagilarni bajaring:**
+**Agar Squid serverini SIZ o'zingiz boshqarsangiz** (masalan, hozir shu holatdasiz): bu
+qadamlar **VM'da emas, Squid serverida** bajariladi, shuning uchun avval o'sha serverga
+**yangi, alohida terminal oynasida** SSH bilan ulaning (hozirgi VM sessiyangizni
+yopmang — u kerak bo'lib turadi):
+
+```bash
+ssh FOYDALANUVCHI@SQUID_SERVER_IP
+```
+
+(`FOYDALANUVCHI`/`SQUID_SERVER_IP` — Squid serveringizning haqiqiy foydalanuvchi
+nomi/IP'i, `0-VMGA-ULANISH.md`dagi kabi tunnel flag'lari (`-L ...`) bu yerda **kerak
+emas** — bu server dashboard'ni ishga tushirmaydi.)
+
+Sertifikat fayllarini (`~/squid-certs/ca.pem`, `branch.pem`, `branch-key.pem`) VM'dan
+Squid serveriga xavfsiz nusxalash uchun, **VM'dagi** terminalda (Squid serveridagida
+emas) shu buyruqni bajaring:
+
+```bash
+scp ~/squid-certs/ca.pem ~/squid-certs/branch.pem ~/squid-certs/branch-key.pem \
+  FOYDALANUVCHI@SQUID_SERVER_IP:~/
+```
+
+Endi Squid serveridagi terminalda (yuqorida ulangan) davom eting:
+
+> **Squid serverida quyidagilarni bajaring:**
 >
 > ### 3.1 — Log formatini tekshiring
 > ```bash
@@ -164,13 +191,20 @@ Squid serverini boshqaradigan odamga **shu qismni to'liq nusxalab yuboring**, va
 > sudo apt install -y rsyslog rsyslog-gnutls
 > sudo mkdir -p /etc/rsyslog.d/certs
 > ```
-> Sizga yuborilgan `ca.pem`, `branch.pem`, `branch-key.pem` fayllarini
-> `/etc/rsyslog.d/certs/` papkasiga joylashtiring.
+> Sizga yuborilgan (yoki o'zingiz `scp` bilan ko'chirgan) `ca.pem`, `branch.pem`,
+> `branch-key.pem` fayllari — agar yuqoridagi `scp` buyrug'i bilan ko'chirgan bo'lsangiz,
+> `~/` (uy papkasi)da turadi. Ularni to'g'ri joyga ko'chiring:
+> ```bash
+> sudo cp ~/ca.pem ~/branch.pem ~/branch-key.pem /etc/rsyslog.d/certs/
+> ```
 >
 > ### 3.3 — Jo'natuvchi konfiguratsiyasi
-> `CENTRAL_HOST_IP` o'rniga menga (dashboard operatoriga) tegishli serverning haqiqiy IP
-> manzilini yozib, shu blokni to'liq bajaring:
+> Avval shu birinchi qatorni **dashboard operatoridan olingan haqiqiy IP bilan**
+> to'ldiring, qolgan hammasini (heredoc va undan keyingi `sed` qatorini) o'zgartirmasdan,
+> aynan shunday nusxalab bajaring — `sed` qatori faylning ichidagi `CENTRAL_HOST_IP`
+> so'zini siz kiritgan haqiqiy IP'ga avtomatik almashtiradi:
 > ```bash
+> CENTRAL_HOST_IP="203.0.113.5"          # <-- dashboard operatoridan olingan haqiqiy IP
 > sudo tee /etc/rsyslog.d/60-squid-forward.conf > /dev/null <<'EOF'
 > module(load="imfile" mode="inotify")
 >
@@ -216,7 +250,12 @@ Squid serverini boshqaradigan odamga **shu qismni to'liq nusxalab yuboring**, va
 >   stop
 > }
 > EOF
+> sudo sed -i "s/CENTRAL_HOST_IP/$CENTRAL_HOST_IP/" /etc/rsyslog.d/60-squid-forward.conf
 > ```
+> (Nega alohida `sed` qatori kerak: heredoc ichida rsyslog'ning o'zining `$syslogtag` kabi
+> yozuvlari bor, ular bilan chalkashmasligi uchun heredoc o'zgaruvchisiz — o'zgarmas —
+> holda yoziladi, `CENTRAL_HOST_IP` esa shu qo'shimcha qator bilan, faylni yaratib
+> bo'lgandan keyin almashtiriladi.)
 > ```bash
 > sudo mkdir -p /var/spool/rsyslog
 > sudo systemctl restart rsyslog
@@ -231,47 +270,46 @@ Squid serverini boshqaradigan odamga **shu qismni to'liq nusxalab yuboring**, va
 
 ## 4-QADAM — Dashboard'ni ulash (VM'da)
 
-**Diqqat**: sizda `docker-compose.override.yml` fayli allaqachon bor (login muammosini
-tuzatish uchun `ENVIRONMENT: development` qo'shilgan). Uni **butunlay almashtirmang**,
-faqat kerakli qatorlarni qo'shing:
-
 ```bash
 cd ~/squid-watch
-cat docker-compose.override.yml
 ```
 
-Faylni oching:
+Odatda bu bosqichda `docker-compose.override.yml` fayli **hali yo'q** (`1-LOYIHANI-ISHGA-TUSHIRISH.md` uni yaratmaydi — demo rejimi hech qanday override'siz ishlaydi). Shuni tekshirib ko'ring:
+
 ```bash
-nano docker-compose.override.yml
+ls docker-compose.override.yml 2>/dev/null && echo "BOR" || echo "YO'Q"
 ```
 
-Va `environment:` ostiga (mavjud `ENVIRONMENT: development` qatoridan keyin) shuni
-qo'shing:
-```yaml
-      LOG_SOURCES: '[{"branch":"filiallar","path":"/data/squid-logs/filiallar.log"}]'
-```
-
-`backend:` ostiga (agar `volumes:` bo'limi hali yo'q bo'lsa) shuni qo'shing:
-```yaml
-    volumes:
-      - /var/log/squid:/data/squid-logs:ro
-```
-
-Fayl **to'liq** shunga o'xshash ko'rinishi kerak (aniq tuzilishi joriy holatingizga
-bog'liq — noaniqlik bo'lsa, `cat docker-compose.override.yml` natijasini menga yuboring,
-men aniq qanday tahrirlashni ko'rsataman):
-
-```yaml
+**Agar "YO'Q" chiqsa** (odatiy holat) — to'liq yaratib qo'ying:
+```bash
+cat > docker-compose.override.yml <<'EOF'
 services:
   backend:
     environment:
-      ENVIRONMENT: development
       LOG_SOURCES: '[{"branch":"filiallar","path":"/data/squid-logs/filiallar.log"}]'
     volumes:
       - /var/log/squid:/data/squid-logs:ro
+EOF
 ```
 
-Saqlab, qayta ishga tushiring:
+**Agar "BOR" chiqsa** (masalan boshqa filial uchun avval sozlagan bo'lsangiz) — uni
+**butunlay almashtirmang**, faqat kerakli qatorlarni qo'shing:
+```bash
+nano docker-compose.override.yml
+```
+`environment:` ostiga:
+```yaml
+      LOG_SOURCES: '[{"branch":"filiallar","path":"/data/squid-logs/filiallar.log"}]'
+```
+`backend:` ostiga (agar `volumes:` bo'limi hali yo'q bo'lsa):
+```yaml
+    volumes:
+      - /var/log/squid:/data/squid-logs:ro
+```
+(Noaniqlik bo'lsa, `cat docker-compose.override.yml` natijasini menga yuboring, men
+aniq qanday tahrirlashni ko'rsataman.)
+
+Ikkala holatda ham, saqlab, qayta ishga tushiring:
 ```bash
 docker compose up --build -d
 ```
@@ -280,7 +318,7 @@ docker compose up --build -d
 
 ## 5-QADAM — Yakuniy tekshiruv
 
-Squid serverida (ular tomonidan) biror sayt ochilgach:
+Squid serverida (o'zingiz yoki uni boshqaradigan odam tomonidan) biror sayt ochilgach:
 
 ```bash
 sudo journalctl -u rsyslog -n 30 --no-pager
@@ -290,7 +328,7 @@ ls -la /var/log/squid/
 `filiallar.log` fayli paydo bo'lishi kerak. So'ng:
 
 ```bash
-curl http://localhost:8001/api/health
+curl http://localhost:8000/api/health
 ```
 
 Natijada:
@@ -299,7 +337,8 @@ Natijada:
 ```
 
 `alive: true` va `parse_failure_rate` `0`ga yaqin — hammasi to'g'ri ishlayapti.
-Brauzerda `http://VM_IP:8082`ni oching — "Jonli hodisalar"da haqiqiy trafik ko'rinadi.
+Brauzerda (SSH tunnel orqali) `http://localhost:8080`ni oching — "Jonli hodisalar"da
+haqiqiy trafik ko'rinadi.
 
 ---
 

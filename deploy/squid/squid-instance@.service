@@ -4,8 +4,7 @@
 # --foreground -sYC invocation), just parameterized by %i (the instance
 # name after the @).
 #
-# Install once, then enable per instance (see vm-test-qollanma/QOLLANMA.md,
-# 2.5-BOSQICH):
+# Install once, then enable per instance (see ../README.md):
 #
 #   sudo cp deploy/squid/squid-instance@.service /etc/systemd/system/
 #   sudo systemctl daemon-reload

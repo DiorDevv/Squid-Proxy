@@ -1,8 +1,12 @@
 # 4 branch Squid instances for this deployment
 
-Ready-to-copy configs for the 4-Squid-on-one-server setup this project's
-`vm-test-qollanma/QOLLANMA.md` (2-BOSQICH) walks through, with branch names
-finalized to match `../../docker-compose.override.yml`'s `LOG_SOURCES`:
+Ready-to-copy configs for a **4-Squid-on-one-server** topology (all 4 branches and the
+dashboard on the same machine), with branch names matching
+`../../docker-compose.override.yml`'s `LOG_SOURCES` shape. This is a different setup from
+the single-Squid, separate-server `rsyslog` path in `../../vm-test-qollanma/` — use this
+directory only if you're actually running multiple Squid instances on one host; otherwise
+`../../vm-test-qollanma/2-SQUIDGA-ULASH-RSYSLOG.md` covers connecting one remote Squid
+server instead.
 
 | File | Branch tag | Port | Log path (on host) |
 |---|---|---|---|
@@ -11,11 +15,10 @@ finalized to match `../../docker-compose.override.yml`'s `LOG_SOURCES`:
 | `squid-serverlar.conf` | `serverlar` | 3130 | `/var/log/squid-serverlar/access.log` |
 | `squid-trafik.conf` | `trafik` | 3131 | `/var/log/squid-trafik/access.log` |
 
-`squid-instance@.service` is the shared systemd template that runs all 4 from
-one `squid` binary. See its own header comment, or
-`vm-test-qollanma/QOLLANMA.md`'s 2.2–2.5 steps, for the full install sequence
-(create `/var/log/squid-*` and `/var/spool/squid-*` directories with the
-right ownership first).
+`squid-instance@.service` is the shared systemd template that runs all 4 from one `squid`
+binary. See its own header comment for the full install sequence (create
+`/var/log/squid-*` and `/var/spool/squid-*` directories with the right ownership first,
+then `systemctl enable --now squid-instance@<branch>` per branch).
 
 **Before real production use** (not just VM testing): narrow each file's
 `acl localnet src ...` line to that branch's actual internal network(s) --

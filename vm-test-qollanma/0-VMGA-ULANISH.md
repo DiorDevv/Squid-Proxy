@@ -1,6 +1,6 @@
 # 0-QISM — VM'ga birinchi marta ulanish
 
-Bu — boshqa qo'llanmalar (`QOLLANMA.md`, `1-LOYIHANI-ISHGA-TUSHIRISH.md`)
+Bu — boshqa qo'llanmalar (`1-LOYIHANI-ISHGA-TUSHIRISH.md`, `2-SQUIDGA-ULASH-RSYSLOG.md`)
 boshlanishidan **oldingi** qadam: VM'ga qanday ulanish. Boshqa qo'llanmalarning barchasi
 "VM'ga SSH orqali kirdingiz" degan joydan boshlanadi — mana shu qism aynan o'sha "kirish"
 jarayonini tushuntiradi.
@@ -24,45 +24,81 @@ kerak — agar berilmagan bo'lsa, aynan shularni so'rang:
 
 Bu barcha buyruqlar **VM'da emas, sizning shaxsiy kompyuteringizda** bajariladi.
 
-### Windows
+> **Nega `-L 8080:localhost:8080 -L 8000:localhost:8000` qo'shilgan**: keyingi
+> qo'llanmalarda dashboard va uning health-check'i shu ikki portda ishga tushadi
+> (`8080` — veb-interfeys, `8000` — backend). Bu flag'lar VM'dagi shu portlarni
+> kompyuteringizdagi xuddi shu portlarga **shifrlangan SSH tunnel** orqali "ko'chirib"
+> beradi — shu tufayli brauzeringizda `http://VM_IP:8080` o'rniga `http://localhost:8080`
+> yozib, dashboard'ga **firewall'da hech qanday port ochmasdan, trafikni tarmoqqa ochiq
+> qoldirmasdan** kirasiz. Bu shunchaki qulaylik emas — dashboard login parolini va sessiya
+> tokenini ochiq (shifrlanmagan) tarmoq orqali yubormaslik uchun muhim. Keyingi
+> qo'llanmalarning barchasi shu tunnel o'rnatilgan deb hisoblab yoziladi.
+
+### Windows (PowerShell)
 
 1. Windows tugmasini bosing, `terminal` deb yozing, "Terminal" dasturini oching (yoki
    "PowerShell").
-2. Quyidagi buyruqni yozing (o'z ma'lumotlaringiz bilan almashtirib):
+2. **1-jadvaldagi haqiqiy qiymatlaringizni** shu ikki qatorga yozib, terminalga
+   nusxalab, Enter bosing (`root`/IP — shunchaki misol, o'zingiznikini yozing):
 
-```bash
-ssh FOYDALANUVCHI_NOMI@IP_MANZIL
+```powershell
+$FOYDALANUVCHI_NOMI = "root"
+$IP_MANZIL = "95.123.45.67"
 ```
 
-Masalan:
-```bash
-ssh root@95.123.45.67
+3. Endi shu buyruqni **o'zgartirmasdan, aynan shunday** nusxalab bajaring — u yuqorida
+   kiritgan qiymatlaringizni o'zi ishlatadi:
+
+```powershell
+ssh -L 8080:localhost:8080 -L 8000:localhost:8000 "$FOYDALANUVCHI_NOMI@$IP_MANZIL"
 ```
 
 > Windows 10/11'da SSH allaqachon o'rnatilgan — alohida dastur (PuTTY va h.k.) o'rnatish
 > shart emas.
 
-### Mac yoki Linux
+### Mac yoki Linux (yoki Windows'da Git Bash / WSL)
 
 1. "Terminal" dasturini oching (Mac: Spotlight orqali `terminal` deb qidiring; Linux:
    odatda `Ctrl+Alt+T`).
-2. Xuddi shu buyruq:
+2. **1-jadvaldagi haqiqiy qiymatlaringizni** shu ikki qatorga yozib, terminalga
+   nusxalab, Enter bosing (`root`/IP — shunchaki misol, o'zingiznikini yozing):
 
 ```bash
-ssh FOYDALANUVCHI_NOMI@IP_MANZIL
+FOYDALANUVCHI_NOMI="root"
+IP_MANZIL="95.123.45.67"
 ```
+
+3. Endi shu buyruqni **o'zgartirmasdan, aynan shunday** nusxalab bajaring — u yuqorida
+   kiritgan qiymatlaringizni o'zi ishlatadi:
+
+```bash
+ssh -L 8080:localhost:8080 -L 8000:localhost:8000 $FOYDALANUVCHI_NOMI@$IP_MANZIL
+```
+
+> **Muhim eslatma**: `$FOYDALANUVCHI_NOMI` va `$IP_MANZIL` faqat **shu terminal oynasi
+> ochiq turgan paytda** eslab qoladi. Terminalni yopsangiz, yangi oynada ishlasangiz yoki
+> ertaga qaytib kelsangiz — 2-qadamni (qiymatlarni kiritishni) qayta bajarishingiz kerak
+> bo'ladi, shundan keyin 3-qadamdagi buyruq yana o'zgarishsiz ishlayveradi.
 
 ### Agar `.pem` kalit fayli bilan kirsangiz
 
-Kalit faylini kompyuteringizga saqlab (masalan `~/Downloads/mening-kalitim.pem`), so'ng:
+Yuqoridagi 2-qadamda `$FOYDALANUVCHI_NOMI`/`$IP_MANZIL`ni kiritib bo'lgan holda davom
+eting. Kalit faylini kompyuteringizga saqlab (masalan `~/Downloads/mening-kalitim.pem`),
+so'ng:
 
 ```bash
 chmod 400 ~/Downloads/mening-kalitim.pem
-ssh -i ~/Downloads/mening-kalitim.pem FOYDALANUVCHI_NOMI@IP_MANZIL
+ssh -i ~/Downloads/mening-kalitim.pem -L 8080:localhost:8080 -L 8000:localhost:8000 \
+  $FOYDALANUVCHI_NOMI@$IP_MANZIL
 ```
 
 (`chmod 400` — bu fayl ruxsatini "faqat siz o'qiy olasiz" qilib qo'yadi, SSH buni talab
 qiladi, aks holda xato beradi.)
+
+> Tunnel faqat shu SSH sessiyasi ochiq turgan paytda ishlaydi — terminalni yopsangiz yoki
+> `exit` qilsangiz, brauzerdagi `localhost:8080` ham ishlashni to'xtatadi. Ish davomida shu
+> terminalni ochiq qoldiring (yoki alohida oynada faqat tunnel uchun: yuqoridagi buyruqqa
+> `-N` qo'shib, oxiridan buyruq satri o'rniga fon jarayoni sifatida ishlatish mumkin).
 
 ---
 
@@ -104,8 +140,10 @@ Ish tugagach, VM'dan chiqish uchun:
 exit
 ```
 
-Keyingi safar qayta kirish uchun xuddi shu `ssh FOYDALANUVCHI_NOMI@IP_MANZIL` buyrug'ini
-takrorlaysiz.
+Keyingi safar qayta kirish uchun: agar **shu terminal oynasi** hali ochiq bo'lsa, faqat
+3-qadamdagi (`ssh -L ...`) buyruqni takrorlaysiz — `$FOYDALANUVCHI_NOMI`/`$IP_MANZIL` hali
+eslab turadi. Agar **yangi** terminal oynasi bo'lsa, 2-qadamdan (qiymatlarni kiritishdan)
+qaytadan boshlaysiz.
 
 ---
 
@@ -124,8 +162,6 @@ Boshqa xato chiqsa — **xato matnini to'liq nusxalab yuboring**, birga hal qila
 
 ---
 
-Ulanib bo'lgach, keyingi qadam uchun quyidagilardan birini tanlang:
-- **`QOLLANMA.md`** — agar Squid va dashboard bitta serverda bo'lsa (barcha filiallar birga)
-- **`1-LOYIHANI-ISHGA-TUSHIRISH.md`** — agar Squid boshqa serverda bo'lsa (keyin
-  `2-SQUIDGA-ULASH.md` — sodda SSH usuli, yoki `2-SQUIDGA-ULASH-RSYSLOG.md` — rsyslog
-  orqali, davom etadi)
+Ulanib bo'lgach, keyingi qadam: **`1-LOYIHANI-ISHGA-TUSHIRISH.md`** (dashboard'ni demo
+rejimda ishga tushirish), so'ng **`2-SQUIDGA-ULASH-RSYSLOG.md`** (Squid boshqa serverda —
+uning haqiqiy trafigini rsyslog orqali TLS ustida shu dashboard'ga ulash).

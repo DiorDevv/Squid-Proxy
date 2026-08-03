@@ -499,6 +499,19 @@ Alembic's bookkeeping table recording it.
 - `viewer` role has full read access; only `admin` can export data or reach `/settings`.
 - Never commit a real `.env` — both `.gitignore` files exclude it; only `.env.example` files are
   tracked.
+- **The Docker Compose path (`docker-compose.yml`) serves the frontend over plain HTTP, with no
+  TLS termination anywhere in that stack.** That's fine for `http://localhost:8080` (browsers
+  treat `localhost` as a secure context, so the `httpOnly` refresh cookie's `Secure` flag — set
+  whenever `ENVIRONMENT=production`, the Compose default — still works) or for reaching a remote
+  host through an SSH tunnel (`ssh -L 8080:localhost:8080 user@host`, then browse to
+  `http://localhost:8080` as usual). **Do not** publish `FRONTEND_PORT` on a remote host's public
+  IP/firewall and browse to it directly — the login password and bearer/refresh tokens would
+  cross the network in cleartext, and you'd be tempted to set `ENVIRONMENT=development` to stop
+  the browser rejecting the now-not-secure-context cookie, which removes the `Secure` flag
+  entirely. For real multi-user production access beyond a single admin's SSH tunnel, terminate
+  TLS in front of it — see `deploy/nginx/squid-dashboard.conf` for a Let's Encrypt-based example
+  (adapt it as a reverse proxy in front of the Compose `frontend` service, or use the bare-metal
+  "Deploying without Docker" path directly).
 
 ## Contributing
 

@@ -146,7 +146,9 @@ async def test_get_time_spent_by_category_respects_admin_override(db_session: As
             _raw_event("10.0.0.4", "youtube.com", BASE + timedelta(minutes=10)),
         ]
     )
-    await domain_category_service.set_category(db_session, "youtube.com", DomainCategoryLabel.WORK_TOOLS)
+    await domain_category_service.set_category(
+        db_session, "youtube.com", DomainCategoryLabel.WORK_TOOLS, "actor-1"
+    )
     await db_session.commit()
 
     items = {

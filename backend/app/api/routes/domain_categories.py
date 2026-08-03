@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import get_db, require_admin
+from app.api.deps import CurrentUser, get_current_user, get_db, require_admin
 from app.schemas.domains import DomainCategoryOut, SetDomainCategoryRequest
 from app.services import domain_category_service
 
@@ -18,7 +18,10 @@ async def read_domain_categories(db: AsyncSession = Depends(get_db)) -> list[Dom
 
 @router.put("/{domain}", response_model=DomainCategoryOut)
 async def set_domain_category(
-    domain: str, body: SetDomainCategoryRequest, db: AsyncSession = Depends(get_db)
+    domain: str,
+    body: SetDomainCategoryRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: CurrentUser = Depends(get_current_user),
 ) -> DomainCategoryOut:
-    row = await domain_category_service.set_category(db, domain, body.category)
+    row = await domain_category_service.set_category(db, domain, body.category, current_user.user_id)
     return DomainCategoryOut.model_validate(row, from_attributes=True)

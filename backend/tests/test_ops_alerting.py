@@ -64,6 +64,11 @@ async def test_notify_operator_failure_posts_to_ops_webhook_when_configured(monk
     assert payload["description"] == "Log tailer died"
     assert payload["severity"] == "high"
     assert "generated_at" in payload
+    # A payload with neither "text" nor "blocks" makes Slack's incoming
+    # webhook API 400 -- must always carry "text".
+    assert isinstance(payload["text"], str) and payload["text"]
+    assert "log_tailer:filiallar" in payload["text"]
+    assert "Log tailer died" in payload["text"]
 
 
 async def test_notify_operator_failure_falls_back_to_alert_webhook_url(monkeypatch):

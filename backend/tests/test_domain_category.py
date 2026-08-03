@@ -8,8 +8,10 @@ category must match that or every query raises a LookupError."""
 from datetime import UTC, datetime, timedelta
 
 from httpx import AsyncClient
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.models.audit_log import AuditAction, AuditLogEntry
 from app.models.domain_aggregate import DomainMinuteAggregate
 from app.models.domain_category import DomainCategoryLabel
 from app.services import domain_category_service
@@ -18,18 +20,33 @@ from app.services.stats_service import get_usage_by_category
 
 async def test_set_category_creates_then_updates(db_session: AsyncSession):
     created = await domain_category_service.set_category(
-        db_session, "example.com", DomainCategoryLabel.SOCIAL_MEDIA
+        db_session, "example.com", DomainCategoryLabel.SOCIAL_MEDIA, "actor-1"
     )
     assert created.category == DomainCategoryLabel.SOCIAL_MEDIA
 
     updated = await domain_category_service.set_category(
-        db_session, "example.com", DomainCategoryLabel.WORK_TOOLS
+        db_session, "example.com", DomainCategoryLabel.WORK_TOOLS, "actor-1"
     )
     assert updated.category == DomainCategoryLabel.WORK_TOOLS
 
     all_rows = await domain_category_service.list_all(db_session)
     assert len(all_rows) == 1
     assert all_rows[0].category == DomainCategoryLabel.WORK_TOOLS
+
+
+async def test_set_category_records_audit_entry(db_session: AsyncSession):
+    await domain_category_service.set_category(
+        db_session, "gambling-site.example", DomainCategoryLabel.GAMBLING, "actor-1"
+    )
+
+    entry = (
+        await db_session.execute(
+            select(AuditLogEntry).where(AuditLogEntry.action == AuditAction.DOMAIN_CATEGORY_SET)
+        )
+    ).scalar_one()
+    assert entry.actor_user_id == "actor-1"
+    assert "gambling-site.example" in entry.detail
+    assert "gambling" in entry.detail
 
 
 async def test_usage_by_category_groups_uncategorized_domains_without_error(db_session: AsyncSession):
@@ -65,7 +82,9 @@ async def test_usage_by_category_splits_categorized_and_uncategorized(db_session
             ),
         ]
     )
-    await domain_category_service.set_category(db_session, "social.example", DomainCategoryLabel.SOCIAL_MEDIA)
+    await domain_category_service.set_category(
+        db_session, "social.example", DomainCategoryLabel.SOCIAL_MEDIA, "actor-1"
+    )
     await db_session.commit()
 
     since = bucket - timedelta(hours=1)
@@ -110,7 +129,9 @@ async def test_usage_by_category_admin_override_wins_over_inference(db_session: 
             ),
         ]
     )
-    await domain_category_service.set_category(db_session, "youtube.com", DomainCategoryLabel.WORK_TOOLS)
+    await domain_category_service.set_category(
+        db_session, "youtube.com", DomainCategoryLabel.WORK_TOOLS, "actor-1"
+    )
     await db_session.commit()
 
     since = bucket - timedelta(hours=1)

@@ -7,11 +7,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.deps import CurrentUser, get_current_user, get_db, require_admin
 from app.core.config import get_settings
 from app.core.rate_limit import limiter
+from app.models.audit_log import AuditAction
 from app.models.domain_category import DomainCategoryLabel
 from app.models.export_job import ExportJobStatus
 from app.schemas.common import EffectiveRange, resolve_range
 from app.schemas.export import ExportJobOut, ExportShareLinkOut
-from app.services import export_job_service
+from app.services import audit_service, export_job_service
 from app.services.export_service import EXPORT_COLUMNS, download_csv, download_json
 
 router = APIRouter(prefix="/api", tags=["export"])
@@ -166,7 +167,11 @@ async def get_export_job(job_id: str, db: AsyncSession = Depends(get_db)) -> Exp
 
 
 @router.post("/export/jobs/{job_id}/cancel", dependencies=[Depends(require_admin)])
-async def cancel_export_job(job_id: str, db: AsyncSession = Depends(get_db)) -> ExportJobOut:
+async def cancel_export_job(
+    job_id: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: CurrentUser = Depends(get_current_user),
+) -> ExportJobOut:
     """Requests cancellation of a still-in-flight job -- asynchronous (see
     export_job_service.request_cancellation), so the response still shows
     PENDING/RUNNING; poll GET /export/jobs/{id} for the CANCELLED status
@@ -180,6 +185,14 @@ async def cancel_export_job(job_id: str, db: AsyncSession = Depends(get_db)) -> 
             detail=f"Export job already finished (status: {job.status.value}) -- nothing to cancel.",
         )
     export_job_service.request_cancellation(job_id)
+    # request_cancellation() is a sync, non-session in-memory operation
+    # (unlike every other audited export action, which audits inside its
+    # own service function alongside a DB write) -- so this audits directly
+    # here instead.
+    await audit_service.record(
+        db, action=AuditAction.EXPORT_CANCELLED, actor_user_id=current_user.user_id, detail=f"job_id={job_id}"
+    )
+    await db.commit()
     return export_job_service.to_out(job)
 
 
@@ -245,11 +258,15 @@ async def share_export_job(
 
 
 @router.post("/export/jobs/{job_id}/share/revoke", dependencies=[Depends(require_admin)])
-async def revoke_export_job_share(job_id: str, db: AsyncSession = Depends(get_db)) -> ExportJobOut:
+async def revoke_export_job_share(
+    job_id: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: CurrentUser = Depends(get_current_user),
+) -> ExportJobOut:
     job = await export_job_service.get_job(db, job_id)
     if job is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Export job not found.")
-    await export_job_service.revoke_share_link(db, job)
+    await export_job_service.revoke_share_link(db, job, current_user.user_id)
     return export_job_service.to_out(job)
 
 

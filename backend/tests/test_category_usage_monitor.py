@@ -46,7 +46,11 @@ def _patch_session(monkeypatch, db_session: AsyncSession) -> None:
 async def test_check_flags_client_over_threshold(db_session: AsyncSession, monkeypatch):
     _patch_session(monkeypatch, db_session)
     await alert_settings_service.update_settings(
-        db_session, [], non_work_minutes_threshold=60, client_daily_byte_quota_bytes=None
+        db_session,
+        [],
+        non_work_minutes_threshold=60,
+        client_daily_byte_quota_bytes=None,
+        actor_user_id="actor-1",
     )
     now = datetime.now(UTC)
     # 90 minutes of video-streaming activity -- comfortably over the 60-minute threshold.
@@ -59,8 +63,10 @@ async def test_check_flags_client_over_threshold(db_session: AsyncSession, monke
     await job.check()
 
     anomalies = (
-        await db_session.execute(select(AnomalyEvent).where(AnomalyEvent.title == ANOMALY_TITLE))
-    ).scalars().all()
+        (await db_session.execute(select(AnomalyEvent).where(AnomalyEvent.title == ANOMALY_TITLE)))
+        .scalars()
+        .all()
+    )
     assert len(anomalies) == 1
     assert anomalies[0].client_ip == "10.0.0.30"
 
@@ -68,7 +74,11 @@ async def test_check_flags_client_over_threshold(db_session: AsyncSession, monke
 async def test_check_does_not_flag_client_under_threshold(db_session: AsyncSession, monkeypatch):
     _patch_session(monkeypatch, db_session)
     await alert_settings_service.update_settings(
-        db_session, [], non_work_minutes_threshold=120, client_daily_byte_quota_bytes=None
+        db_session,
+        [],
+        non_work_minutes_threshold=120,
+        client_daily_byte_quota_bytes=None,
+        actor_user_id="actor-1",
     )
     now = datetime.now(UTC)
     db_session.add_all(
@@ -80,15 +90,21 @@ async def test_check_does_not_flag_client_under_threshold(db_session: AsyncSessi
     await job.check()
 
     anomalies = (
-        await db_session.execute(select(AnomalyEvent).where(AnomalyEvent.title == ANOMALY_TITLE))
-    ).scalars().all()
+        (await db_session.execute(select(AnomalyEvent).where(AnomalyEvent.title == ANOMALY_TITLE)))
+        .scalars()
+        .all()
+    )
     assert anomalies == []
 
 
 async def test_check_does_not_flag_work_category_time(db_session: AsyncSession, monkeypatch):
     _patch_session(monkeypatch, db_session)
     await alert_settings_service.update_settings(
-        db_session, [], non_work_minutes_threshold=30, client_daily_byte_quota_bytes=None
+        db_session,
+        [],
+        non_work_minutes_threshold=30,
+        client_daily_byte_quota_bytes=None,
+        actor_user_id="actor-1",
     )
     now = datetime.now(UTC)
     # 100 minutes in work_tools -- exempt, so shouldn't count toward the
@@ -102,15 +118,21 @@ async def test_check_does_not_flag_work_category_time(db_session: AsyncSession, 
     await job.check()
 
     anomalies = (
-        await db_session.execute(select(AnomalyEvent).where(AnomalyEvent.title == ANOMALY_TITLE))
-    ).scalars().all()
+        (await db_session.execute(select(AnomalyEvent).where(AnomalyEvent.title == ANOMALY_TITLE)))
+        .scalars()
+        .all()
+    )
     assert anomalies == []
 
 
 async def test_check_does_not_re_flag_within_the_same_day(db_session: AsyncSession, monkeypatch):
     _patch_session(monkeypatch, db_session)
     await alert_settings_service.update_settings(
-        db_session, [], non_work_minutes_threshold=60, client_daily_byte_quota_bytes=None
+        db_session,
+        [],
+        non_work_minutes_threshold=60,
+        client_daily_byte_quota_bytes=None,
+        actor_user_id="actor-1",
     )
     now = datetime.now(UTC)
     db_session.add_all(
@@ -123,15 +145,21 @@ async def test_check_does_not_re_flag_within_the_same_day(db_session: AsyncSessi
     await job.check()  # simulate a second hourly tick on the same ongoing violation
 
     anomalies = (
-        await db_session.execute(select(AnomalyEvent).where(AnomalyEvent.title == ANOMALY_TITLE))
-    ).scalars().all()
+        (await db_session.execute(select(AnomalyEvent).where(AnomalyEvent.title == ANOMALY_TITLE)))
+        .scalars()
+        .all()
+    )
     assert len(anomalies) == 1
 
 
 async def test_check_is_noop_when_threshold_disabled(db_session: AsyncSession, monkeypatch):
     _patch_session(monkeypatch, db_session)
     await alert_settings_service.update_settings(
-        db_session, [], non_work_minutes_threshold=0, client_daily_byte_quota_bytes=None
+        db_session,
+        [],
+        non_work_minutes_threshold=0,
+        client_daily_byte_quota_bytes=None,
+        actor_user_id="actor-1",
     )
     now = datetime.now(UTC)
     db_session.add_all(
@@ -143,8 +171,10 @@ async def test_check_is_noop_when_threshold_disabled(db_session: AsyncSession, m
     await job.check()
 
     anomalies = (
-        await db_session.execute(select(AnomalyEvent).where(AnomalyEvent.title == ANOMALY_TITLE))
-    ).scalars().all()
+        (await db_session.execute(select(AnomalyEvent).where(AnomalyEvent.title == ANOMALY_TITLE)))
+        .scalars()
+        .all()
+    )
     assert anomalies == []
 
 
@@ -156,7 +186,11 @@ async def test_check_combines_multiple_non_exempt_categories_for_the_same_minute
     bucket_ts is what's counted, deliberately not summed per-category."""
     _patch_session(monkeypatch, db_session)
     await alert_settings_service.update_settings(
-        db_session, [], non_work_minutes_threshold=10, client_daily_byte_quota_bytes=None
+        db_session,
+        [],
+        non_work_minutes_threshold=10,
+        client_daily_byte_quota_bytes=None,
+        actor_user_id="actor-1",
     )
     now = datetime.now(UTC)
     start = now - timedelta(hours=2)
@@ -170,6 +204,8 @@ async def test_check_combines_multiple_non_exempt_categories_for_the_same_minute
     # 5 overlapping minutes across two categories == 5 active minutes, still
     # under the 10-minute threshold.
     anomalies = (
-        await db_session.execute(select(AnomalyEvent).where(AnomalyEvent.title == ANOMALY_TITLE))
-    ).scalars().all()
+        (await db_session.execute(select(AnomalyEvent).where(AnomalyEvent.title == ANOMALY_TITLE)))
+        .scalars()
+        .all()
+    )
     assert anomalies == []

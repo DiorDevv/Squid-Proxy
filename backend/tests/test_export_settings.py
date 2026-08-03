@@ -2,8 +2,10 @@
 (app/services/export_settings_service.py, api/routes/export_settings.py)."""
 
 from httpx import AsyncClient
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.models.audit_log import AuditAction, AuditLogEntry
 from app.models.export_settings import ExportCleanupMode
 from app.services import export_settings_service
 
@@ -21,6 +23,7 @@ async def test_update_settings_persists_and_reads_back(db_session: AsyncSession)
         cleanup_mode=ExportCleanupMode.AFTER_DOWNLOAD,
         retention_hours=72,
         warn_undownloaded_after_hours=12,
+        actor_user_id="actor-1",
     )
 
     row = await export_settings_service.get_settings_row(db_session)
@@ -29,12 +32,39 @@ async def test_update_settings_persists_and_reads_back(db_session: AsyncSession)
     assert row.warn_undownloaded_after_hours == 12
 
 
+async def test_update_settings_records_audit_entry(db_session: AsyncSession):
+    await export_settings_service.update_settings(
+        db_session,
+        cleanup_mode=ExportCleanupMode.AFTER_DOWNLOAD,
+        retention_hours=72,
+        warn_undownloaded_after_hours=12,
+        actor_user_id="actor-1",
+    )
+
+    entry = (
+        await db_session.execute(
+            select(AuditLogEntry).where(AuditLogEntry.action == AuditAction.EXPORT_SETTINGS_UPDATED)
+        )
+    ).scalar_one()
+    assert entry.actor_user_id == "actor-1"
+    assert "after_download" in entry.detail
+    assert "72" in entry.detail
+
+
 async def test_update_settings_on_second_call_updates_existing_row(db_session: AsyncSession):
     await export_settings_service.update_settings(
-        db_session, ExportCleanupMode.TIME_BASED, retention_hours=48, warn_undownloaded_after_hours=None
+        db_session,
+        ExportCleanupMode.TIME_BASED,
+        retention_hours=48,
+        warn_undownloaded_after_hours=None,
+        actor_user_id="actor-1",
     )
     await export_settings_service.update_settings(
-        db_session, ExportCleanupMode.TIME_BASED, retention_hours=24, warn_undownloaded_after_hours=6
+        db_session,
+        ExportCleanupMode.TIME_BASED,
+        retention_hours=24,
+        warn_undownloaded_after_hours=6,
+        actor_user_id="actor-1",
     )
 
     row = await export_settings_service.get_settings_row(db_session)

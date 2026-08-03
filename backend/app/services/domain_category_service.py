@@ -3,7 +3,9 @@
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.models.audit_log import AuditAction
 from app.models.domain_category import DomainCategory, DomainCategoryLabel
+from app.services import audit_service
 
 
 async def list_all(session: AsyncSession) -> list[DomainCategory]:
@@ -21,7 +23,9 @@ async def get_overrides_map(session: AsyncSession) -> dict[str, DomainCategoryLa
     return {domain: category for domain, category in rows}
 
 
-async def set_category(session: AsyncSession, domain: str, category: DomainCategoryLabel) -> DomainCategory:
+async def set_category(
+    session: AsyncSession, domain: str, category: DomainCategoryLabel, actor_user_id: str
+) -> DomainCategory:
     row = (
         await session.execute(select(DomainCategory).where(DomainCategory.domain == domain))
     ).scalar_one_or_none()
@@ -30,6 +34,12 @@ async def set_category(session: AsyncSession, domain: str, category: DomainCateg
         session.add(row)
     else:
         row.category = category
+    await audit_service.record(
+        session,
+        action=AuditAction.DOMAIN_CATEGORY_SET,
+        actor_user_id=actor_user_id,
+        detail=f"domain={domain}, category={category.value}",
+    )
     await session.commit()
     await session.refresh(row)
     return row

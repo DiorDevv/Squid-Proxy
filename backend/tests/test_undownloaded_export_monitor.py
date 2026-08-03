@@ -50,7 +50,7 @@ async def _anomalies(db_session: AsyncSession) -> list[AnomalyEvent]:
 async def test_check_flags_job_over_threshold(db_session: AsyncSession, monkeypatch):
     _patch_session(monkeypatch, db_session)
     await export_settings_service.update_settings(
-        db_session, ExportCleanupMode.TIME_BASED, retention_hours=48, warn_undownloaded_after_hours=6
+        db_session, ExportCleanupMode.TIME_BASED, retention_hours=48, warn_undownloaded_after_hours=6, actor_user_id="actor-1"
     )
     now = datetime.now(UTC)
     db_session.add(_job(created_at=now - timedelta(hours=10)))
@@ -64,7 +64,7 @@ async def test_check_flags_job_over_threshold(db_session: AsyncSession, monkeypa
 async def test_check_does_not_flag_job_under_threshold(db_session: AsyncSession, monkeypatch):
     _patch_session(monkeypatch, db_session)
     await export_settings_service.update_settings(
-        db_session, ExportCleanupMode.TIME_BASED, retention_hours=48, warn_undownloaded_after_hours=12
+        db_session, ExportCleanupMode.TIME_BASED, retention_hours=48, warn_undownloaded_after_hours=12, actor_user_id="actor-1"
     )
     now = datetime.now(UTC)
     db_session.add(_job(created_at=now - timedelta(hours=2)))
@@ -78,7 +78,7 @@ async def test_check_does_not_flag_job_under_threshold(db_session: AsyncSession,
 async def test_check_is_noop_when_warn_hours_not_configured(db_session: AsyncSession, monkeypatch):
     _patch_session(monkeypatch, db_session)
     await export_settings_service.update_settings(
-        db_session, ExportCleanupMode.TIME_BASED, retention_hours=48, warn_undownloaded_after_hours=None
+        db_session, ExportCleanupMode.TIME_BASED, retention_hours=48, warn_undownloaded_after_hours=None, actor_user_id="actor-1"
     )
     now = datetime.now(UTC)
     db_session.add(_job(created_at=now - timedelta(days=30)))
@@ -92,7 +92,7 @@ async def test_check_is_noop_when_warn_hours_not_configured(db_session: AsyncSes
 async def test_check_does_not_flag_downloaded_job(db_session: AsyncSession, monkeypatch):
     _patch_session(monkeypatch, db_session)
     await export_settings_service.update_settings(
-        db_session, ExportCleanupMode.TIME_BASED, retention_hours=48, warn_undownloaded_after_hours=6
+        db_session, ExportCleanupMode.TIME_BASED, retention_hours=48, warn_undownloaded_after_hours=6, actor_user_id="actor-1"
     )
     now = datetime.now(UTC)
     db_session.add(_job(created_at=now - timedelta(hours=10), downloaded_at=now - timedelta(hours=9)))
@@ -106,7 +106,7 @@ async def test_check_does_not_flag_downloaded_job(db_session: AsyncSession, monk
 async def test_check_does_not_flag_non_done_job(db_session: AsyncSession, monkeypatch):
     _patch_session(monkeypatch, db_session)
     await export_settings_service.update_settings(
-        db_session, ExportCleanupMode.TIME_BASED, retention_hours=48, warn_undownloaded_after_hours=6
+        db_session, ExportCleanupMode.TIME_BASED, retention_hours=48, warn_undownloaded_after_hours=6, actor_user_id="actor-1"
     )
     now = datetime.now(UTC)
     db_session.add(_job(status=ExportJobStatus.FAILED, created_at=now - timedelta(hours=10)))
@@ -120,7 +120,7 @@ async def test_check_does_not_flag_non_done_job(db_session: AsyncSession, monkey
 async def test_check_does_not_re_flag_within_cooldown(db_session: AsyncSession, monkeypatch):
     _patch_session(monkeypatch, db_session)
     await export_settings_service.update_settings(
-        db_session, ExportCleanupMode.TIME_BASED, retention_hours=48, warn_undownloaded_after_hours=6
+        db_session, ExportCleanupMode.TIME_BASED, retention_hours=48, warn_undownloaded_after_hours=6, actor_user_id="actor-1"
     )
     now = datetime.now(UTC)
     db_session.add(_job(created_at=now - timedelta(hours=10)))

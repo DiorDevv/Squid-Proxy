@@ -21,11 +21,19 @@ class AuditAction(str, enum.Enum):
     # so an admin reviewing the audit log can tell "someone ran this export"
     # apart from "someone made this export downloadable without a login."
     EXPORT_SHARED = "export_shared"
+    ALERT_SETTINGS_UPDATED = "alert_settings_updated"
+    DOMAIN_CATEGORY_SET = "domain_category_set"
+    EXPORT_SETTINGS_UPDATED = "export_settings_updated"
+    EXPORT_CANCELLED = "export_cancelled"
+    EXPORT_SHARE_REVOKED = "export_share_revoked"
+    REPORT_SENT_NOW = "report_sent_now"
 
 
 class AuditLogEntry(Base):
-    """Who-did-what trail for admin user-management actions (see
-    app/services/audit_service.py, called from app/services/user_service.py).
+    """Who-did-what trail for admin actions (user management, export
+    lifecycle, alert/domain-category/export settings, scheduled reports --
+    see app/services/audit_service.py for the write side and AuditAction
+    above for the full list of what's covered).
 
     No foreign key to `users` on purpose: the entry must outlive the account
     it describes (e.g. "user_deleted" rows would otherwise dangle or force a

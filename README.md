@@ -365,6 +365,13 @@ by any of them flow through the same `AnomalyEvent`/webhook pipeline as the buil
 `ALERT_WEBHOOK_URL` below). A fourth check, **undownloaded exports**, is configured separately at
 **Settings → Export cleanup settings** — see below.
 
+`ALERT_WEBHOOK_URL` (optional; off by default) receives an HTTP POST for each anomaly at or above
+`ALERT_MIN_SEVERITY`. The payload is **Slack-compatible as-is** — point it at a Slack incoming
+webhook URL and it renders correctly (a `"text"` field is included alongside the structured
+`title`/`description`/`severity`/`client_ip`/`domain`/`branch`/`generated_at` fields, for any
+non-Slack consumer). See `OPS_ALERT_WEBHOOK_URL` (below, "Operator failure notifications") for the
+separate infra-failure channel.
+
 Scheduled email reports (a periodic summary + CSV attachment) are configured via
 `REPORT_SCHEDULE` (`disabled` | `daily` | `weekly`), `REPORT_RECIPIENTS`, and `SMTP_*` — see
 `backend/.env.example`. These *are* environment variables (SMTP credentials are infrastructure
@@ -526,6 +533,13 @@ domain/category), `alert-settings`, `export-settings`, `reports` (status, send-n
 (recent, ring-buffer-backed), `export` (admin-only CSV/JSON), plus the `/ws/live` WebSocket for real-time
 push. Interactive docs are available at `/docs` when the backend is running (FastAPI's built-in
 Swagger UI).
+
+**`GET /api/audit-log`** (admin-only) is the who-did-what trail for admin actions: user
+management (create/role-change/password-reset/delete), the full export lifecycle
+(create/download/share/cancel/share-revoke), and every settings change that affects what gets
+flagged or exported (alert settings, domain categories, export cleanup policy, "send report now").
+Not a data-retention log — entries survive the account or resource they describe (see
+`app/models/audit_log.py`).
 
 **`GET /metrics`** (unauthenticated, same trust boundary as `/api/health`) exposes the same
 operational numbers `/api/health` reports — log lines seen/parsed per branch, parse failure rate,

@@ -8,7 +8,9 @@ from datetime import UTC, datetime
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.models.audit_log import AuditAction
 from app.models.export_settings import ExportCleanupMode, ExportSettings
+from app.services import audit_service
 
 SETTINGS_ROW_ID = 1
 DEFAULT_RETENTION_HOURS = 48
@@ -36,6 +38,7 @@ async def update_settings(
     cleanup_mode: ExportCleanupMode,
     retention_hours: int,
     warn_undownloaded_after_hours: int | None,
+    actor_user_id: str,
 ) -> ExportSettings:
     row = await session.get(ExportSettings, SETTINGS_ROW_ID)
     if row is None:
@@ -45,6 +48,12 @@ async def update_settings(
     row.cleanup_mode = cleanup_mode
     row.retention_hours = retention_hours
     row.warn_undownloaded_after_hours = warn_undownloaded_after_hours
+    await audit_service.record(
+        session,
+        action=AuditAction.EXPORT_SETTINGS_UPDATED,
+        actor_user_id=actor_user_id,
+        detail=f"cleanup_mode={cleanup_mode.value}, retention_hours={retention_hours}",
+    )
     await session.commit()
     await session.refresh(row)
     return row

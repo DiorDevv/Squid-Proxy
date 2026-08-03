@@ -5,10 +5,12 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import get_db, require_admin
+from app.api.deps import CurrentUser, get_current_user, get_db, require_admin
 from app.core.config import get_settings
+from app.models.audit_log import AuditAction
 from app.models.report_schedule_state import ReportScheduleState
 from app.schemas.reports import ReportStatusOut, SendReportNowResponse
+from app.services import audit_service
 from app.services.report_scheduler import STATE_ROW_ID
 from app.services.report_service import generate_and_send_report
 
@@ -32,7 +34,9 @@ async def read_report_status(db: AsyncSession = Depends(get_db)) -> ReportStatus
 
 @router.post("/send-now", response_model=SendReportNowResponse)
 async def send_report_now(
-    branch: str | None = Query(default=None), db: AsyncSession = Depends(get_db)
+    branch: str | None = Query(default=None),
+    db: AsyncSession = Depends(get_db),
+    current_user: CurrentUser = Depends(get_current_user),
 ) -> SendReportNowResponse:
     settings = get_settings()
     if not settings.REPORT_RECIPIENTS:
@@ -59,5 +63,13 @@ async def send_report_now(
         raise HTTPException(
             status.HTTP_502_BAD_GATEWAY, "Failed to send report. Check server logs for details."
         ) from exc
+
+    await audit_service.record(
+        db,
+        action=AuditAction.REPORT_SENT_NOW,
+        actor_user_id=current_user.user_id,
+        detail=f"branch={branch or 'all'}",
+    )
+    await db.commit()
 
     return SendReportNowResponse(sent=True, since=since, until=now)

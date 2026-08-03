@@ -15,7 +15,9 @@ from app.services import alert_settings_service
 from app.services.uncategorized_domain_monitor import ANOMALY_TITLE, UncategorizedDomainMonitorJob
 
 
-def _domain_minutes(domain: str, start: datetime, count: int, branch: str = "default") -> list[DomainMinuteAggregate]:
+def _domain_minutes(
+    domain: str, start: datetime, count: int, branch: str = "default"
+) -> list[DomainMinuteAggregate]:
     return [
         DomainMinuteAggregate(
             bucket_ts=start + timedelta(minutes=i),
@@ -51,6 +53,7 @@ async def test_check_flags_domain_over_threshold(db_session: AsyncSession, monke
         non_work_minutes_threshold=120,
         client_daily_byte_quota_bytes=None,
         uncategorized_domain_request_threshold=50,
+        actor_user_id="actor-1",
     )
     now = datetime.now(UTC)
     db_session.add_all(_domain_minutes("mystery-site.example", now - timedelta(hours=2), 60))
@@ -71,6 +74,7 @@ async def test_check_does_not_flag_domain_under_threshold(db_session: AsyncSessi
         non_work_minutes_threshold=120,
         client_daily_byte_quota_bytes=None,
         uncategorized_domain_request_threshold=100,
+        actor_user_id="actor-1",
     )
     now = datetime.now(UTC)
     db_session.add_all(_domain_minutes("quiet-site.example", now - timedelta(hours=2), 10))
@@ -89,6 +93,7 @@ async def test_check_is_noop_when_threshold_not_configured(db_session: AsyncSess
         non_work_minutes_threshold=120,
         client_daily_byte_quota_bytes=None,
         uncategorized_domain_request_threshold=None,
+        actor_user_id="actor-1",
     )
     now = datetime.now(UTC)
     db_session.add_all(_domain_minutes("busy-site.example", now - timedelta(hours=2), 1000))
@@ -107,6 +112,7 @@ async def test_categorized_domain_is_never_flagged(db_session: AsyncSession, mon
         non_work_minutes_threshold=120,
         client_daily_byte_quota_bytes=None,
         uncategorized_domain_request_threshold=10,
+        actor_user_id="actor-1",
     )
     now = datetime.now(UTC)
     # netflix.com is in the curated known-hostname list (video_streaming),
@@ -128,6 +134,7 @@ async def test_check_does_not_re_flag_within_cooldown(db_session: AsyncSession, 
         non_work_minutes_threshold=120,
         client_daily_byte_quota_bytes=None,
         uncategorized_domain_request_threshold=50,
+        actor_user_id="actor-1",
     )
     now = datetime.now(UTC)
     db_session.add_all(_domain_minutes("repeat-offender.example", now - timedelta(hours=2), 60))

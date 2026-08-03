@@ -33,6 +33,9 @@ async def notify_operator_failure(source: str, message: str, *, exc_info: bool =
         return
 
     payload = {
+        # Makes this deliverable to a real Slack incoming webhook as-is --
+        # see app/services/alerting.py's payload for the same reasoning.
+        "text": f"*Squid Watch operator alert: {source}*\n{message}",
         "title": f"Squid Watch operator alert: {source}",
         "description": message,
         "severity": "high",

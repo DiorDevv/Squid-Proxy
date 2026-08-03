@@ -561,10 +561,16 @@ async def create_share_link(session: AsyncSession, job: ExportJob, actor_user_id
     )
 
 
-async def revoke_share_link(session: AsyncSession, job: ExportJob) -> None:
+async def revoke_share_link(session: AsyncSession, job: ExportJob, actor_user_id: str) -> None:
     job.share_token_hash = None
     job.share_token_expires_at = None
     job.share_created_by = None
+    await audit_service.record(
+        session,
+        action=AuditAction.EXPORT_SHARE_REVOKED,
+        actor_user_id=actor_user_id,
+        detail=f"job_id={job.id}",
+    )
     await session.commit()
 
 

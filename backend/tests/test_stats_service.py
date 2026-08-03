@@ -92,7 +92,9 @@ async def test_get_top_domains_category_filter_respects_admin_override(db_sessio
             DomainMinuteAggregate(bucket_ts=bucket, domain="youtube.com", request_count=100, blocked_count=0),
         ]
     )
-    await domain_category_service.set_category(db_session, "youtube.com", DomainCategoryLabel.WORK_TOOLS)
+    await domain_category_service.set_category(
+        db_session, "youtube.com", DomainCategoryLabel.WORK_TOOLS, "actor-1"
+    )
     await db_session.commit()
 
     video_items = await get_top_domains(

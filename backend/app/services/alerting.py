@@ -32,12 +32,26 @@ async def maybe_alert(event: AnomalyEvent) -> None:
     if _SEVERITY_RANK[event.severity] < _SEVERITY_RANK[min_severity]:
         return
 
+    # "text" makes this deliverable to a real Slack incoming webhook as-is --
+    # Slack's API 400s (and this whole POST fails, per the try/except below)
+    # on a payload with neither "text" nor "blocks". Slack renders "text" and
+    # ignores the other keys, so non-Slack consumers still get the full
+    # structured payload alongside it.
+    text_lines = [f"*{event.title}* ({event.severity.value.upper()})", event.description]
+    if event.client_ip:
+        text_lines.append(f"Client: {event.client_ip}")
+    if event.domain:
+        text_lines.append(f"Domain: {event.domain}")
+    text_lines.append(f"Branch: {event.branch}")
+
     payload = {
+        "text": "\n".join(text_lines),
         "title": event.title,
         "description": event.description,
         "severity": event.severity.value,
         "client_ip": event.client_ip,
         "domain": event.domain,
+        "branch": event.branch,
         "generated_at": event.generated_at.isoformat(),
     }
     try:

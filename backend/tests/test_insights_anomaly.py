@@ -158,7 +158,11 @@ async def test_no_events_returns_no_anomalies(db_session: AsyncSession):
 
 async def test_sensitive_category_first_visit_is_flagged(db_session: AsyncSession):
     await alert_settings_service.update_settings(
-        db_session, [DomainCategoryLabel.GAMBLING], non_work_minutes_threshold=120, client_daily_byte_quota_bytes=None
+        db_session,
+        [DomainCategoryLabel.GAMBLING],
+        non_work_minutes_threshold=120,
+        client_daily_byte_quota_bytes=None,
+        actor_user_id="actor-1",
     )
     events = [_event(client_ip="10.0.0.20", domain="gambling-paradise.bet", blocked=False)]
 
@@ -181,7 +185,11 @@ async def test_sensitive_category_visit_not_flagged_when_no_categories_configure
 
 async def test_sensitive_category_visit_not_flagged_for_uninvolved_category(db_session: AsyncSession):
     await alert_settings_service.update_settings(
-        db_session, [DomainCategoryLabel.GAMBLING], non_work_minutes_threshold=120, client_daily_byte_quota_bytes=None
+        db_session,
+        [DomainCategoryLabel.GAMBLING],
+        non_work_minutes_threshold=120,
+        client_daily_byte_quota_bytes=None,
+        actor_user_id="actor-1",
     )
     events = [_event(client_ip="10.0.0.22", domain="github.com", blocked=False)]
 
@@ -192,7 +200,11 @@ async def test_sensitive_category_visit_not_flagged_for_uninvolved_category(db_s
 
 async def test_sensitive_category_repeat_visit_is_not_flagged(db_session: AsyncSession):
     await alert_settings_service.update_settings(
-        db_session, [DomainCategoryLabel.GAMBLING], non_work_minutes_threshold=120, client_daily_byte_quota_bytes=None
+        db_session,
+        [DomainCategoryLabel.GAMBLING],
+        non_work_minutes_threshold=120,
+        client_daily_byte_quota_bytes=None,
+        actor_user_id="actor-1",
     )
     db_session.add(
         RawEvent(
@@ -231,7 +243,11 @@ async def test_one_wildly_out_of_order_event_does_not_poison_window_start_for_ot
     the *whole* flush. If it did, every "seen before window_start" check in
     this file would treat every client as brand new, forever."""
     await alert_settings_service.update_settings(
-        db_session, [DomainCategoryLabel.GAMBLING], non_work_minutes_threshold=120, client_daily_byte_quota_bytes=None
+        db_session,
+        [DomainCategoryLabel.GAMBLING],
+        non_work_minutes_threshold=120,
+        client_daily_byte_quota_bytes=None,
+        actor_user_id="actor-1",
     )
     db_session.add(
         RawEvent(
@@ -265,4 +281,6 @@ async def test_one_wildly_out_of_order_event_does_not_poison_window_start_for_ot
     ]
     anomalies = await StatisticalAnomalyProvider().detect_anomalies(events, db_session)
 
-    assert not [a for a in anomalies if a.title == "Sensitive category visited" and a.client_ip == "10.0.0.24"]
+    assert not [
+        a for a in anomalies if a.title == "Sensitive category visited" and a.client_ip == "10.0.0.24"
+    ]

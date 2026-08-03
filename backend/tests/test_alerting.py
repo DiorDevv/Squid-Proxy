@@ -11,15 +11,18 @@ from app.models.anomaly_event import AnomalyEvent, AnomalySeverity
 from app.services import alerting
 
 
-def _anomaly_event(severity: AnomalySeverity) -> AnomalyEvent:
+def _anomaly_event(
+    severity: AnomalySeverity, *, client_ip=None, domain=None, branch="filiallar"
+) -> AnomalyEvent:
     return AnomalyEvent(
         id="evt-1",
         generated_at=datetime.now(UTC),
         title="Traffic spike detected",
         description="100 requests vs a baseline of ~10.",
         severity=severity,
-        client_ip=None,
-        domain=None,
+        client_ip=client_ip,
+        domain=domain,
+        branch=branch,
     )
 
 
@@ -76,6 +79,32 @@ async def test_maybe_alert_posts_webhook_when_severity_meets_threshold(monkeypat
     assert url == "https://hooks.example.com/alert"
     assert payload["title"] == event.title
     assert payload["severity"] == "high"
+
+
+async def test_maybe_alert_payload_is_slack_compatible_and_includes_branch(monkeypatch):
+    """A payload with neither "text" nor "blocks" makes Slack's incoming
+    webhook API 400 -- this payload must always carry "text" so pointing
+    ALERT_WEBHOOK_URL at a real Slack webhook actually works, not just logs
+    a delivery failure every time."""
+    monkeypatch.setattr(
+        alerting,
+        "get_settings",
+        lambda: Settings(ALERT_WEBHOOK_URL="https://hooks.slack.com/services/x", ALERT_MIN_SEVERITY="high"),
+    )
+    monkeypatch.setattr(alerting.httpx, "AsyncClient", _RecordingAsyncClient)
+
+    event = _anomaly_event(
+        AnomalySeverity.HIGH, client_ip="10.0.0.5", domain="example.com", branch="filiallar"
+    )
+    await alerting.maybe_alert(event)
+
+    _, payload = _RecordingAsyncClient.calls[0]
+    assert isinstance(payload["text"], str) and payload["text"]
+    assert event.title in payload["text"]
+    assert "10.0.0.5" in payload["text"]
+    assert "example.com" in payload["text"]
+    assert "filiallar" in payload["text"]
+    assert payload["branch"] == "filiallar"
 
 
 async def test_maybe_alert_skips_when_severity_below_threshold(monkeypatch):

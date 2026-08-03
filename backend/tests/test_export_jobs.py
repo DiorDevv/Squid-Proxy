@@ -417,7 +417,11 @@ async def test_purge_old_jobs_is_noop_in_after_download_mode(db_session: AsyncSe
         )
     )
     await export_settings_service.update_settings(
-        db_session, ExportCleanupMode.AFTER_DOWNLOAD, retention_hours=48, warn_undownloaded_after_hours=None
+        db_session,
+        ExportCleanupMode.AFTER_DOWNLOAD,
+        retention_hours=48,
+        warn_undownloaded_after_hours=None,
+        actor_user_id="actor-1",
     )
 
     deleted_count = await export_job_service.purge_old_jobs(db_session)
@@ -480,7 +484,11 @@ async def test_delete_file_if_after_download_mode_deletes_only_in_that_mode(
             )
         )
         await export_settings_service.update_settings(
-            session, ExportCleanupMode.TIME_BASED, retention_hours=48, warn_undownloaded_after_hours=None
+            session,
+            ExportCleanupMode.TIME_BASED,
+            retention_hours=48,
+            warn_undownloaded_after_hours=None,
+            actor_user_id="actor-1",
         )
 
     # TIME_BASED (the default/current mode) -- must not touch the file.
@@ -489,7 +497,11 @@ async def test_delete_file_if_after_download_mode_deletes_only_in_that_mode(
 
     async with session_factory() as session:
         await export_settings_service.update_settings(
-            session, ExportCleanupMode.AFTER_DOWNLOAD, retention_hours=48, warn_undownloaded_after_hours=None
+            session,
+            ExportCleanupMode.AFTER_DOWNLOAD,
+            retention_hours=48,
+            warn_undownloaded_after_hours=None,
+            actor_user_id="actor-1",
         )
 
     await export_job_service.delete_file_if_after_download_mode("after-dl-job")
@@ -507,9 +519,7 @@ async def test_create_export_job_route_returns_pending(
     # writing into the repo's working directory during the test.
     monkeypatch.setattr(export_job_service, "_jobs_dir", lambda: tmp_path)
 
-    response = await app_client.post(
-        "/api/export/jobs?format=csv", headers=auth_headers(admin_token)
-    )
+    response = await app_client.post("/api/export/jobs?format=csv", headers=auth_headers(admin_token))
     assert response.status_code == 201
     body = response.json()
     assert body["status"] in ("pending", "running", "done")  # the real background task may race ahead
@@ -562,7 +572,11 @@ async def test_download_export_job_route_deletes_file_in_after_download_mode(
     file is streamed, using the same DB the route itself writes through."""
     monkeypatch.setattr(export_job_service, "_jobs_dir", lambda: tmp_path)
     await export_settings_service.update_settings(
-        db_session, ExportCleanupMode.AFTER_DOWNLOAD, retention_hours=48, warn_undownloaded_after_hours=None
+        db_session,
+        ExportCleanupMode.AFTER_DOWNLOAD,
+        retention_hours=48,
+        warn_undownloaded_after_hours=None,
+        actor_user_id="actor-1",
     )
 
     create_response = await app_client.post(
@@ -606,21 +620,21 @@ async def test_download_export_job_route_409_does_not_record_audit_entry(
     # downloaded, so nothing should be audited.
     monkeypatch.setattr(export_job_service, "start", lambda job_id: None)
 
-    create_response = await app_client.post(
-        "/api/export/jobs?format=csv", headers=auth_headers(admin_token)
-    )
+    create_response = await app_client.post("/api/export/jobs?format=csv", headers=auth_headers(admin_token))
     job_id = create_response.json()["id"]
 
-    response = await app_client.get(
-        f"/api/export/jobs/{job_id}/download", headers=auth_headers(admin_token)
-    )
+    response = await app_client.get(f"/api/export/jobs/{job_id}/download", headers=auth_headers(admin_token))
     assert response.status_code == 409
 
     count = (
-        await db_session.execute(
-            select(AuditLogEntry).where(AuditLogEntry.action == AuditAction.EXPORT_DOWNLOADED)
+        (
+            await db_session.execute(
+                select(AuditLogEntry).where(AuditLogEntry.action == AuditAction.EXPORT_DOWNLOADED)
+            )
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
     assert count == []
 
 
@@ -636,14 +650,10 @@ async def test_download_export_job_route_409_before_done(
     # the test, so the job is deterministically still PENDING/RUNNING.
     monkeypatch.setattr(export_job_service, "start", lambda job_id: None)
 
-    create_response = await app_client.post(
-        "/api/export/jobs?format=csv", headers=auth_headers(admin_token)
-    )
+    create_response = await app_client.post("/api/export/jobs?format=csv", headers=auth_headers(admin_token))
     job_id = create_response.json()["id"]
 
-    response = await app_client.get(
-        f"/api/export/jobs/{job_id}/download", headers=auth_headers(admin_token)
-    )
+    response = await app_client.get(f"/api/export/jobs/{job_id}/download", headers=auth_headers(admin_token))
     assert response.status_code == 409
 
 
@@ -656,9 +666,7 @@ async def test_cancel_export_job_route_marks_job_cancelled(
     # race with run_job finishing on its own) is what's being tested.
     monkeypatch.setattr(export_job_service, "start", lambda job_id: None)
 
-    create_response = await app_client.post(
-        "/api/export/jobs?format=csv", headers=auth_headers(admin_token)
-    )
+    create_response = await app_client.post("/api/export/jobs?format=csv", headers=auth_headers(admin_token))
     job_id = create_response.json()["id"]
 
     cancel_response = await app_client.post(
@@ -671,10 +679,29 @@ async def test_cancel_export_job_route_marks_job_cancelled(
     # the cancel request was recorded and gets honored once the job's own
     # task next checks for it -- immediately, since it's still PENDING.
     await export_job_service.run_job(job_id)
-    status_response = await app_client.get(
-        f"/api/export/jobs/{job_id}", headers=auth_headers(admin_token)
-    )
+    status_response = await app_client.get(f"/api/export/jobs/{job_id}", headers=auth_headers(admin_token))
     assert status_response.json()["status"] == "cancelled"
+
+
+async def test_cancel_export_job_route_records_audit_entry(
+    app_client: AsyncClient, admin_token, auth_headers, db_session: AsyncSession, monkeypatch
+):
+    monkeypatch.setattr(export_job_service, "start", lambda job_id: None)
+
+    create_response = await app_client.post("/api/export/jobs?format=csv", headers=auth_headers(admin_token))
+    job_id = create_response.json()["id"]
+
+    cancel_response = await app_client.post(
+        f"/api/export/jobs/{job_id}/cancel", headers=auth_headers(admin_token)
+    )
+    assert cancel_response.status_code == 200
+
+    entry = (
+        await db_session.execute(
+            select(AuditLogEntry).where(AuditLogEntry.action == AuditAction.EXPORT_CANCELLED)
+        )
+    ).scalar_one()
+    assert job_id in entry.detail
 
 
 async def test_cancel_export_job_route_409_when_already_done(
@@ -734,8 +761,17 @@ async def test_create_export_job_route_429_at_max_concurrent(
 
 async def test_create_job_stores_and_echoes_filters_and_columns(db_session: AsyncSession):
     job = await export_job_service.create_job(
-        db_session, RangeParam.ONE_HOUR.since(), datetime.now(UTC), "csv", False, None, "test-admin",
-        client_ip="10.0.0.5", domain="example.com", category="social_media", columns=["id", "domain"],
+        db_session,
+        RangeParam.ONE_HOUR.since(),
+        datetime.now(UTC),
+        "csv",
+        False,
+        None,
+        "test-admin",
+        client_ip="10.0.0.5",
+        domain="example.com",
+        category="social_media",
+        columns=["id", "domain"],
     )
 
     assert job.client_ip == "10.0.0.5"
@@ -751,7 +787,13 @@ async def test_create_job_stores_and_echoes_filters_and_columns(db_session: Asyn
 async def test_create_job_rejects_unknown_column(db_session: AsyncSession):
     with pytest.raises(ValueError, match="not-a-real-column"):
         await export_job_service.create_job(
-            db_session, RangeParam.ONE_HOUR.since(), datetime.now(UTC), "csv", False, None, "test-admin",
+            db_session,
+            RangeParam.ONE_HOUR.since(),
+            datetime.now(UTC),
+            "csv",
+            False,
+            None,
+            "test-admin",
             columns=["not-a-real-column"],
         )
 
@@ -766,7 +808,13 @@ async def test_run_job_respects_client_ip_filter(db_session: AsyncSession, tmp_p
     await db_session.commit()
 
     job = await export_job_service.create_job(
-        db_session, RangeParam.ONE_HOUR.since(), datetime.now(UTC), "csv", False, None, "test-admin",
+        db_session,
+        RangeParam.ONE_HOUR.since(),
+        datetime.now(UTC),
+        "csv",
+        False,
+        None,
+        "test-admin",
         client_ip="10.0.0.2",
     )
     await export_job_service.run_job(job.id)
@@ -786,7 +834,13 @@ async def test_run_job_writes_xlsx_and_marks_done(db_session: AsyncSession, tmp_
     await db_session.commit()
 
     job = await export_job_service.create_job(
-        db_session, RangeParam.ONE_HOUR.since(), datetime.now(UTC), "xlsx", False, None, "test-admin",
+        db_session,
+        RangeParam.ONE_HOUR.since(),
+        datetime.now(UTC),
+        "xlsx",
+        False,
+        None,
+        "test-admin",
         columns=["client_ip", "domain"],
     )
     await export_job_service.run_job(job.id)
@@ -855,9 +909,17 @@ async def test_share_link_create_verify_and_revoke(db_session: AsyncSession, tmp
     # Revoking clears the link entirely, regardless of expiry.
     job.share_token_expires_at = datetime.now(UTC) + timedelta(hours=1)
     await db_session.commit()
-    await export_job_service.revoke_share_link(db_session, job)
+    await export_job_service.revoke_share_link(db_session, job, "actor-1")
     assert job.share_token_hash is None
     assert await export_job_service.verify_share_token(db_session, job.id, link.token) is None
+
+    entry = (
+        await db_session.execute(
+            select(AuditLogEntry).where(AuditLogEntry.action == AuditAction.EXPORT_SHARE_REVOKED)
+        )
+    ).scalar_one()
+    assert entry.actor_user_id == "actor-1"
+    assert job.id in entry.detail
 
 
 async def test_create_share_link_records_export_shared_audit_entry(

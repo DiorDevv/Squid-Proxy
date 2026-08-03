@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import get_db, require_admin
+from app.api.deps import CurrentUser, get_current_user, get_db, require_admin
 from app.core.config import DEFAULT_BRANCH
 from app.schemas.alerts import AlertSettingsOut, UpdateAlertSettingsRequest
 from app.services import alert_settings_service
@@ -37,13 +37,15 @@ async def update_alert_settings(
     body: UpdateAlertSettingsRequest,
     branch: str = Query(default=DEFAULT_BRANCH),
     db: AsyncSession = Depends(get_db),
+    current_user: CurrentUser = Depends(get_current_user),
 ) -> AlertSettingsOut:
     row = await alert_settings_service.update_settings(
         db,
-        body.sensitive_categories,
-        body.non_work_minutes_threshold,
-        body.client_daily_byte_quota_bytes,
-        body.uncategorized_domain_request_threshold,
-        branch,
+        sensitive_categories=body.sensitive_categories,
+        non_work_minutes_threshold=body.non_work_minutes_threshold,
+        client_daily_byte_quota_bytes=body.client_daily_byte_quota_bytes,
+        actor_user_id=current_user.user_id,
+        uncategorized_domain_request_threshold=body.uncategorized_domain_request_threshold,
+        branch=branch,
     )
     return _to_out(row)

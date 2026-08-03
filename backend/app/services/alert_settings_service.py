@@ -12,7 +12,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import DEFAULT_BRANCH
 from app.models.alert_settings import AlertSettings
+from app.models.audit_log import AuditAction
 from app.models.domain_category import DomainCategoryLabel
+from app.services import audit_service
 
 DEFAULT_NON_WORK_MINUTES_THRESHOLD = 120
 
@@ -60,6 +62,7 @@ async def update_settings(
     sensitive_categories: list[DomainCategoryLabel],
     non_work_minutes_threshold: int,
     client_daily_byte_quota_bytes: int | None,
+    actor_user_id: str,
     uncategorized_domain_request_threshold: int | None = None,
     branch: str = DEFAULT_BRANCH,
 ) -> AlertSettings:
@@ -74,6 +77,12 @@ async def update_settings(
     row.non_work_minutes_threshold = non_work_minutes_threshold
     row.client_daily_byte_quota_bytes = client_daily_byte_quota_bytes
     row.uncategorized_domain_request_threshold = uncategorized_domain_request_threshold
+    await audit_service.record(
+        session,
+        action=AuditAction.ALERT_SETTINGS_UPDATED,
+        actor_user_id=actor_user_id,
+        detail=f"branch={branch}",
+    )
     await session.commit()
     await session.refresh(row)
     return row

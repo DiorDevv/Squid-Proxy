@@ -2,8 +2,10 @@
 (app/services/alert_settings_service.py, api/routes/alert_settings.py)."""
 
 from httpx import AsyncClient
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.models.audit_log import AuditAction, AuditLogEntry
 from app.models.domain_category import DomainCategoryLabel
 from app.services import alert_settings_service
 
@@ -22,6 +24,7 @@ async def test_update_settings_persists_and_reads_back(db_session: AsyncSession)
         [DomainCategoryLabel.GAMBLING, DomainCategoryLabel.GAMING],
         non_work_minutes_threshold=90,
         client_daily_byte_quota_bytes=10_000_000_000,
+        actor_user_id="actor-1",
         uncategorized_domain_request_threshold=500,
     )
 
@@ -33,6 +36,25 @@ async def test_update_settings_persists_and_reads_back(db_session: AsyncSession)
     assert row.non_work_minutes_threshold == 90
     assert row.client_daily_byte_quota_bytes == 10_000_000_000
     assert row.uncategorized_domain_request_threshold == 500
+
+
+async def test_update_settings_records_audit_entry(db_session: AsyncSession):
+    await alert_settings_service.update_settings(
+        db_session,
+        [DomainCategoryLabel.GAMBLING],
+        non_work_minutes_threshold=90,
+        client_daily_byte_quota_bytes=None,
+        actor_user_id="actor-1",
+        branch="filiallar",
+    )
+
+    entry = (
+        await db_session.execute(
+            select(AuditLogEntry).where(AuditLogEntry.action == AuditAction.ALERT_SETTINGS_UPDATED)
+        )
+    ).scalar_one()
+    assert entry.actor_user_id == "actor-1"
+    assert "filiallar" in entry.detail
 
 
 async def test_parse_sensitive_categories_ignores_garbage_tokens():

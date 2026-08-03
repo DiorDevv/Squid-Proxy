@@ -1,0 +1,33 @@
+# Weekly backup-restore verification (see backend/scripts/
+# verify_backup_restore.py) -- restores the newest backup from
+# squid-dashboard-backup.service into a throwaway database, runs a minimal
+# sanity query, then drops it, never touching the real database. Triggered
+# by squid-dashboard-backup-verify.timer, not WantedBy'd directly. Install:
+#
+#   sudo cp deploy/systemd/squid-dashboard-backup-verify.{service,timer} /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now squid-dashboard-backup-verify.timer
+#
+# Requires the same `pg_dump`/`pg_restore`/`psql` (matching your Postgres
+# server's major version) or `sqlite3` on PATH that
+# squid-dashboard-backup.service already needs -- see that file's header
+# comment. Same WorkingDirectory/EnvironmentFile/user assumptions as
+# squid-dashboard-backend.service.
+#
+# Not run on the same schedule as the backup itself -- restoring a full
+# dump isn't cheap, weekly is enough to catch a broken backup mechanism
+# (wrong credentials, a pg_dump/server version mismatch, disk corruption)
+# well before the 30-day default retention window would otherwise let a
+# run of bad backups go unnoticed.
+
+[Unit]
+Description=Squid Proxy Log Analytics — backup restore verification
+After=network.target
+
+[Service]
+Type=oneshot
+User=squid-dashboard
+Group=squid-dashboard
+WorkingDirectory=/opt/squid-dashboard/backend
+EnvironmentFile=/opt/squid-dashboard/backend/.env
+ExecStart=/opt/squid-dashboard/backend/.venv/bin/python scripts/verify_backup_restore.py --output-dir /opt/squid-dashboard/backups

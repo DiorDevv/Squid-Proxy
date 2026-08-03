@@ -20,6 +20,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.config import get_settings
 from app.models.db import AsyncSessionLocal
 from app.models.report_schedule_state import ReportScheduleState
+from app.services.ops_alerting import notify_operator_failure
 from app.services.report_service import generate_and_send_report
 
 logger = logging.getLogger(__name__)
@@ -64,6 +65,9 @@ class ReportScheduler:
             await self.check()
         except Exception:
             logger.exception("Report scheduler check failed; will retry next interval")
+            await notify_operator_failure(
+                "report_scheduler", "Report scheduler check failed; will retry next interval"
+            )
 
     async def check(self) -> None:
         settings = get_settings()

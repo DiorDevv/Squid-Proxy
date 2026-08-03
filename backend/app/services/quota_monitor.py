@@ -19,6 +19,7 @@ from app.models.client_aggregate import ClientMinuteAggregate
 from app.models.db import AsyncSessionLocal
 from app.services import alert_settings_service, insights_service
 from app.services.alerting import maybe_alert
+from app.services.ops_alerting import notify_operator_failure
 
 logger = logging.getLogger(__name__)
 
@@ -61,6 +62,7 @@ class QuotaMonitorJob:
             await self.check()
         except Exception:
             logger.exception("Quota check failed; will retry next interval")
+            await notify_operator_failure("quota_monitor", "Quota check failed; will retry next interval")
 
     async def check(self) -> None:
         now = datetime.now(UTC)

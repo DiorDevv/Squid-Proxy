@@ -31,6 +31,7 @@ from app.models.db import AsyncSessionLocal
 from app.models.domain_category import DomainCategoryLabel
 from app.services import alert_settings_service, insights_service, stats_service
 from app.services.alerting import maybe_alert
+from app.services.ops_alerting import notify_operator_failure
 
 logger = logging.getLogger(__name__)
 
@@ -80,6 +81,10 @@ class UncategorizedDomainMonitorJob:
             await self.check()
         except Exception:
             logger.exception("Uncategorized-domain check failed; will retry next interval")
+            await notify_operator_failure(
+                "uncategorized_domain_monitor",
+                "Uncategorized-domain check failed; will retry next interval",
+            )
 
     async def check(self) -> None:
         settings = get_settings()

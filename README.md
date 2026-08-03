@@ -32,6 +32,7 @@ See [ARCHITECTURE.md](ARCHITECTURE.md) for the reasoning behind the major design
 - [Category/quota alerting and scheduled reports](#categoryquota-alerting-and-scheduled-reports)
 - [Archiving raw event detail before it's purged](#archiving-raw-event-detail-before-its-purged)
 - [Database backups](#database-backups)
+- [Operator failure notifications](#operator-failure-notifications)
 - [API surface](#api-surface)
 - [Deploying without Docker](#deploying-without-docker)
 - [Database migrations](#database-migrations)
@@ -268,6 +269,7 @@ Key ones to know:
 | `ADMIN_EMAIL` / `ADMIN_PASSWORD` | First-boot admin bootstrap (only used if the `users` table is empty) |
 | `RING_BUFFER_MAX_EVENTS` / `AGGREGATION_INTERVAL_SECONDS` | In-memory event buffer size and flush interval — see "Capacity planning" below |
 | `DATABASE_POOL_SIZE` / `DATABASE_MAX_OVERFLOW` | Postgres connection pool sizing (ignored for SQLite) — see "Capacity planning" below |
+| `OPS_ALERT_WEBHOOK_URL` | Notified when something breaks operationally (tailer down, backup/retention/archiving failed) — see "Operator failure notifications" below |
 
 ## Capacity planning for large deployments
 
@@ -484,6 +486,37 @@ pg_restore --clean --if-exists --dbname=postgresql://squid:PASSWORD@localhost:54
 cp squid-dashboard-backup-20260101T040000Z.db squid_dashboard.db
 ```
 
+**Verifying restores automatically**: `backend/scripts/verify_backup_restore.py` (non-Docker) /
+`verify_backup_restore_docker.sh` (Docker) automate exactly this — restore the newest backup into
+a throwaway database, run a minimal sanity query, then drop it, never touching the real database.
+Not run on the same schedule as the backup itself (restoring a full dump isn't cheap); weekly is
+enough to catch a broken backup mechanism well before the default 30-day retention window would
+otherwise let a run of bad backups go unnoticed.
+
+```bash
+# Docker:
+docker compose exec db-backup sh /verify_backup_restore_docker.sh
+
+# Without Docker -- install the same way as the backup timer above:
+sudo cp deploy/systemd/squid-dashboard-backup-verify.{service,timer} /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now squid-dashboard-backup-verify.timer
+```
+
+A failed verification (or a failed backup itself, or a failed retention/archive run, or the log
+tailer dying) posts to `OPS_ALERT_WEBHOOK_URL` if configured — see "Operator failure
+notifications" below.
+
+## Operator failure notifications
+
+Distinct from the traffic-anomaly `ALERT_WEBHOOK_URL` above: `OPS_ALERT_WEBHOOK_URL` (falls back to
+`ALERT_WEBHOOK_URL` if unset, so a single-webhook operator needs zero new config) is posted to
+whenever something operational breaks — the log tailer dies, a background job (retention,
+archiving, category/quota/UT1 checks) errors out, a backup or backup-restore-verification fails.
+Every one of these already logged the failure and retried on its own schedule; this is what
+actually reaches a human instead of only whoever happens to be reading `docker logs`/`journalctl`
+at that moment. Off by default, same as `ALERT_WEBHOOK_URL`.
+
 ## API surface
 
 All endpoints are under `/api`, JWT-protected except `/api/health`. See
@@ -493,6 +526,11 @@ domain/category), `alert-settings`, `export-settings`, `reports` (status, send-n
 (recent, ring-buffer-backed), `export` (admin-only CSV/JSON), plus the `/ws/live` WebSocket for real-time
 push. Interactive docs are available at `/docs` when the backend is running (FastAPI's built-in
 Swagger UI).
+
+**`GET /metrics`** (unauthenticated, same trust boundary as `/api/health`) exposes the same
+operational numbers `/api/health` reports — log lines seen/parsed per branch, parse failure rate,
+tailer liveness, aggregator backlog ratio — in Prometheus text format, for wiring into
+Grafana/Alertmanager instead of scraping and reshaping `/api/health`'s JSON.
 
 ## Deploying without Docker
 

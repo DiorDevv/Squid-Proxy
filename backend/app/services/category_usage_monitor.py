@@ -36,6 +36,7 @@ from app.models.db import AsyncSessionLocal
 from app.models.domain_category import DomainCategoryLabel
 from app.services import alert_settings_service, insights_service
 from app.services.alerting import maybe_alert
+from app.services.ops_alerting import notify_operator_failure
 
 logger = logging.getLogger(__name__)
 
@@ -79,6 +80,9 @@ class CategoryUsageMonitorJob:
             await self.check()
         except Exception:
             logger.exception("Category usage check failed; will retry next interval")
+            await notify_operator_failure(
+                "category_usage_monitor", "Category usage check failed; will retry next interval"
+            )
 
     async def check(self) -> None:
         now = datetime.now(UTC)

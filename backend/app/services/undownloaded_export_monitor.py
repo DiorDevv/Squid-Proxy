@@ -24,6 +24,7 @@ from app.models.db import AsyncSessionLocal
 from app.models.export_job import ExportJob, ExportJobStatus
 from app.services import export_settings_service, insights_service
 from app.services.alerting import maybe_alert
+from app.services.ops_alerting import notify_operator_failure
 
 logger = logging.getLogger(__name__)
 
@@ -67,6 +68,10 @@ class UndownloadedExportMonitorJob:
             await self.check()
         except Exception:
             logger.exception("Undownloaded-export check failed; will retry next interval")
+            await notify_operator_failure(
+                "undownloaded_export_monitor",
+                "Undownloaded-export check failed; will retry next interval",
+            )
 
     async def check(self) -> None:
         now = datetime.now(UTC)

@@ -27,6 +27,7 @@ from app.models.raw_event import RawEvent
 from app.models.refresh_token import RefreshToken
 from app.services.db_upsert import bulk_upsert_sum
 from app.services.export_job_service import purge_old_jobs
+from app.services.ops_alerting import notify_operator_failure
 from app.services.report_service import send_unarchived_purge_warning
 
 logger = logging.getLogger(__name__)
@@ -87,6 +88,7 @@ class RetentionJob:
             await self.purge()
         except Exception:
             logger.exception("Retention purge failed; will retry next interval")
+            await notify_operator_failure("retention", "Retention purge failed; will retry next interval")
 
     async def purge(self) -> None:
         settings = get_settings()

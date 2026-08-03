@@ -17,6 +17,23 @@
 output_dir="${BACKUP_OUTPUT_DIR:-/backups}"
 keep_days="${BACKUP_KEEP_DAYS:-30}"
 interval_seconds="${BACKUP_INTERVAL_SECONDS:-86400}"
+# Same fallback as app/services/ops_alerting.py's Python side: a
+# single-webhook operator sets only ALERT_WEBHOOK_URL and gets it here too.
+ops_webhook_url="${OPS_ALERT_WEBHOOK_URL:-${ALERT_WEBHOOK_URL:-}}"
+
+# This container has no Python/app package (it's bare postgres:16-alpine),
+# so it can't import ops_alerting -- posts the same payload shape directly
+# with busybox wget (confirmed present in this base image; curl is not,
+# so this deliberately isn't a curl call). Best-effort: `|| true` so a
+# webhook hiccup can never take down the backup loop itself.
+notify_operator_failure() {
+  [ -n "$ops_webhook_url" ] || return 0
+  message=$1
+  wget -q -T 5 -O /dev/null \
+    --header='Content-Type: application/json' \
+    --post-data="{\"title\":\"Squid Watch operator alert: backup\",\"description\":\"${message}\",\"severity\":\"high\",\"source\":\"backup\",\"generated_at\":\"$(date -u +%Y-%m-%dT%H:%M:%SZ)\"}" \
+    "$ops_webhook_url" || true
+}
 
 mkdir -p "$output_dir"
 
@@ -30,6 +47,7 @@ while true; do
   else
     echo "Database backup FAILED this cycle -- will retry in ${interval_seconds}s" >&2
     rm -f "$dest"
+    notify_operator_failure "Database backup FAILED this cycle; will retry in ${interval_seconds}s"
   fi
 
   find "$output_dir" -name 'squid-dashboard-backup-*' -mtime "+${keep_days}" -print -delete

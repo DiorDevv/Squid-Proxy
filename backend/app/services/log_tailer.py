@@ -44,6 +44,7 @@ from pathlib import Path
 from typing import TextIO
 
 from app.services.log_parser import ParsedEvent, parse_line
+from app.services.ops_alerting import notify_operator_failure
 
 logger = logging.getLogger(__name__)
 
@@ -176,6 +177,11 @@ class LogTailer:
             logger.exception("Unexpected error while tailing log file", extra={"path": self.path})
             self._alive = False
             self._close()
+            await notify_operator_failure(
+                f"log_tailer:{self.branch}",
+                f"Log tailer for branch '{self.branch}' hit an unexpected error and stopped "
+                f"reading {self.path}; it will retry with backoff.",
+            )
             return True
 
         if missing:

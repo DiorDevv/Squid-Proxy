@@ -33,6 +33,7 @@ python scripts/backup_database.py`):
 """
 
 import argparse
+import asyncio
 import logging
 import os
 import subprocess
@@ -45,6 +46,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from app.core.config import get_settings  # noqa: E402
 from app.core.logging import configure_logging  # noqa: E402
+from app.services.ops_alerting import notify_operator_failure  # noqa: E402
 
 logger = logging.getLogger(__name__)
 
@@ -154,6 +156,11 @@ def main() -> None:
         run(args.output_dir, args.keep_days)
     except subprocess.CalledProcessError as exc:
         logger.error("Backup command failed", extra={"returncode": exc.returncode, "stderr": exc.stderr})
+        asyncio.run(
+            notify_operator_failure(
+                "backup", f"Database backup command failed (exit code {exc.returncode})"
+            )
+        )
         raise SystemExit(1) from exc
 
 

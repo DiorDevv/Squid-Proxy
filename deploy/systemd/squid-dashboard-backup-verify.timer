@@ -1,0 +1,17 @@
+# Runs squid-dashboard-backup-verify.service once a week. See that file for
+# install instructions -- both are installed together.
+
+[Unit]
+Description=Weekly Squid Proxy Log Analytics backup restore verification
+
+[Timer]
+OnCalendar=weekly
+# Staggers the actual run time, same reasoning as
+# squid-dashboard-backup.timer's RandomizedDelaySec -- also spreads this
+# out from the backup timer itself, so verification doesn't necessarily
+# run in the same window as that day's backup.
+RandomizedDelaySec=3600
+Persistent=true
+
+[Install]
+WantedBy=timers.target

@@ -26,6 +26,7 @@ from pathlib import Path
 
 from app.core.config import get_settings
 from app.services import category_inference
+from app.services.ops_alerting import notify_operator_failure
 from app.services.ut1_blacklist import refresh
 
 logger = logging.getLogger(__name__)
@@ -67,6 +68,9 @@ class Ut1BlacklistScheduler:
             await self.check()
         except Exception:
             logger.exception("UT1 blacklist refresh failed; will retry next interval")
+            await notify_operator_failure(
+                "ut1_scheduler", "UT1 blacklist refresh failed; will retry next interval"
+            )
 
     async def check(self) -> None:
         settings = get_settings()

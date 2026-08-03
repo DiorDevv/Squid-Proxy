@@ -167,6 +167,14 @@ class Settings(BaseSettings):
     ALERT_WEBHOOK_URL: str | None = None
     ALERT_MIN_SEVERITY: str = "high"
 
+    # --- Operator-facing infra-failure alerts (see app/services/
+    # ops_alerting.py) -- distinct from the traffic-anomaly alerting above.
+    # Falls back to ALERT_WEBHOOK_URL if unset, so a single-webhook operator
+    # needs zero new config; set this separately to route infra failures
+    # (log tailer down, backup failed, a background job erroring out) to a
+    # different channel than traffic anomalies (e.g. PagerDuty vs. Slack).
+    OPS_ALERT_WEBHOOK_URL: str | None = None
+
     # --- Error tracking (optional; no-op unless SENTRY_DSN is set) --
     # everywhere else unhandled exceptions only ever go to stdout (see
     # core/exceptions.py's catch-all handler) -- nothing forwards them

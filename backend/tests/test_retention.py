@@ -13,6 +13,7 @@ from app.models.domain_category import DomainCategoryLabel
 from app.models.minute_aggregate import MinuteAggregate
 from app.models.raw_event import RawEvent
 from app.models.refresh_token import RefreshToken
+from app.services import retention as retention_module
 from app.services.retention import RetentionJob
 
 
@@ -395,3 +396,30 @@ async def test_purge_rollup_accumulates_into_an_existing_hourly_row_on_a_later_r
     assert len(hourly_rows) == 1
     assert hourly_rows[0].request_count == 5
     assert hourly_rows[0].total_bytes == 500
+
+
+async def test_purge_catching_errors_notifies_operator_on_failure(monkeypatch):
+    """Proves the wiring (not just app/services/ops_alerting.py in
+    isolation): a real purge() failure must reach notify_operator_failure,
+    same as it already reaches logger.exception."""
+    job = RetentionJob()
+
+    async def _failing_purge() -> None:
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(job, "purge", _failing_purge)
+
+    calls = []
+
+    async def _fake_notify(source: str, message: str) -> None:
+        calls.append((source, message))
+
+    monkeypatch.setattr(retention_module, "notify_operator_failure", _fake_notify)
+
+    # Must not raise -- a single bad purge can't be allowed to stop the job.
+    await job._purge_catching_errors()
+
+    assert len(calls) == 1
+    source, message = calls[0]
+    assert source == "retention"
+    assert "failed" in message.lower()

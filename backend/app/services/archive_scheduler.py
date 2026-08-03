@@ -45,6 +45,7 @@ from app.core.config import Settings, get_settings
 from app.models.archive_run import ArchiveRun
 from app.models.db import AsyncSessionLocal
 from app.services.archive_service import archive
+from app.services.ops_alerting import notify_operator_failure
 
 logger = logging.getLogger(__name__)
 
@@ -88,6 +89,9 @@ class ArchiveScheduler:
             await self.check()
         except Exception:
             logger.exception("Archive scheduler check failed; will retry next interval")
+            await notify_operator_failure(
+                "archive_scheduler", "Archive scheduler check failed; will retry next interval"
+            )
 
     async def check(self) -> None:
         settings = get_settings()

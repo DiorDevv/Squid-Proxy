@@ -37,12 +37,13 @@ def verify_password(password: str, hashed: str | None) -> bool:
     return pwd_context.verify(password, hashed if hashed is not None else _DUMMY_HASH) and hashed is not None
 
 
-def create_access_token(user_id: str, role: str) -> str:
+def create_access_token(user_id: str, role: str, branch: str | None = None) -> str:
     settings = get_settings()
     now = datetime.now(UTC)
     payload = {
         "sub": user_id,
         "role": role,
+        "branch": branch,
         "type": ACCESS_TOKEN_TYPE,
         "iat": now,
         "exp": now + timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES),

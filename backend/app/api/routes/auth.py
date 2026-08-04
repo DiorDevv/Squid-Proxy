@@ -67,7 +67,7 @@ async def login(
     if user is None or not password_ok:
         raise INVALID_CREDENTIALS
 
-    access_token = create_access_token(user_id=user.id, role=user.role.value)
+    access_token = create_access_token(user_id=user.id, role=user.role.value, branch=user.branch)
     await _issue_refresh_cookie(response, db, user.id)
 
     return LoginResponse(
@@ -75,6 +75,7 @@ async def login(
         expires_in_seconds=settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60,
         role=user.role.value,
         email=user.email,
+        branch=user.branch,
     )
 
 
@@ -139,7 +140,7 @@ async def refresh(
 
     await _issue_refresh_cookie(response, db, user.id)
 
-    access_token = create_access_token(user_id=user.id, role=user.role.value)
+    access_token = create_access_token(user_id=user.id, role=user.role.value, branch=user.branch)
     return RefreshResponse(
         access_token=access_token, expires_in_seconds=settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60
     )

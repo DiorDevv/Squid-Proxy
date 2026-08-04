@@ -24,7 +24,7 @@ function wrapper({ children }: { children: ReactNode }) {
 }
 
 const SAMPLE_USERS: UserSummary[] = [
-  { id: '1', email: 'admin@example.com', role: 'admin', created_at: '2026-01-01T00:00:00Z' },
+  { id: '1', email: 'admin@example.com', role: 'admin', branch: null, created_at: '2026-01-01T00:00:00Z' },
 ]
 
 describe('useUsers', () => {
@@ -61,18 +61,20 @@ describe('useCreateUser', () => {
       id: '2',
       email: 'new@example.com',
       role: 'viewer',
+      branch: null,
       created_at: '2026-01-02T00:00:00Z',
     }
     vi.mocked(api.createUser).mockResolvedValueOnce(created)
 
     const { result } = renderHook(() => useCreateUser(), { wrapper })
-    result.current.mutate({ email: 'new@example.com', password: 'password123', role: 'viewer' })
+    result.current.mutate({ email: 'new@example.com', password: 'password123', role: 'viewer', branch: null })
 
     await waitFor(() => expect(result.current.isSuccess).toBe(true))
     expect(api.createUser).toHaveBeenCalledWith({
       email: 'new@example.com',
       password: 'password123',
       role: 'viewer',
+      branch: null,
     })
   })
 })

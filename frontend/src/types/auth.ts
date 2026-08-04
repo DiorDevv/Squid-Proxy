@@ -6,6 +6,9 @@ export interface LoginResponse {
   expires_in_seconds: number
   role: Role
   email: string
+  // null = unrestricted (every user before branch-scoping existed); set to
+  // one branch tag to restrict this account to only that branch's data.
+  branch: string | null
 }
 
 export interface RefreshResponse {

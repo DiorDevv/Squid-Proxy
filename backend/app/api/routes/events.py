@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, Query, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import get_db, require_any_role
+from app.api.deps import get_db, require_any_role, resolve_branch
 from app.schemas.common import EffectiveRange, Page, resolve_range
 from app.schemas.events import EventDetail
 from app.services.event_query_service import get_events
@@ -15,7 +15,7 @@ async def read_recent_events(
     limit: int = Query(default=100, ge=1, le=1000),
     blocked_only: bool = Query(default=False),
     client_ip: str | None = Query(default=None),
-    branch: str | None = Query(default=None),
+    branch: str | None = Depends(resolve_branch),
 ) -> list[EventDetail]:
     ring_buffer = request.app.state.ring_buffer
     stored_events = ring_buffer.recent(
@@ -35,7 +35,7 @@ async def read_events(
     method: str | None = Query(default=None, max_length=16),
     user: str | None = Query(default=None, max_length=255),
     search: str | None = Query(default=None, max_length=255),
-    branch: str | None = Query(default=None),
+    branch: str | None = Depends(resolve_branch),
     db: AsyncSession = Depends(get_db),
 ) -> Page[EventDetail]:
     return await get_events(

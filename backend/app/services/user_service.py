@@ -11,6 +11,7 @@ from fastapi import HTTPException, status
 from sqlalchemy import delete, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import get_settings
 from app.core.security import hash_password
 from app.models.audit_log import AuditAction
 from app.models.refresh_token import RefreshToken
@@ -31,26 +32,47 @@ LAST_ADMIN = HTTPException(
 )
 
 
+def _validate_branch(branch: str | None) -> None:
+    """None (unrestricted) always passes -- only a *non-null* branch is
+    checked against the configured set, so a typo here can't silently lock
+    a user out of everything instead of failing loudly at creation/update
+    time."""
+    if branch is None:
+        return
+    valid_branches = {source.branch for source in get_settings().effective_log_sources}
+    if branch not in valid_branches:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Unknown branch {branch!r}. Configured branches: {', '.join(sorted(valid_branches))}.",
+        )
+
+
 async def list_users(session: AsyncSession) -> list[User]:
     rows = (await session.execute(select(User).order_by(User.created_at))).scalars().all()
     return list(rows)
 
 
 async def create_user(
-    session: AsyncSession, email: str, password: str, role: UserRole, actor_user_id: str
+    session: AsyncSession,
+    email: str,
+    password: str,
+    role: UserRole,
+    actor_user_id: str,
+    branch: str | None = None,
 ) -> User:
     existing = (await session.execute(select(User).where(User.email == email))).scalar_one_or_none()
     if existing is not None:
         raise EMAIL_TAKEN
+    _validate_branch(branch)
 
-    user = User(email=email, hashed_password=hash_password(password), role=role)
+    user = User(email=email, hashed_password=hash_password(password), role=role, branch=branch)
     session.add(user)
     await audit_service.record(
         session,
         action=AuditAction.USER_CREATED,
         actor_user_id=actor_user_id,
         target_email=email,
-        detail=f"role={role.value}",
+        detail=f"role={role.value}, branch={branch or 'unrestricted'}",
     )
     await session.commit()
     await session.refresh(user)
@@ -87,6 +109,31 @@ async def update_role(session: AsyncSession, user_id: str, new_role: UserRole, c
         target_user_id=user.id,
         target_email=user.email,
         detail=f"{old_role.value} -> {new_role.value}",
+    )
+    await session.commit()
+    await session.refresh(user)
+    return user
+
+
+async def update_branch(
+    session: AsyncSession, user_id: str, branch: str | None, actor_user_id: str
+) -> User:
+    """No self-modification/last-admin guard like update_role -- branch
+    isn't a privilege-escalation vector (it only ever narrows data
+    visibility, never grants anything), so there's nothing unsafe about an
+    admin changing their own branch scope or every user sharing one."""
+    _validate_branch(branch)
+    user = await _get_user_or_404(session, user_id)
+
+    old_branch = user.branch
+    user.branch = branch
+    await audit_service.record(
+        session,
+        action=AuditAction.USER_BRANCH_CHANGED,
+        actor_user_id=actor_user_id,
+        target_user_id=user.id,
+        target_email=user.email,
+        detail=f"{old_branch or 'unrestricted'} -> {branch or 'unrestricted'}",
     )
     await session.commit()
     await session.refresh(user)

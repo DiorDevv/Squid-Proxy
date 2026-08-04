@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import get_db, require_any_role
+from app.api.deps import get_db, require_any_role, resolve_branch
 from app.schemas.common import EffectiveRange, Granularity, resolve_range
 from app.schemas.timeseries import TimeseriesResponse
 from app.services.stats_service import get_timeseries
@@ -13,7 +13,7 @@ router = APIRouter(prefix="/api", tags=["timeseries"])
 async def read_timeseries(
     effective_range: EffectiveRange = Depends(resolve_range),
     granularity: Granularity = Query(default=Granularity.MINUTE),
-    branch: str | None = Query(default=None),
+    branch: str | None = Depends(resolve_branch),
     db: AsyncSession = Depends(get_db),
 ) -> TimeseriesResponse:
     return await get_timeseries(db, effective_range.since, effective_range.until, granularity, branch)

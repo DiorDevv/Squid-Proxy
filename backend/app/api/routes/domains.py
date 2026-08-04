@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import get_db, require_any_role
+from app.api.deps import get_db, require_any_role, resolve_branch
 from app.models.domain_category import DomainCategoryLabel
 from app.schemas.common import EffectiveRange, Page, SortOrder, resolve_range
 from app.schemas.domains import CategoryStatsResponse, DomainClientStat, DomainStatsResponse, DomainSummary
@@ -16,7 +16,7 @@ async def search_domains(
     q: str = Query(min_length=1, max_length=255),
     effective_range: EffectiveRange = Depends(resolve_range),
     limit: int = Query(default=10, ge=1, le=50),
-    branch: str | None = Query(default=None),
+    branch: str | None = Depends(resolve_branch),
     db: AsyncSession = Depends(get_db),
 ) -> DomainStatsResponse:
     items = await get_top_domains(
@@ -37,7 +37,7 @@ async def read_top_domains(
     effective_range: EffectiveRange = Depends(resolve_range),
     limit: int = Query(default=10, ge=1, le=100),
     category: DomainCategoryLabel | None = Query(default=None),
-    branch: str | None = Query(default=None),
+    branch: str | None = Depends(resolve_branch),
     db: AsyncSession = Depends(get_db),
 ) -> DomainStatsResponse:
     items = await get_top_domains(
@@ -58,7 +58,7 @@ async def read_top_blocked(
     effective_range: EffectiveRange = Depends(resolve_range),
     limit: int = Query(default=10, ge=1, le=100),
     category: DomainCategoryLabel | None = Query(default=None),
-    branch: str | None = Query(default=None),
+    branch: str | None = Depends(resolve_branch),
     db: AsyncSession = Depends(get_db),
 ) -> DomainStatsResponse:
     items = await get_top_domains(
@@ -79,7 +79,7 @@ async def read_top_data_usage(
     effective_range: EffectiveRange = Depends(resolve_range),
     limit: int = Query(default=10, ge=1, le=100),
     category: DomainCategoryLabel | None = Query(default=None),
-    branch: str | None = Query(default=None),
+    branch: str | None = Depends(resolve_branch),
     db: AsyncSession = Depends(get_db),
 ) -> DomainStatsResponse:
     items = await get_top_domains(
@@ -102,7 +102,7 @@ async def read_top_data_usage(
 )
 async def read_usage_by_category(
     effective_range: EffectiveRange = Depends(resolve_range),
-    branch: str | None = Query(default=None),
+    branch: str | None = Depends(resolve_branch),
     db: AsyncSession = Depends(get_db),
 ) -> CategoryStatsResponse:
     items = await get_usage_by_category(db, effective_range.since, effective_range.until, branch)
@@ -117,7 +117,7 @@ async def read_usage_by_category(
 async def read_domain_summary(
     domain: str,
     effective_range: EffectiveRange = Depends(resolve_range),
-    branch: str | None = Query(default=None),
+    branch: str | None = Depends(resolve_branch),
     db: AsyncSession = Depends(get_db),
 ) -> DomainSummary:
     return await get_domain_summary(db, domain, effective_range.since, effective_range.until, branch)
@@ -135,7 +135,7 @@ async def read_domain_clients(
     offset: int = Query(default=0, ge=0),
     sort_by: str = Query(default="visit_count"),
     order: SortOrder = Query(default=SortOrder.DESC),
-    branch: str | None = Query(default=None),
+    branch: str | None = Depends(resolve_branch),
     db: AsyncSession = Depends(get_db),
 ) -> Page[DomainClientStat]:
     return await get_domain_clients(

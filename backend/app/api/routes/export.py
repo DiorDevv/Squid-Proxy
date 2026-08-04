@@ -4,7 +4,7 @@ from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, R
 from fastapi.responses import FileResponse, StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import CurrentUser, get_current_user, get_db, require_admin
+from app.api.deps import CurrentUser, get_current_user, get_db, require_admin, resolve_branch
 from app.core.config import get_settings
 from app.core.rate_limit import limiter
 from app.models.audit_log import AuditAction
@@ -52,7 +52,7 @@ async def export_events(
     effective_range: EffectiveRange = Depends(resolve_range),
     format: ExportFormat = Query(default=ExportFormat.CSV),
     blocked_only: bool = Query(default=False),
-    branch: str | None = Query(default=None),
+    branch: str | None = Depends(resolve_branch),
     client_ip: str | None = Query(default=None),
     domain: str | None = Query(default=None),
     category: DomainCategoryLabel | None = Query(default=None),
@@ -114,7 +114,7 @@ async def create_export_job(
     effective_range: EffectiveRange = Depends(resolve_range),
     format: ExportFormat = Query(default=ExportFormat.CSV),
     blocked_only: bool = Query(default=False),
-    branch: str | None = Query(default=None),
+    branch: str | None = Depends(resolve_branch),
     client_ip: str | None = Query(default=None),
     domain: str | None = Query(default=None),
     category: DomainCategoryLabel | None = Query(default=None),

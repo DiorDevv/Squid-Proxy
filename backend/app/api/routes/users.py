@@ -5,6 +5,7 @@ from app.api.deps import CurrentUser, get_current_user, get_db, require_admin
 from app.core.config import get_settings
 from app.core.rate_limit import limiter
 from app.schemas.users import (
+    UserBranchUpdateRequest,
     UserCreateRequest,
     UserPasswordResetRequest,
     UserRoleUpdateRequest,
@@ -29,7 +30,9 @@ async def create_user(
     db: AsyncSession = Depends(get_db),
     current_user: CurrentUser = Depends(get_current_user),
 ) -> UserSummary:
-    user = await user_service.create_user(db, body.email, body.password, body.role, current_user.user_id)
+    user = await user_service.create_user(
+        db, body.email, body.password, body.role, current_user.user_id, branch=body.branch
+    )
     return UserSummary.model_validate(user, from_attributes=True)
 
 
@@ -43,6 +46,19 @@ async def update_user_role(
     current_user: CurrentUser = Depends(get_current_user),
 ) -> UserSummary:
     user = await user_service.update_role(db, user_id, body.role, current_user.user_id)
+    return UserSummary.model_validate(user, from_attributes=True)
+
+
+@router.patch("/{user_id}/branch", response_model=UserSummary)
+@limiter.limit(get_settings().SENSITIVE_ACTION_RATE_LIMIT)
+async def update_user_branch(
+    request: Request,
+    user_id: str,
+    body: UserBranchUpdateRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: CurrentUser = Depends(get_current_user),
+) -> UserSummary:
+    user = await user_service.update_branch(db, user_id, body.branch, current_user.user_id)
     return UserSummary.model_validate(user, from_attributes=True)
 
 

@@ -1,14 +1,23 @@
 import { useCallback } from 'react'
 import { api } from '@/lib/api-client'
-import { decodeAccessTokenRole, useAuthStore } from '@/lib/auth-store'
+import { decodeAccessTokenBranch, decodeAccessTokenRole, useAuthStore } from '@/lib/auth-store'
+import { queryClient } from '@/lib/queryClient'
 
 export function useAuth() {
-  const { accessToken, role, email, status, setAuth, clearAuth, setChecking } = useAuthStore()
+  const { accessToken, role, email, branch, status, setAuth, clearAuth, setChecking } = useAuthStore()
 
   const login = useCallback(
     async (loginEmail: string, password: string) => {
       const response = await api.login(loginEmail, password)
-      setAuth({ accessToken: response.access_token, role: response.role, email: response.email })
+      // Discard any cached data fetched under a previous identity (e.g. a stale
+      // branch list from an earlier admin session) before adopting the new one.
+      queryClient.clear()
+      setAuth({
+        accessToken: response.access_token,
+        role: response.role,
+        email: response.email,
+        branch: response.branch,
+      })
     },
     [setAuth],
   )
@@ -20,6 +29,7 @@ export function useAuth() {
       // best-effort; clear local state regardless
     }
     clearAuth()
+    queryClient.clear()
   }, [clearAuth])
 
   /** Called once on app mount: the refresh token is an httpOnly cookie, so a
@@ -36,6 +46,7 @@ export function useAuth() {
       useAuthStore.setState({
         accessToken: response.access_token,
         role: decodedRole,
+        branch: decodeAccessTokenBranch(response.access_token),
         email: null,
         status: 'authenticated',
       })
@@ -44,5 +55,5 @@ export function useAuth() {
     }
   }, [clearAuth, setChecking])
 
-  return { accessToken, role, email, status, login, logout, bootstrap }
+  return { accessToken, role, email, branch, status, login, logout, bootstrap }
 }

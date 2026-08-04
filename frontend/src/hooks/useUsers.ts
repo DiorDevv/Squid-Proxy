@@ -14,7 +14,8 @@ export function useUsers() {
 export function useCreateUser() {
   const queryClient = useQueryClient()
   return useMutation({
-    mutationFn: (data: { email: string; password: string; role: Role }) => api.createUser(data),
+    mutationFn: (data: { email: string; password: string; role: Role; branch: string | null }) =>
+      api.createUser(data),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: USERS_QUERY_KEY }),
   })
 }
@@ -23,6 +24,15 @@ export function useUpdateUserRole() {
   const queryClient = useQueryClient()
   return useMutation({
     mutationFn: ({ userId, role }: { userId: string; role: Role }) => api.updateUserRole(userId, role),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: USERS_QUERY_KEY }),
+  })
+}
+
+export function useUpdateUserBranch() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: ({ userId, branch }: { userId: string; branch: string | null }) =>
+      api.updateUserBranch(userId, branch),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: USERS_QUERY_KEY }),
   })
 }

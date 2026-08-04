@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it } from 'vitest'
-import { decodeAccessTokenRole, getAccessToken, useAuthStore } from '@/lib/auth-store'
+import { decodeAccessTokenBranch, decodeAccessTokenRole, getAccessToken, useAuthStore } from '@/lib/auth-store'
 
 function makeJwt(payload: object): string {
   const base64Url = (obj: object) =>
@@ -8,18 +8,27 @@ function makeJwt(payload: object): string {
 }
 
 beforeEach(() => {
-  useAuthStore.setState({ accessToken: null, role: null, email: null, status: 'checking' })
+  useAuthStore.setState({ accessToken: null, role: null, email: null, branch: null, status: 'checking' })
 })
 
 describe('useAuthStore', () => {
-  it('setAuth stores token, role, and email and marks authenticated', () => {
-    useAuthStore.getState().setAuth({ accessToken: 'tok', role: 'admin', email: 'a@example.com' })
+  it('setAuth stores token, role, email, and branch and marks authenticated', () => {
+    useAuthStore.getState().setAuth({ accessToken: 'tok', role: 'admin', email: 'a@example.com', branch: null })
 
     const state = useAuthStore.getState()
     expect(state.accessToken).toBe('tok')
     expect(state.role).toBe('admin')
     expect(state.email).toBe('a@example.com')
+    expect(state.branch).toBeNull()
     expect(state.status).toBe('authenticated')
+  })
+
+  it('setAuth stores a non-null branch for a scoped user', () => {
+    useAuthStore
+      .getState()
+      .setAuth({ accessToken: 'tok', role: 'viewer', email: 'a@example.com', branch: 'filiallar' })
+
+    expect(useAuthStore.getState().branch).toBe('filiallar')
   })
 
   // Regression test for the silent-session-death bug: a session restored
@@ -27,9 +36,15 @@ describe('useAuthStore', () => {
   // never returns it. A later silent token refresh (setAccessToken) must
   // update the token without requiring or clobbering email.
   it('setAccessToken updates the token without requiring or touching email', () => {
-    useAuthStore.setState({ accessToken: 'old-tok', role: 'viewer', email: null, status: 'authenticated' })
+    useAuthStore.setState({
+      accessToken: 'old-tok',
+      role: 'viewer',
+      email: null,
+      branch: null,
+      status: 'authenticated',
+    })
 
-    useAuthStore.getState().setAccessToken('new-tok', 'viewer')
+    useAuthStore.getState().setAccessToken('new-tok', 'viewer', null)
 
     const state = useAuthStore.getState()
     expect(state.accessToken).toBe('new-tok')
@@ -43,16 +58,19 @@ describe('useAuthStore', () => {
       accessToken: 'old-tok',
       role: 'admin',
       email: 'known@example.com',
+      branch: null,
       status: 'authenticated',
     })
 
-    useAuthStore.getState().setAccessToken('new-tok', 'admin')
+    useAuthStore.getState().setAccessToken('new-tok', 'admin', null)
 
     expect(useAuthStore.getState().email).toBe('known@example.com')
   })
 
   it('clearAuth resets everything to unauthenticated', () => {
-    useAuthStore.getState().setAuth({ accessToken: 'tok', role: 'admin', email: 'a@example.com' })
+    useAuthStore
+      .getState()
+      .setAuth({ accessToken: 'tok', role: 'admin', email: 'a@example.com', branch: 'hq' })
 
     useAuthStore.getState().clearAuth()
 
@@ -60,11 +78,14 @@ describe('useAuthStore', () => {
     expect(state.accessToken).toBeNull()
     expect(state.role).toBeNull()
     expect(state.email).toBeNull()
+    expect(state.branch).toBeNull()
     expect(state.status).toBe('unauthenticated')
   })
 
   it('setChecking sets status without touching other fields', () => {
-    useAuthStore.getState().setAuth({ accessToken: 'tok', role: 'admin', email: 'a@example.com' })
+    useAuthStore
+      .getState()
+      .setAuth({ accessToken: 'tok', role: 'admin', email: 'a@example.com', branch: null })
 
     useAuthStore.getState().setChecking()
 
@@ -74,7 +95,9 @@ describe('useAuthStore', () => {
   })
 
   it('getAccessToken reads the current token from the store', () => {
-    useAuthStore.getState().setAuth({ accessToken: 'read-me', role: 'viewer', email: 'x@example.com' })
+    useAuthStore
+      .getState()
+      .setAuth({ accessToken: 'read-me', role: 'viewer', email: 'x@example.com', branch: null })
     expect(getAccessToken()).toBe('read-me')
   })
 })
@@ -101,5 +124,26 @@ describe('decodeAccessTokenRole', () => {
 
   it('returns null for an empty string', () => {
     expect(decodeAccessTokenRole('')).toBeNull()
+  })
+})
+
+describe('decodeAccessTokenBranch', () => {
+  it('decodes a branch string from the payload', () => {
+    const token = makeJwt({ sub: 'user-1', role: 'viewer', branch: 'filiallar' })
+    expect(decodeAccessTokenBranch(token)).toBe('filiallar')
+  })
+
+  it('returns null when the payload has no branch claim (unrestricted, or a pre-existing token)', () => {
+    const token = makeJwt({ sub: 'user-1', role: 'admin' })
+    expect(decodeAccessTokenBranch(token)).toBeNull()
+  })
+
+  it('returns null when the branch claim is explicitly null', () => {
+    const token = makeJwt({ sub: 'user-1', role: 'admin', branch: null })
+    expect(decodeAccessTokenBranch(token)).toBeNull()
+  })
+
+  it('returns null for a malformed token', () => {
+    expect(decodeAccessTokenBranch('not-a-jwt')).toBeNull()
   })
 })

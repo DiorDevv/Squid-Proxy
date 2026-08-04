@@ -21,4 +21,10 @@ class User(Base):
     email: Mapped[str] = mapped_column(String(255), unique=True, index=True, nullable=False)
     hashed_password: Mapped[str] = mapped_column(String(255), nullable=False)
     role: Mapped[UserRole] = mapped_column(Enum(UserRole), nullable=False, default=UserRole.VIEWER)
+    # None (the default) means unrestricted -- every user has this today.
+    # Set to one of Settings.effective_log_sources' branch tags to restrict
+    # this account to that branch's data only (see api/deps.py's
+    # resolve_branch) -- a viewer at one office/site who shouldn't see
+    # other branches' traffic, not a privilege level like role above.
+    branch: Mapped[str | None] = mapped_column(String(64), nullable=True)
     created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=lambda: datetime.now(UTC))

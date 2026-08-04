@@ -22,9 +22,11 @@ import {
   useCreateUser,
   useDeleteUser,
   useResetUserPassword,
+  useUpdateUserBranch,
   useUpdateUserRole,
   useUsers,
 } from '@/hooks/useUsers'
+import { useBranches } from '@/hooks/useBranches'
 import { useAuthStore } from '@/lib/auth-store'
 import { ApiError } from '@/lib/api-client'
 import { formatDateTime } from '@/lib/format'
@@ -73,6 +75,7 @@ export function UserManagementPanel() {
           <TableRow className="hover:bg-transparent">
             <TableHead>{t('userManagement.columnEmail')}</TableHead>
             <TableHead>{t('userManagement.columnRole')}</TableHead>
+            <TableHead>{t('userManagement.columnBranch')}</TableHead>
             <TableHead>{t('userManagement.columnCreated')}</TableHead>
             <TableHead className="text-right">{t('userManagement.columnActions')}</TableHead>
           </TableRow>
@@ -87,9 +90,18 @@ export function UserManagementPanel() {
   )
 }
 
+// Radix Select requires non-empty item values, so "unrestricted" (branch =
+// null) is represented by this sentinel in the UI only -- translated back
+// to/from null right at the boundary (handleBranchChange / the initial
+// Select value below), never stored or sent to the API as this string.
+const UNRESTRICTED_BRANCH_VALUE = '__all__'
+
 function UserRow({ user, isSelf }: { user: UserSummary; isSelf: boolean }) {
   const { t } = useTranslation()
   const updateRole = useUpdateUserRole()
+  const updateBranch = useUpdateUserBranch()
+  const branchesQuery = useBranches()
+  const branches = branchesQuery.data?.items ?? []
 
   function handleRoleChange(role: Role) {
     updateRole.mutate(
@@ -97,6 +109,17 @@ function UserRow({ user, isSelf }: { user: UserSummary; isSelf: boolean }) {
       {
         onSuccess: () => toast.success(t('userManagement.toastRoleUpdated', { email: user.email, role })),
         onError: (err) => toast.error(errorMessage(err, t('userManagement.toastRoleError'))),
+      },
+    )
+  }
+
+  function handleBranchChange(value: string) {
+    const branch = value === UNRESTRICTED_BRANCH_VALUE ? null : value
+    updateBranch.mutate(
+      { userId: user.id, branch },
+      {
+        onSuccess: () => toast.success(t('userManagement.toastBranchUpdated', { email: user.email })),
+        onError: (err) => toast.error(errorMessage(err, t('userManagement.toastBranchError'))),
       },
     )
   }
@@ -129,6 +152,29 @@ function UserRow({ user, isSelf }: { user: UserSummary; isSelf: boolean }) {
         </Select>
       </TableCell>
       <TableCell>
+        <Select
+          value={user.branch ?? UNRESTRICTED_BRANCH_VALUE}
+          onValueChange={handleBranchChange}
+          disabled={updateBranch.isPending}
+        >
+          <SelectTrigger
+            size="sm"
+            className="w-36"
+            aria-label={t('userManagement.changeBranchAria', { email: user.email })}
+          >
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value={UNRESTRICTED_BRANCH_VALUE}>{t('userManagement.allBranches')}</SelectItem>
+            {branches.map((branch) => (
+              <SelectItem key={branch.slug} value={branch.slug}>
+                {branch.label}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </TableCell>
+      <TableCell>
         <span className="font-data text-xs text-muted-foreground">{formatDateTime(user.created_at)}</span>
       </TableCell>
       <TableCell className="text-right">
@@ -147,12 +193,15 @@ function AddUserDialog() {
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [role, setRole] = useState<Role>('viewer')
+  const [branch, setBranch] = useState<string>(UNRESTRICTED_BRANCH_VALUE)
   const createUser = useCreateUser()
+  const branchesQuery = useBranches()
+  const branches = branchesQuery.data?.items ?? []
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
     createUser.mutate(
-      { email, password, role },
+      { email, password, role, branch: branch === UNRESTRICTED_BRANCH_VALUE ? null : branch },
       {
         onSuccess: () => {
           toast.success(t('userManagement.toastUserCreated', { email, role }))
@@ -160,6 +209,7 @@ function AddUserDialog() {
           setEmail('')
           setPassword('')
           setRole('viewer')
+          setBranch(UNRESTRICTED_BRANCH_VALUE)
         },
         onError: (err) => toast.error(errorMessage(err, t('userManagement.toastCreateError'))),
       },
@@ -211,6 +261,22 @@ function AddUserDialog() {
               <SelectContent>
                 <SelectItem value="admin">{t('userManagement.roleAdmin')}</SelectItem>
                 <SelectItem value="viewer">{t('userManagement.roleViewer')}</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="flex flex-col gap-1.5">
+            <Label htmlFor="new-user-branch">{t('userManagement.columnBranch')}</Label>
+            <Select value={branch} onValueChange={setBranch}>
+              <SelectTrigger id="new-user-branch">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value={UNRESTRICTED_BRANCH_VALUE}>{t('userManagement.allBranches')}</SelectItem>
+                {branches.map((b) => (
+                  <SelectItem key={b.slug} value={b.slug}>
+                    {b.label}
+                  </SelectItem>
+                ))}
               </SelectContent>
             </Select>
           </div>

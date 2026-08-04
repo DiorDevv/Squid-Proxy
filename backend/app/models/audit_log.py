@@ -27,6 +27,7 @@ class AuditAction(str, enum.Enum):
     EXPORT_CANCELLED = "export_cancelled"
     EXPORT_SHARE_REVOKED = "export_share_revoked"
     REPORT_SENT_NOW = "report_sent_now"
+    USER_BRANCH_CHANGED = "user_branch_changed"
 
 
 class AuditLogEntry(Base):

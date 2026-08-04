@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import get_db, require_any_role
+from app.api.deps import get_db, require_any_role, resolve_branch
 from app.schemas.clients import CategoryTimeSpentResponse, ClientSummary, TimeSpentResponse
 from app.schemas.common import EffectiveRange, Page, SortOrder, resolve_range
 from app.schemas.events import EventDetail
@@ -19,7 +19,7 @@ async def read_clients(
     sort_by: str = Query(default="total_requests"),
     order: SortOrder = Query(default=SortOrder.DESC),
     search: str | None = Query(default=None, max_length=255),
-    branch: str | None = Query(default=None),
+    branch: str | None = Depends(resolve_branch),
     db: AsyncSession = Depends(get_db),
 ) -> Page[ClientSummary]:
     return await list_clients(
@@ -35,7 +35,7 @@ async def read_clients(
 async def read_client_summary(
     client_ip: str,
     effective_range: EffectiveRange = Depends(resolve_range),
-    branch: str | None = Query(default=None),
+    branch: str | None = Depends(resolve_branch),
     db: AsyncSession = Depends(get_db),
 ) -> ClientSummary:
     return await get_client_summary(db, client_ip, effective_range.since, effective_range.until, branch)
@@ -54,7 +54,7 @@ async def read_client_activity(
     blocked_only: bool = Query(default=False),
     domain: str | None = Query(default=None, max_length=255),
     method: str | None = Query(default=None, max_length=16),
-    branch: str | None = Query(default=None),
+    branch: str | None = Depends(resolve_branch),
     db: AsyncSession = Depends(get_db),
 ) -> Page[EventDetail]:
     return await get_client_activity(
@@ -79,7 +79,7 @@ async def read_client_activity(
 async def read_client_time_spent(
     client_ip: str,
     effective_range: EffectiveRange = Depends(resolve_range),
-    branch: str | None = Query(default=None),
+    branch: str | None = Depends(resolve_branch),
     db: AsyncSession = Depends(get_db),
 ) -> TimeSpentResponse:
     items = await get_time_spent(db, client_ip, effective_range.since, effective_range.until, branch)
@@ -94,7 +94,7 @@ async def read_client_time_spent(
 async def read_client_time_spent_by_category(
     client_ip: str,
     effective_range: EffectiveRange = Depends(resolve_range),
-    branch: str | None = Query(default=None),
+    branch: str | None = Depends(resolve_branch),
     db: AsyncSession = Depends(get_db),
 ) -> CategoryTimeSpentResponse:
     items = await get_time_spent_by_category(

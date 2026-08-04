@@ -183,6 +183,27 @@ monitoring until it restarts, which `deploy/systemd`'s `Restart=on-failure` alre
 automatically. Building the backend itself into a multi-instance/HA setup is a bigger, separate
 undertaking that isn't warranted here — see that same `ARCHITECTURE.md` section for why.
 
+### Restricting a user to one branch
+
+By default every account (`admin` or `viewer`) can see every configured branch — this is what
+"branch" means to a user's *role*, and it's unrelated. To give someone (e.g. a branch-office
+manager) access to only their own branch's traffic, set their **Branch** to that branch at
+**Settings → User management**, in the same row as their role, when creating the account or at
+any time afterward (`PATCH /api/users/{id}/branch`). Once set:
+
+- Every data-read endpoint (events, clients, domains, timeseries, summary, insights, exports)
+  transparently returns only that branch's data — a request that doesn't specify `branch` is
+  filled in with the user's own branch automatically; a request that explicitly asks for a
+  *different* branch gets a 403, not silently-wrong data.
+- The dashboard's branch selector hides itself for a scoped user (there's nothing to switch
+  between), the same way it already does for a genuinely single-branch deployment.
+- Admin-only settings (alert thresholds, domain categories, export cleanup policy, scheduled
+  reports) are **not** branch-restricted — this only ever narrows *data visibility*, never what an
+  admin account is allowed to configure.
+
+Leaving Branch as **All branches** (the default) keeps today's behavior exactly — this is
+additive, no existing account's access changes.
+
 ## Quick start (without Docker)
 
 ### Backend
@@ -601,7 +622,14 @@ Alembic's bookkeeping table recording it.
 - Access tokens are short-lived (default 20 min) and kept in memory on the frontend only, never
   `localStorage`. Refresh tokens are `httpOnly` cookies, rotated on every use.
 - The login endpoint is rate-limited (`LOGIN_RATE_LIMIT`, default 5/minute per IP).
-- `viewer` role has full read access; only `admin` can export data or reach `/settings`.
+- `viewer` role has full read access; only `admin` can export data or reach `/settings`. Either
+  role can additionally be scoped to one branch — see "Restricting a user to one branch" above.
+- **Branch-scoping covers REST data-read endpoints and `GET /api/branches` only, not `/ws/live`.**
+  The live-events WebSocket broadcasts every connected viewer the same stream regardless of their
+  account's branch scope — a scoped user's REST requests are correctly restricted, but they'd
+  still see other branches' events arrive live. Known gap, not yet closed; avoid relying on
+  branch-scoping as the *only* thing standing between a user and another branch's live traffic
+  until this is addressed.
 - Never commit a real `.env` — both `.gitignore` files exclude it; only `.env.example` files are
   tracked.
 - **The Docker Compose path (`docker-compose.yml`) serves the frontend over plain HTTP, with no

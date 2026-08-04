@@ -1,5 +1,5 @@
 import { API_BASE_URL } from '@/lib/constants'
-import { decodeAccessTokenRole, getAccessToken, useAuthStore } from '@/lib/auth-store'
+import { decodeAccessTokenBranch, decodeAccessTokenRole, getAccessToken, useAuthStore } from '@/lib/auth-store'
 import { translate, useLocaleStore } from '@/i18n'
 import type { LoginResponse, RefreshResponse, Role, WsTicketResponse } from '@/types/auth'
 import type { DomainCategoryLabel, ExportJob, ExportShareLink, UserSummary } from '@/types/api'
@@ -42,7 +42,7 @@ async function doRefresh(): Promise<boolean> {
     // able to silently refresh past its first access-token expiry.
     const role = decodeAccessTokenRole(body.access_token)
     if (!role) return false
-    useAuthStore.getState().setAccessToken(body.access_token, role)
+    useAuthStore.getState().setAccessToken(body.access_token, role, decodeAccessTokenBranch(body.access_token))
     return true
   } catch {
     return false
@@ -117,12 +117,17 @@ export const api = {
   logout: () => apiFetch<void>('/api/auth/logout', { method: 'POST', skipAuthRetry: true }),
   wsTicket: () => apiFetch<WsTicketResponse>('/api/auth/ws-ticket', { method: 'POST' }),
   listUsers: () => apiFetch<UserSummary[]>('/api/users'),
-  createUser: (data: { email: string; password: string; role: Role }) =>
+  createUser: (data: { email: string; password: string; role: Role; branch: string | null }) =>
     apiFetch<UserSummary>('/api/users', { method: 'POST', body: data }),
   updateUserRole: (userId: string, role: Role) =>
     apiFetch<UserSummary>(`/api/users/${encodeURIComponent(userId)}/role`, {
       method: 'PATCH',
       body: { role },
+    }),
+  updateUserBranch: (userId: string, branch: string | null) =>
+    apiFetch<UserSummary>(`/api/users/${encodeURIComponent(userId)}/branch`, {
+      method: 'PATCH',
+      body: { branch },
     }),
   resetUserPassword: (userId: string, newPassword: string) =>
     apiFetch<void>(`/api/users/${encodeURIComponent(userId)}/reset-password`, {

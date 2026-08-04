@@ -153,6 +153,7 @@ export interface UserSummary {
   id: string
   email: string
   role: Role
+  branch: string | null
   created_at: string
 }
 

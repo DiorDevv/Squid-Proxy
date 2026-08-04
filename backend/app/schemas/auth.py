@@ -12,6 +12,7 @@ class LoginResponse(BaseModel):
     expires_in_seconds: int
     role: str
     email: str
+    branch: str | None = None
 
 
 class RefreshResponse(BaseModel):

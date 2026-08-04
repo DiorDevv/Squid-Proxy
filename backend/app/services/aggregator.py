@@ -30,7 +30,7 @@ from app.models.raw_event import RawEvent
 from app.services import insights_service
 from app.services.alerting import maybe_alert
 from app.services.category_inference import effective_category
-from app.services.db_upsert import bulk_upsert_sum
+from app.services.db_upsert import bulk_upsert_sum, chunk_rows, max_variables_for
 from app.services.domain_category_service import get_overrides_map
 from app.services.event_store import RingBuffer, StoredEvent
 
@@ -191,8 +191,24 @@ class Aggregator:
             # importantly, yielded control back to the event loop far more
             # often while running (heartbeat ticks landed during ~87% of
             # its duration vs. ~58% for add_all()+commit()).
-            if raw_rows:
-                await session.execute(insert(RawEvent.__table__), raw_rows)
+            #
+            # Chunked via the same chunk_rows() the aggregate upserts below
+            # use (see db_upsert.py), but with a dialect-aware, much larger
+            # batch size (max_variables_for()) rather than that helper's own
+            # SQLite-safe default -- raw_events gets one row per event with
+            # no dedup, so a large backlog's row count dwarfs any aggregate
+            # table's. Confirmed against a real ~750k-event burst (a ring
+            # buffer overflow scenario, RING_BUFFER_MAX_EVENTS-sized): one
+            # un-chunked INSERT took 91s as a single statement, but chunking
+            # at the aggregate tables' own small batch size made it *worse*
+            # (130s -- 12,500 round trips dominated). The larger
+            # Postgres-specific batch size avoids both failure modes.
+            for batch in chunk_rows(
+                raw_rows,
+                columns_per_row=len(raw_rows[0]) if raw_rows else 1,
+                max_variables=max_variables_for(session),
+            ):
+                await session.execute(insert(RawEvent.__table__), batch)
             await session.commit()
 
         # Only advance past these events once they're durably committed --

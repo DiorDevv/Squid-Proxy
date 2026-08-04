@@ -101,6 +101,30 @@ async def test_bulk_upsert_sum_chunks_large_batches_without_dropping_or_duplicat
     assert by_domain["domain-0.example"] == 1
 
 
+def test_chunk_rows_splits_at_the_configured_batch_size():
+    columns_per_row = 15
+    batch_size = db_upsert._MAX_VARIABLES_PER_STATEMENT // columns_per_row
+    rows = [{"n": i} for i in range(batch_size * 3 + 7)]  # not an exact multiple
+
+    batches = list(db_upsert.chunk_rows(rows, columns_per_row=columns_per_row))
+
+    assert len(batches) == 4
+    assert [len(b) for b in batches] == [batch_size, batch_size, batch_size, 7]
+    # Every row preserved exactly once, in order, across all batches.
+    assert [row for batch in batches for row in batch] == rows
+
+
+def test_chunk_rows_with_no_rows_yields_nothing():
+    assert list(db_upsert.chunk_rows([], columns_per_row=15)) == []
+
+
+async def test_max_variables_for_is_sqlite_safe_by_default(db_session: AsyncSession):
+    # The test DB is SQLite -- confirms the default (small, SQLite-safe)
+    # budget is what a non-Postgres session gets, not the larger
+    # Postgres-only one.
+    assert db_upsert.max_variables_for(db_session) == db_upsert._MAX_VARIABLES_PER_STATEMENT
+
+
 async def test_bulk_upsert_sum_with_no_rows_is_a_noop(db_session: AsyncSession):
     await db_upsert.bulk_upsert_sum(
         db_session,

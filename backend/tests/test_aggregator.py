@@ -65,6 +65,44 @@ async def test_flush_writes_minute_domain_and_client_aggregates(db_engine, monke
         assert raw_count == 3
 
 
+async def test_flush_chunks_a_large_raw_events_insert_without_dropping_or_duplicating_rows(
+    db_engine, monkeypatch
+):
+    """A single flush window with enough events to exceed one INSERT
+    statement's safe parameter budget must still persist every raw_events
+    row exactly once, split across multiple statements inside the same
+    transaction -- mirrors bulk_upsert_sum's own chunking test
+    (test_db_upsert.py), for the plain raw_events insert this module does
+    separately. Reproduced against a real ~750k-event ring-buffer-overflow
+    burst: one un-chunked INSERT of that size took 91s as a single
+    statement (see db_upsert.chunk_rows' docstring)."""
+    from app.services import db_upsert
+
+    session_factory = async_sessionmaker(db_engine, expire_on_commit=False, class_=AsyncSession)
+    import app.services.aggregator as aggregator_module
+
+    monkeypatch.setattr(aggregator_module, "AsyncSessionLocal", session_factory)
+
+    # RawEvent's insert dict has 15 columns -- enough rows to force several
+    # chunks at the module's configured _MAX_VARIABLES_PER_STATEMENT / 15
+    # chunk size.
+    row_count = 4 * (db_upsert._MAX_VARIABLES_PER_STATEMENT // 15)
+    ring_buffer = RingBuffer(max_events=row_count + 10)
+    for i in range(row_count):
+        ring_buffer.append(parse_line(squid_line(f"domain-{i}.example", client_ip=f"10.0.{i // 256}.{i % 256}")))
+
+    aggregator = Aggregator(ring_buffer=ring_buffer, interval_seconds=60)
+    result = await aggregator.flush()
+
+    assert result.events_flushed == row_count
+
+    async with session_factory() as session:
+        raw_rows = (await session.execute(select(RawEvent))).scalars().all()
+        assert len(raw_rows) == row_count
+        domains = {row.domain for row in raw_rows}
+        assert domains == {f"domain-{i}.example" for i in range(row_count)}
+
+
 async def test_flush_buckets_requests_by_client_and_category(db_engine, monkeypatch):
     """youtube.com is a known hostname (see category_inference.py) that
     auto-infers to VIDEO_STREAMING with no admin override needed -- this

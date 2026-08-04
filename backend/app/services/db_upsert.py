@@ -9,7 +9,7 @@ count. A single `INSERT ... ON CONFLICT DO UPDATE` per table per flush does
 the same "add to existing row, or create it" work in one statement.
 """
 
-from collections.abc import Mapping, Sequence
+from collections.abc import Iterator, Mapping, Sequence
 from typing import Any
 
 from sqlalchemy import ColumnElement, Table
@@ -25,11 +25,53 @@ from sqlalchemy.ext.asyncio import AsyncSession
 # catching up after downtime): one flush's domain upsert hit "too many SQL
 # variables" and got permanently stuck retrying the exact same
 # still-too-large batch every interval, since nothing about a failed,
-# uncommitted flush's pending events changes between retries. Chunking
-# below keeps every dialect on one code path -- Postgres's own limit
-# (65535) is high enough that this rarely bites there, but a second,
-# sqlite-only branch would just be one more thing to keep in sync.
+# uncommitted flush's pending events changes between retries. This default
+# keeps every dialect on one code path -- deliberately conservative
+# (SQLite-safe) since bulk_upsert_sum's callers only ever deal in
+# deduplicated per-key aggregate rows (at most one row per distinct
+# bucket/domain/client touched in a window), never the raw per-event volume
+# raw_events sees -- see _MAX_VARIABLES_PER_STATEMENT_POSTGRES below for why
+# that path needs a dialect-aware, much larger batch instead of this one.
 _MAX_VARIABLES_PER_STATEMENT = 900
+
+# Postgres's real per-statement bound-parameter ceiling is 65535 -- far
+# above SQLite's. Confirmed against a real ~750k-row raw_events insert
+# (every event becomes its own row, no dedup, unlike the aggregate tables
+# above): chunking at the SQLite-safe 900-variable size (60 rows/batch at
+# raw_events' 15 columns) forced 12,500 round trips and took 130s, *slower*
+# than one single unchunked statement's 91s -- round-trip overhead
+# dominated at that granularity. This coarser, dialect-aware batch (2,000
+# rows/batch at 15 columns) is what Aggregator.flush() uses for that
+# insert instead.
+_MAX_VARIABLES_PER_STATEMENT_POSTGRES = 30_000
+
+
+def max_variables_for(session: AsyncSession) -> int:
+    """The chunk_rows() budget to use for `session`'s dialect -- SQLite-safe
+    by default, much larger for Postgres (see
+    _MAX_VARIABLES_PER_STATEMENT_POSTGRES above)."""
+    dialect_name = session.bind.dialect.name if session.bind is not None else ""
+    if dialect_name == "postgresql":
+        return _MAX_VARIABLES_PER_STATEMENT_POSTGRES
+    return _MAX_VARIABLES_PER_STATEMENT
+
+
+def chunk_rows(
+    rows: Sequence[Mapping[str, Any]],
+    columns_per_row: int,
+    max_variables: int = _MAX_VARIABLES_PER_STATEMENT,
+) -> Iterator[Sequence[Mapping[str, Any]]]:
+    """Splits `rows` into batches that stay under `max_variables` bound
+    parameters per statement -- see this module's docstring/comments above
+    for why. Shared by bulk_upsert_sum below (SQLite-safe default) and
+    Aggregator.flush()'s plain raw_events insert (dialect-aware, via
+    max_variables_for() above): several awaited round trips instead of one
+    pathologically large statement also gives the event loop natural yield
+    points between batches (still all inside the caller's one transaction --
+    this changes how many statements it takes, not the commit boundary)."""
+    batch_size = max(1, max_variables // columns_per_row)
+    for start in range(0, len(rows), batch_size):
+        yield rows[start : start + batch_size]
 
 
 async def bulk_upsert_sum(
@@ -65,11 +107,7 @@ async def bulk_upsert_sum(
     dialect_name = session.bind.dialect.name if session.bind is not None else ""
     insert = postgresql.insert if dialect_name == "postgresql" else sqlite.insert
 
-    columns_per_row = len(rows[0])
-    batch_size = max(1, _MAX_VARIABLES_PER_STATEMENT // columns_per_row)
-
-    for start in range(0, len(rows), batch_size):
-        batch = rows[start : start + batch_size]
+    for batch in chunk_rows(rows, columns_per_row=len(rows[0])):
         stmt = insert(table).values(batch)
         stmt = stmt.on_conflict_do_update(
             index_elements=list(index_elements),

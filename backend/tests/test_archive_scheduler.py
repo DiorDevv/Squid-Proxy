@@ -31,7 +31,7 @@ async def test_check_is_noop_when_disabled(monkeypatch, db_session: AsyncSession
     calls: list = []
     monkeypatch.setattr(scheduler_module, "archive", _fake_archive(calls))
 
-    await ArchiveScheduler().check()
+    await ArchiveScheduler().run()
 
     assert calls == []
 
@@ -48,7 +48,7 @@ async def test_check_runs_on_first_check_with_no_prior_archive_run(
     calls: list = []
     monkeypatch.setattr(scheduler_module, "archive", _fake_archive(calls))
 
-    await ArchiveScheduler().check()
+    await ArchiveScheduler().run()
 
     assert len(calls) == 1
     assert str(calls[0][0]) == "archives"
@@ -66,7 +66,7 @@ async def test_check_does_not_run_again_before_min_interval_elapses(
     calls: list = []
     monkeypatch.setattr(scheduler_module, "archive", _fake_archive(calls))
 
-    await ArchiveScheduler(min_interval_seconds=604800).check()  # 7 days
+    await ArchiveScheduler(min_interval_seconds=604800).run()  # 7 days
 
     assert calls == []
 
@@ -80,7 +80,7 @@ async def test_check_runs_again_once_min_interval_has_elapsed(monkeypatch, db_se
     calls: list = []
     monkeypatch.setattr(scheduler_module, "archive", _fake_archive(calls))
 
-    await ArchiveScheduler(min_interval_seconds=604800).check()  # 7 days
+    await ArchiveScheduler(min_interval_seconds=604800).run()  # 7 days
 
     assert len(calls) == 1
 
@@ -102,7 +102,7 @@ async def test_check_survives_a_restart_that_resets_any_in_memory_timer(
 
     # A fresh instance, exactly as a process restart would produce -- no
     # constructor args carry any prior "last checked" state.
-    await ArchiveScheduler().check()
+    await ArchiveScheduler().run()
 
     assert len(calls) == 1
 

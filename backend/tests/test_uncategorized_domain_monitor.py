@@ -59,7 +59,7 @@ async def test_check_flags_domain_over_threshold(db_session: AsyncSession, monke
     db_session.add_all(_domain_minutes("mystery-site.example", now - timedelta(hours=2), 60))
     await db_session.commit()
 
-    await UncategorizedDomainMonitorJob().check()
+    await UncategorizedDomainMonitorJob().run()
 
     anomalies = await _anomalies(db_session)
     assert len(anomalies) == 1
@@ -80,7 +80,7 @@ async def test_check_does_not_flag_domain_under_threshold(db_session: AsyncSessi
     db_session.add_all(_domain_minutes("quiet-site.example", now - timedelta(hours=2), 10))
     await db_session.commit()
 
-    await UncategorizedDomainMonitorJob().check()
+    await UncategorizedDomainMonitorJob().run()
 
     assert await _anomalies(db_session) == []
 
@@ -99,7 +99,7 @@ async def test_check_is_noop_when_threshold_not_configured(db_session: AsyncSess
     db_session.add_all(_domain_minutes("busy-site.example", now - timedelta(hours=2), 1000))
     await db_session.commit()
 
-    await UncategorizedDomainMonitorJob().check()
+    await UncategorizedDomainMonitorJob().run()
 
     assert await _anomalies(db_session) == []
 
@@ -121,7 +121,7 @@ async def test_categorized_domain_is_never_flagged(db_session: AsyncSession, mon
     db_session.add_all(_domain_minutes("netflix.com", now - timedelta(hours=2), 100))
     await db_session.commit()
 
-    await UncategorizedDomainMonitorJob().check()
+    await UncategorizedDomainMonitorJob().run()
 
     assert await _anomalies(db_session) == []
 
@@ -141,7 +141,7 @@ async def test_check_does_not_re_flag_within_cooldown(db_session: AsyncSession, 
     await db_session.commit()
 
     job = UncategorizedDomainMonitorJob()
-    await job.check()
-    await job.check()  # simulates the next day's check while still over threshold
+    await job.run()
+    await job.run()  # simulates the next day's check while still over threshold
 
     assert len(await _anomalies(db_session)) == 1

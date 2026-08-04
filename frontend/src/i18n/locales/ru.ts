@@ -402,6 +402,10 @@ export const ru = {
   'errorBoundary.message': 'Произошла непредвиденная ошибка. Обычно помогает перезагрузка страницы.',
   'errorBoundary.reload': 'Перезагрузить страницу',
 
+  'panelErrorBoundary.message': 'Не удалось отобразить эту панель.',
+  'panelErrorBoundary.messageWithLabel': 'Не удалось отобразить панель «{{panel}}».',
+  'panelErrorBoundary.retry': 'Повторить',
+
   'session.verifying': 'Проверка сеанса…',
   'session.expired': 'Сеанс истёк. Пожалуйста, войдите снова.',
 } satisfies Record<TranslationKey, string>

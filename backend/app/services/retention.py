@@ -7,7 +7,6 @@ are cheap to keep for long-term trend reporting while raw per-event detail
 is comparatively expensive to retain.
 """
 
-import asyncio
 import logging
 from collections import defaultdict
 from datetime import UTC, datetime, timedelta
@@ -27,7 +26,7 @@ from app.models.raw_event import RawEvent
 from app.models.refresh_token import RefreshToken
 from app.services.db_upsert import bulk_upsert_sum
 from app.services.export_job_service import purge_old_jobs
-from app.services.ops_alerting import notify_operator_failure
+from app.services.interval_job import IntervalJob
 from app.services.report_service import send_unarchived_purge_warning
 
 logger = logging.getLogger(__name__)
@@ -49,12 +48,14 @@ logger = logging.getLogger(__name__)
 _RAW_EVENTS_DELETE_BATCH_SIZE = 5000
 
 
-class RetentionJob:
+class RetentionJob(IntervalJob):
+    job_name = "retention-job"
+    failure_source_tag = "retention"
+    failure_log_message = "Retention purge failed; will retry next interval"
+
     def __init__(self, interval_seconds: int = 3600) -> None:
-        self.interval_seconds = interval_seconds
-        self._task: asyncio.Task | None = None
-        self._stop_event = asyncio.Event()
-        # Populated by the most recent purge() -- which branches (if any)
+        super().__init__(interval_seconds)
+        # Populated by the most recent run() -- which branches (if any)
         # just had raw_events permanently deleted without ever being
         # archived (see _find_unarchived_branches). Read by /api/health so
         # this is visible on the dashboard, not just in logs/email; reset
@@ -62,35 +63,7 @@ class RetentionJob:
         # not every warning that's ever fired.
         self.unarchived_branches: list[str] = []
 
-    def start(self) -> None:
-        self._task = asyncio.create_task(self._run_forever(), name="retention-job")
-
-    async def stop(self) -> None:
-        self._stop_event.set()
-        if self._task is not None:
-            try:
-                await asyncio.wait_for(self._task, timeout=10)
-            except TimeoutError:
-                self._task.cancel()
-
-    async def _run_forever(self) -> None:
-        while True:
-            try:
-                await asyncio.wait_for(self._stop_event.wait(), timeout=self.interval_seconds)
-                break
-            except TimeoutError:
-                await self._purge_catching_errors()
-
-    async def _purge_catching_errors(self) -> None:
-        """A single bad purge must never permanently stop retention -- see
-        Aggregator._flush_catching_errors for the same reasoning."""
-        try:
-            await self.purge()
-        except Exception:
-            logger.exception("Retention purge failed; will retry next interval")
-            await notify_operator_failure("retention", "Retention purge failed; will retry next interval")
-
-    async def purge(self) -> None:
+    async def run(self) -> None:
         settings = get_settings()
         now = datetime.now(UTC)
         raw_cutoff = now - timedelta(days=settings.RETENTION_DAYS_RAW_EVENTS)

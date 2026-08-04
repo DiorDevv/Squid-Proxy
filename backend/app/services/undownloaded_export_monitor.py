@@ -11,7 +11,6 @@ one via PUT /api/export-settings) -- a fresh deployment shouldn't start
 generating anomalies for a check nobody asked for.
 """
 
-import asyncio
 import logging
 from datetime import UTC, datetime, timedelta
 
@@ -24,7 +23,7 @@ from app.models.db import AsyncSessionLocal
 from app.models.export_job import ExportJob, ExportJobStatus
 from app.services import export_settings_service, insights_service
 from app.services.alerting import maybe_alert
-from app.services.ops_alerting import notify_operator_failure
+from app.services.interval_job import IntervalJob
 
 logger = logging.getLogger(__name__)
 
@@ -36,44 +35,15 @@ ANOMALY_TITLE = "Export not downloaded"
 _RE_FLAG_COOLDOWN_HOURS = 24
 
 
-class UndownloadedExportMonitorJob:
+class UndownloadedExportMonitorJob(IntervalJob):
+    job_name = "undownloaded-export-monitor"
+    failure_source_tag = "undownloaded_export_monitor"
+    failure_log_message = "Undownloaded-export check failed; will retry next interval"
+
     def __init__(self, interval_seconds: int = 3600) -> None:
-        self.interval_seconds = interval_seconds
-        self._task: asyncio.Task | None = None
-        self._stop_event = asyncio.Event()
+        super().__init__(interval_seconds)
 
-    def start(self) -> None:
-        self._task = asyncio.create_task(self._run_forever(), name="undownloaded-export-monitor")
-
-    async def stop(self) -> None:
-        self._stop_event.set()
-        if self._task is not None:
-            try:
-                await asyncio.wait_for(self._task, timeout=10)
-            except TimeoutError:
-                self._task.cancel()
-
-    async def _run_forever(self) -> None:
-        while True:
-            try:
-                await asyncio.wait_for(self._stop_event.wait(), timeout=self.interval_seconds)
-                break
-            except TimeoutError:
-                await self._check_catching_errors()
-
-    async def _check_catching_errors(self) -> None:
-        """A single bad check must never permanently stop this job -- see
-        RetentionJob._purge_catching_errors for the same reasoning."""
-        try:
-            await self.check()
-        except Exception:
-            logger.exception("Undownloaded-export check failed; will retry next interval")
-            await notify_operator_failure(
-                "undownloaded_export_monitor",
-                "Undownloaded-export check failed; will retry next interval",
-            )
-
-    async def check(self) -> None:
+    async def run(self) -> None:
         now = datetime.now(UTC)
 
         async with AsyncSessionLocal() as session:

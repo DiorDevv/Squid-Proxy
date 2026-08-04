@@ -13,7 +13,7 @@ from app.models.domain_category import DomainCategoryLabel
 from app.models.minute_aggregate import MinuteAggregate
 from app.models.raw_event import RawEvent
 from app.models.refresh_token import RefreshToken
-from app.services import retention as retention_module
+from app.services import interval_job as interval_job_module
 from app.services.retention import RetentionJob
 
 
@@ -52,7 +52,7 @@ async def test_purge_deletes_raw_events_past_raw_retention_window(
     await db_session.commit()
 
     job = RetentionJob()
-    await job.purge()
+    await job.run()
 
     remaining = (await db_session.execute(select(RawEvent))).scalars().all()
     assert len(remaining) == 1
@@ -80,7 +80,7 @@ async def test_purge_deletes_raw_events_across_multiple_batches(db_session: Asyn
     await db_session.commit()
 
     job = RetentionJob()
-    await job.purge()
+    await job.run()
 
     remaining = (await db_session.execute(select(RawEvent))).scalars().all()
     assert remaining == []
@@ -96,7 +96,7 @@ async def test_purge_keeps_raw_events_within_retention_window(db_session: AsyncS
     await db_session.commit()
 
     job = RetentionJob()
-    await job.purge()
+    await job.run()
 
     remaining = (await db_session.execute(select(RawEvent))).scalars().all()
     assert len(remaining) == 1
@@ -147,7 +147,7 @@ async def test_purge_deletes_aggregates_past_aggregate_retention_window(
     await db_session.commit()
 
     job = RetentionJob()
-    await job.purge()
+    await job.run()
 
     minute_rows = (await db_session.execute(select(MinuteAggregate))).scalars().all()
     domain_rows = (await db_session.execute(select(DomainMinuteAggregate))).scalars().all()
@@ -177,7 +177,7 @@ async def test_purge_deletes_only_expired_refresh_tokens(db_session: AsyncSessio
     await db_session.commit()
 
     job = RetentionJob()
-    await job.purge()
+    await job.run()
 
     remaining_jtis = {r.jti for r in (await db_session.execute(select(RefreshToken))).scalars().all()}
     assert remaining_jtis == {"revoked-jti", "active-jti"}
@@ -226,7 +226,7 @@ async def test_purge_rolls_up_old_client_minutes_into_hourly_and_deletes_the_sou
     await db_session.commit()
 
     job = RetentionJob()
-    await job.purge()
+    await job.run()
 
     minute_rows = (await db_session.execute(select(ClientMinuteAggregate))).scalars().all()
     assert [r.client_ip for r in minute_rows] == ["10.0.0.41"]
@@ -251,7 +251,7 @@ async def test_purge_flags_branch_with_no_archive_run_as_unarchived(db_session: 
     await db_session.commit()
 
     job = RetentionJob()
-    await job.purge()
+    await job.run()
 
     # No ArchiveRun row exists for this branch at all -- the raw data just
     # purged was never archived, so it should be flagged.
@@ -273,7 +273,7 @@ async def test_purge_does_not_flag_a_branch_covered_by_a_recent_archive_run(
     await db_session.commit()
 
     job = RetentionJob()
-    await job.purge()
+    await job.run()
 
     assert job.unarchived_branches == []
 
@@ -294,7 +294,7 @@ async def test_purge_flags_branch_whose_archive_run_is_too_old(db_session: Async
     await db_session.commit()
 
     job = RetentionJob()
-    await job.purge()
+    await job.run()
 
     assert job.unarchived_branches == [DEFAULT_BRANCH]
 
@@ -319,7 +319,7 @@ async def test_purge_emails_a_warning_when_a_branch_was_purged_unarchived(
     await db_session.commit()
 
     job = RetentionJob()
-    await job.purge()
+    await job.run()
 
     assert calls == [[DEFAULT_BRANCH]]
 
@@ -342,7 +342,7 @@ async def test_purge_survives_a_failed_warning_email(db_session: AsyncSession, m
     await db_session.commit()
 
     job = RetentionJob()
-    await job.purge()  # must not raise
+    await job.run()  # must not raise
 
     remaining = (await db_session.execute(select(RawEvent))).scalars().all()
     assert remaining == []
@@ -375,7 +375,7 @@ async def test_purge_rollup_accumulates_into_an_existing_hourly_row_on_a_later_r
     )
     await db_session.commit()
     job = RetentionJob()
-    await job.purge()
+    await job.run()
 
     # A second minute row lands in the same already-rolled-up hour before
     # the next purge run.
@@ -390,7 +390,7 @@ async def test_purge_rollup_accumulates_into_an_existing_hourly_row_on_a_later_r
         )
     )
     await db_session.commit()
-    await job.purge()
+    await job.run()
 
     hourly_rows = (await db_session.execute(select(ClientHourlyAggregate))).scalars().all()
     assert len(hourly_rows) == 1
@@ -398,7 +398,7 @@ async def test_purge_rollup_accumulates_into_an_existing_hourly_row_on_a_later_r
     assert hourly_rows[0].total_bytes == 500
 
 
-async def test_purge_catching_errors_notifies_operator_on_failure(monkeypatch):
+async def test_run_catching_errors_notifies_operator_on_failure(monkeypatch):
     """Proves the wiring (not just app/services/ops_alerting.py in
     isolation): a real purge() failure must reach notify_operator_failure,
     same as it already reaches logger.exception."""
@@ -407,17 +407,17 @@ async def test_purge_catching_errors_notifies_operator_on_failure(monkeypatch):
     async def _failing_purge() -> None:
         raise RuntimeError("boom")
 
-    monkeypatch.setattr(job, "purge", _failing_purge)
+    monkeypatch.setattr(job, "run", _failing_purge)
 
     calls = []
 
     async def _fake_notify(source: str, message: str) -> None:
         calls.append((source, message))
 
-    monkeypatch.setattr(retention_module, "notify_operator_failure", _fake_notify)
+    monkeypatch.setattr(interval_job_module, "notify_operator_failure", _fake_notify)
 
     # Must not raise -- a single bad purge can't be allowed to stop the job.
-    await job._purge_catching_errors()
+    await job._run_catching_errors()
 
     assert len(calls) == 1
     source, message = calls[0]

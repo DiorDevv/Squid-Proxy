@@ -26,53 +26,22 @@ from pathlib import Path
 
 from app.core.config import get_settings
 from app.services import category_inference
-from app.services.ops_alerting import notify_operator_failure
+from app.services.interval_job import IntervalJob
 from app.services.ut1_blacklist import refresh
 
 logger = logging.getLogger(__name__)
 
 
-class Ut1BlacklistScheduler:
+class Ut1BlacklistScheduler(IntervalJob):
+    job_name = "ut1-blacklist-scheduler"
+    failure_source_tag = "ut1_scheduler"
+    failure_log_message = "UT1 blacklist refresh failed; will retry next interval"
+    run_immediately_on_start = True
+
     def __init__(self, interval_seconds: int = 604800) -> None:
-        self.interval_seconds = interval_seconds
-        self._task: asyncio.Task | None = None
-        self._stop_event = asyncio.Event()
+        super().__init__(interval_seconds)
 
-    def start(self) -> None:
-        asyncio.create_task(self._check_catching_errors(), name="ut1-initial-load")
-        self._task = asyncio.create_task(self._run_forever(), name="ut1-blacklist-scheduler")
-
-    async def stop(self) -> None:
-        self._stop_event.set()
-        if self._task is not None:
-            try:
-                await asyncio.wait_for(self._task, timeout=10)
-            except TimeoutError:
-                self._task.cancel()
-
-    async def _run_forever(self) -> None:
-        while True:
-            try:
-                await asyncio.wait_for(self._stop_event.wait(), timeout=self.interval_seconds)
-                break
-            except TimeoutError:
-                await self._check_catching_errors()
-
-    async def _check_catching_errors(self) -> None:
-        """A bad refresh (network down, UT1 mirror unreachable, ...) must
-        never crash the app or permanently stop future attempts -- same
-        reasoning as every other scheduler's _*_catching_errors wrapper.
-        category_inference simply keeps using whatever blacklist (possibly
-        none) it already had."""
-        try:
-            await self.check()
-        except Exception:
-            logger.exception("UT1 blacklist refresh failed; will retry next interval")
-            await notify_operator_failure(
-                "ut1_scheduler", "UT1 blacklist refresh failed; will retry next interval"
-            )
-
-    async def check(self) -> None:
+    async def run(self) -> None:
         settings = get_settings()
         if not settings.UT1_ENABLED:
             return

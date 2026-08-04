@@ -624,12 +624,9 @@ Alembic's bookkeeping table recording it.
 - The login endpoint is rate-limited (`LOGIN_RATE_LIMIT`, default 5/minute per IP).
 - `viewer` role has full read access; only `admin` can export data or reach `/settings`. Either
   role can additionally be scoped to one branch — see "Restricting a user to one branch" above.
-- **Branch-scoping covers REST data-read endpoints and `GET /api/branches` only, not `/ws/live`.**
-  The live-events WebSocket broadcasts every connected viewer the same stream regardless of their
-  account's branch scope — a scoped user's REST requests are correctly restricted, but they'd
-  still see other branches' events arrive live. Known gap, not yet closed; avoid relying on
-  branch-scoping as the *only* thing standing between a user and another branch's live traffic
-  until this is addressed.
+- Branch-scoping covers REST data-read endpoints, `GET /api/branches`, and the `/ws/live`
+  live-events WebSocket — a scoped user's connection is filtered to their own branch's events
+  server-side, not just hidden client-side.
 - Never commit a real `.env` — both `.gitignore` files exclude it; only `.env.example` files are
   tracked.
 - **The Docker Compose path (`docker-compose.yml`) serves the frontend over plain HTTP, with no

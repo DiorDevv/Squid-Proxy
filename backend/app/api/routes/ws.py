@@ -15,9 +15,10 @@ async def ws_live(websocket: WebSocket, ticket: str | None = None) -> None:
     identity = ticket_store.consume(ticket)
     if identity is None:
         raise WebSocketException(code=status.WS_1008_POLICY_VIOLATION, reason="Invalid or expired ticket")
+    _user_id, _role, branch = identity
 
     ws_manager = websocket.app.state.ws_manager
-    await ws_manager.connect(websocket)
+    await ws_manager.connect(websocket, branch=branch)
     try:
         while True:
             # Clients don't send data; just keep the connection open and

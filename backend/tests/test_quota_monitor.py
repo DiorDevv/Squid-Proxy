@@ -43,7 +43,7 @@ async def test_check_flags_client_over_quota(db_session: AsyncSession, monkeypat
     await db_session.commit()
 
     job = QuotaMonitorJob()
-    await job.check()
+    await job.run()
 
     anomalies = (
         (await db_session.execute(select(AnomalyEvent).where(AnomalyEvent.title == ANOMALY_TITLE)))
@@ -78,7 +78,7 @@ async def test_check_uses_critical_severity_at_double_quota(db_session: AsyncSes
     await db_session.commit()
 
     job = QuotaMonitorJob()
-    await job.check()
+    await job.run()
 
     anomalies = (
         (await db_session.execute(select(AnomalyEvent).where(AnomalyEvent.title == ANOMALY_TITLE)))
@@ -111,7 +111,7 @@ async def test_check_does_not_flag_client_under_quota(db_session: AsyncSession, 
     await db_session.commit()
 
     job = QuotaMonitorJob()
-    await job.check()
+    await job.run()
 
     anomalies = (
         (await db_session.execute(select(AnomalyEvent).where(AnomalyEvent.title == ANOMALY_TITLE)))
@@ -138,7 +138,7 @@ async def test_check_is_noop_when_quota_not_configured(db_session: AsyncSession,
     await db_session.commit()
 
     job = QuotaMonitorJob()
-    await job.check()
+    await job.run()
 
     anomalies = (
         (await db_session.execute(select(AnomalyEvent).where(AnomalyEvent.title == ANOMALY_TITLE)))
@@ -188,7 +188,7 @@ async def test_check_compares_each_branch_against_its_own_quota(db_session: Asyn
     await db_session.commit()
 
     job = QuotaMonitorJob()
-    await job.check()
+    await job.run()
 
     anomalies = (
         (await db_session.execute(select(AnomalyEvent).where(AnomalyEvent.title == ANOMALY_TITLE)))
@@ -222,8 +222,8 @@ async def test_check_does_not_re_flag_within_the_same_day(db_session: AsyncSessi
     await db_session.commit()
 
     job = QuotaMonitorJob()
-    await job.check()
-    await job.check()  # simulate a second hourly tick on the same ongoing overage
+    await job.run()
+    await job.run()  # simulate a second hourly tick on the same ongoing overage
 
     anomalies = (
         (await db_session.execute(select(AnomalyEvent).where(AnomalyEvent.title == ANOMALY_TITLE)))

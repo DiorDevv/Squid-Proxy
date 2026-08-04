@@ -36,7 +36,6 @@ needs to have actually happened before the 7-day retention cutoff, so basing
 "due" on durable state instead of an in-memory clock matters more here.
 """
 
-import asyncio
 import logging
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -45,55 +44,22 @@ from app.core.config import Settings, get_settings
 from app.models.archive_run import ArchiveRun
 from app.models.db import AsyncSessionLocal
 from app.services.archive_service import archive
-from app.services.ops_alerting import notify_operator_failure
+from app.services.interval_job import IntervalJob
 
 logger = logging.getLogger(__name__)
 
 
-class ArchiveScheduler:
+class ArchiveScheduler(IntervalJob):
+    job_name = "archive-scheduler"
+    failure_source_tag = "archive_scheduler"
+    failure_log_message = "Archive scheduler check failed; will retry next interval"
+    run_immediately_on_start = True
+
     def __init__(self, check_interval_seconds: int = 3600, min_interval_seconds: int = 604800) -> None:
-        self.check_interval_seconds = check_interval_seconds
+        super().__init__(check_interval_seconds)
         self.min_interval_seconds = min_interval_seconds
-        self._task: asyncio.Task | None = None
-        self._stop_event = asyncio.Event()
 
-    def start(self) -> None:
-        # Detached on purpose (not awaited, not stored) -- start() must
-        # return immediately either way, and _run_forever's own loop below
-        # still owns the ongoing schedule; this is strictly an extra,
-        # earlier first check. A slow/failed archive() here delays nothing
-        # else at startup (same reasoning as Ut1BlacklistScheduler.start()).
-        asyncio.create_task(self._check_catching_errors(), name="archive-scheduler-initial-check")
-        self._task = asyncio.create_task(self._run_forever(), name="archive-scheduler")
-
-    async def stop(self) -> None:
-        self._stop_event.set()
-        if self._task is not None:
-            try:
-                await asyncio.wait_for(self._task, timeout=10)
-            except TimeoutError:
-                self._task.cancel()
-
-    async def _run_forever(self) -> None:
-        while True:
-            try:
-                await asyncio.wait_for(self._stop_event.wait(), timeout=self.check_interval_seconds)
-                break
-            except TimeoutError:
-                await self._check_catching_errors()
-
-    async def _check_catching_errors(self) -> None:
-        """A single bad check must never permanently stop this job -- see
-        RetentionJob._purge_catching_errors for the same reasoning."""
-        try:
-            await self.check()
-        except Exception:
-            logger.exception("Archive scheduler check failed; will retry next interval")
-            await notify_operator_failure(
-                "archive_scheduler", "Archive scheduler check failed; will retry next interval"
-            )
-
-    async def check(self) -> None:
+    async def run(self) -> None:
         settings = get_settings()
         if not settings.ARCHIVE_ENABLED:
             return

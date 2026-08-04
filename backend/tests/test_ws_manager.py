@@ -27,7 +27,7 @@ class _FakeWebSocket:
         self.sent.append(payload)
 
 
-def _event(client_ip: str = "10.0.0.1") -> StoredEvent:
+def _event(client_ip: str = "10.0.0.1", branch: str = "default") -> StoredEvent:
     parsed = ParsedEvent(
         timestamp=datetime.now(UTC),
         duration_ms=1,
@@ -43,7 +43,7 @@ def _event(client_ip: str = "10.0.0.1") -> StoredEvent:
         peer=None,
         content_type=None,
         blocked=False,
-        branch="default",
+        branch=branch,
     )
     return StoredEvent(id=1, event=parsed)
 
@@ -199,3 +199,47 @@ async def test_broadcast_nowait_flushes_immediately_at_max_batch_size():
 
     assert len(ws.sent) == 1
     assert len(ws.sent[0]) == 3
+
+
+async def test_flush_pending_filters_by_connection_branch():
+    manager = WebSocketManager()
+    filiallar_conn = _FakeWebSocket()
+    head_office_conn = _FakeWebSocket()
+    await manager.connect(filiallar_conn, branch="filiallar")
+    await manager.connect(head_office_conn, branch="head_office")
+
+    manager._pending.append(manager._serialize(_event("10.0.0.1", branch="filiallar")))
+    manager._pending.append(manager._serialize(_event("10.0.0.2", branch="head_office")))
+    await manager._flush_pending()
+
+    assert len(filiallar_conn.sent) == 1
+    assert [item["branch"] for item in filiallar_conn.sent[0]] == ["filiallar"]
+    assert len(head_office_conn.sent) == 1
+    assert [item["branch"] for item in head_office_conn.sent[0]] == ["head_office"]
+
+
+async def test_flush_pending_skips_send_for_connection_with_empty_filtered_batch():
+    manager = WebSocketManager()
+    scoped_conn = _FakeWebSocket()
+    await manager.connect(scoped_conn, branch="filiallar")
+
+    # Only an event for a different branch this tick -- the scoped
+    # connection's filtered subset is empty, so it should get no frame at
+    # all, not a pointless empty-array one.
+    manager._pending.append(manager._serialize(_event(branch="head_office")))
+    await manager._flush_pending()
+
+    assert scoped_conn.sent == []
+
+
+async def test_flush_pending_unrestricted_connection_receives_all_branches():
+    manager = WebSocketManager()
+    unrestricted_conn = _FakeWebSocket()
+    await manager.connect(unrestricted_conn, branch=None)
+
+    manager._pending.append(manager._serialize(_event("10.0.0.1", branch="filiallar")))
+    manager._pending.append(manager._serialize(_event("10.0.0.2", branch="head_office")))
+    await manager._flush_pending()
+
+    assert len(unrestricted_conn.sent) == 1
+    assert [item["branch"] for item in unrestricted_conn.sent[0]] == ["filiallar", "head_office"]

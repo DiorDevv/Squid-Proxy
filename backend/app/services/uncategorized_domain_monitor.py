@@ -17,7 +17,6 @@ until an admin sets one via /api/alert-settings) -- a fresh deployment
 shouldn't start generating anomalies for a check nobody asked for.
 """
 
-import asyncio
 import logging
 from datetime import UTC, datetime, timedelta
 
@@ -31,7 +30,7 @@ from app.models.db import AsyncSessionLocal
 from app.models.domain_category import DomainCategoryLabel
 from app.services import alert_settings_service, insights_service, stats_service
 from app.services.alerting import maybe_alert
-from app.services.ops_alerting import notify_operator_failure
+from app.services.interval_job import IntervalJob
 
 logger = logging.getLogger(__name__)
 
@@ -49,44 +48,15 @@ _CANDIDATE_LIMIT = 20
 _RE_FLAG_COOLDOWN_DAYS = 7
 
 
-class UncategorizedDomainMonitorJob:
+class UncategorizedDomainMonitorJob(IntervalJob):
+    job_name = "uncategorized-domain-monitor"
+    failure_source_tag = "uncategorized_domain_monitor"
+    failure_log_message = "Uncategorized-domain check failed; will retry next interval"
+
     def __init__(self, interval_seconds: int = 86400) -> None:
-        self.interval_seconds = interval_seconds
-        self._task: asyncio.Task | None = None
-        self._stop_event = asyncio.Event()
+        super().__init__(interval_seconds)
 
-    def start(self) -> None:
-        self._task = asyncio.create_task(self._run_forever(), name="uncategorized-domain-monitor")
-
-    async def stop(self) -> None:
-        self._stop_event.set()
-        if self._task is not None:
-            try:
-                await asyncio.wait_for(self._task, timeout=10)
-            except TimeoutError:
-                self._task.cancel()
-
-    async def _run_forever(self) -> None:
-        while True:
-            try:
-                await asyncio.wait_for(self._stop_event.wait(), timeout=self.interval_seconds)
-                break
-            except TimeoutError:
-                await self._check_catching_errors()
-
-    async def _check_catching_errors(self) -> None:
-        """A single bad check must never permanently stop this job -- see
-        RetentionJob._purge_catching_errors for the same reasoning."""
-        try:
-            await self.check()
-        except Exception:
-            logger.exception("Uncategorized-domain check failed; will retry next interval")
-            await notify_operator_failure(
-                "uncategorized_domain_monitor",
-                "Uncategorized-domain check failed; will retry next interval",
-            )
-
-    async def check(self) -> None:
+    async def run(self) -> None:
         settings = get_settings()
         now = datetime.now(UTC)
         since = now - timedelta(hours=24)

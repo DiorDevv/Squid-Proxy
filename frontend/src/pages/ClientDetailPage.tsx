@@ -2,8 +2,15 @@ import { useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { ArrowLeft, Activity, Database, Info, ShieldX } from 'lucide-react'
 import { Button } from '@/components/ui/button'
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
 import { Panel } from '@/components/common/Panel'
+import { PanelErrorBoundary } from '@/components/common/PanelErrorBoundary'
 import { ErrorState } from '@/components/common/ErrorState'
 import { SearchFilterInput } from '@/components/common/SearchFilterInput'
 import { RangeSelector } from '@/components/common/RangeSelector'
@@ -174,46 +181,48 @@ export default function ClientDetailPage() {
             </Button>
           </div>
 
-          {query.isError ? (
-            <ErrorState message={query.error?.message} onRetry={() => query.refetch()} />
-          ) : (
-            <>
-              <ClientActivityTimeline
-                events={query.data?.items ?? []}
-                isLoading={query.isLoading}
-                onRowClick={setSelectedEvent}
-              />
-              {query.data && query.data.total > LIMIT && (
-                <div className="flex items-center justify-between pt-3 text-xs text-muted-foreground">
-                  <span className="font-data">
-                    {t('common.rangeOf', {
-                      start: offset + 1,
-                      end: Math.min(offset + LIMIT, query.data.total),
-                      total: query.data.total,
-                    })}
-                  </span>
-                  <div className="flex gap-2">
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      disabled={offset === 0}
-                      onClick={() => setOffset(Math.max(0, offset - LIMIT))}
-                    >
-                      {t('common.previous')}
-                    </Button>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      disabled={offset + LIMIT >= query.data.total}
-                      onClick={() => setOffset(offset + LIMIT)}
-                    >
-                      {t('common.next')}
-                    </Button>
+          <PanelErrorBoundary panelLabel={t('clientDetail.activityHistory')}>
+            {query.isError ? (
+              <ErrorState message={query.error?.message} onRetry={() => query.refetch()} />
+            ) : (
+              <>
+                <ClientActivityTimeline
+                  events={query.data?.items ?? []}
+                  isLoading={query.isLoading}
+                  onRowClick={setSelectedEvent}
+                />
+                {query.data && query.data.total > LIMIT && (
+                  <div className="flex items-center justify-between pt-3 text-xs text-muted-foreground">
+                    <span className="font-data">
+                      {t('common.rangeOf', {
+                        start: offset + 1,
+                        end: Math.min(offset + LIMIT, query.data.total),
+                        total: query.data.total,
+                      })}
+                    </span>
+                    <div className="flex gap-2">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        disabled={offset === 0}
+                        onClick={() => setOffset(Math.max(0, offset - LIMIT))}
+                      >
+                        {t('common.previous')}
+                      </Button>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        disabled={offset + LIMIT >= query.data.total}
+                        onClick={() => setOffset(offset + LIMIT)}
+                      >
+                        {t('common.next')}
+                      </Button>
+                    </div>
                   </div>
-                </div>
-              )}
-            </>
-          )}
+                )}
+              </>
+            )}
+          </PanelErrorBoundary>
         </Panel>
 
         <Panel
@@ -249,14 +258,19 @@ export default function ClientDetailPage() {
             </div>
           }
         >
-          {timeSpentView === 'domain' ? (
-            <TimeSpentByDomain clientIp={clientIp} rangeParams={rangeParams} />
-          ) : (
-            <TimeSpentByCategory clientIp={clientIp} rangeParams={rangeParams} />
-          )}
+          <PanelErrorBoundary panelLabel={t('clientDetail.timeSpent')}>
+            {timeSpentView === 'domain' ? (
+              <TimeSpentByDomain clientIp={clientIp} rangeParams={rangeParams} />
+            ) : (
+              <TimeSpentByCategory clientIp={clientIp} rangeParams={rangeParams} />
+            )}
+          </PanelErrorBoundary>
         </Panel>
       </div>
-      <EventDetailSheet event={selectedEvent} onOpenChange={(open) => !open && setSelectedEvent(null)} />
+      <EventDetailSheet
+        event={selectedEvent}
+        onOpenChange={(open) => !open && setSelectedEvent(null)}
+      />
     </div>
   )
 }

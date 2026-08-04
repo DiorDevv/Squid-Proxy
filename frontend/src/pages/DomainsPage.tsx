@@ -1,10 +1,17 @@
 import { useState } from 'react'
 import { Panel } from '@/components/common/Panel'
+import { PanelErrorBoundary } from '@/components/common/PanelErrorBoundary'
 import { ErrorState } from '@/components/common/ErrorState'
 import { RangeSelector } from '@/components/common/RangeSelector'
 import { BranchSelector } from '@/components/common/BranchSelector'
 import { SavedFiltersMenu } from '@/components/common/SavedFiltersMenu'
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
 import { DomainRankingTable } from '@/components/domains/DomainRankingTable'
 import { CategoryBreakdown } from '@/components/domains/CategoryBreakdown'
 import { useTopBlocked, useTopDataUsage, useTopDomains } from '@/hooks/useTopDomains'
@@ -38,7 +45,9 @@ export default function DomainsPage() {
       <div className="flex flex-wrap items-center justify-end gap-2">
         <Select
           value={category ?? ALL_CATEGORIES}
-          onValueChange={(value) => setCategory(value === ALL_CATEGORIES ? null : (value as DomainCategoryLabel))}
+          onValueChange={(value) =>
+            setCategory(value === ALL_CATEGORIES ? null : (value as DomainCategoryLabel))
+          }
         >
           <SelectTrigger size="sm" className="w-44" aria-label={t('domains.categoryFilter')}>
             <SelectValue />
@@ -59,49 +68,69 @@ export default function DomainsPage() {
 
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
         <Panel title={t('domains.mostVisited')}>
-          {topDomains.isError ? (
-            <ErrorState message={topDomains.error?.message} onRetry={() => topDomains.refetch()} />
-          ) : (
-            <DomainRankingTable
-              items={topDomains.data?.items ?? []}
-              isLoading={topDomains.isLoading}
-              emphasize="request_count"
-            />
-          )}
+          <PanelErrorBoundary panelLabel={t('domains.mostVisited')}>
+            {topDomains.isError ? (
+              <ErrorState
+                message={topDomains.error?.message}
+                onRetry={() => topDomains.refetch()}
+              />
+            ) : (
+              <DomainRankingTable
+                items={topDomains.data?.items ?? []}
+                isLoading={topDomains.isLoading}
+                emphasize="request_count"
+              />
+            )}
+          </PanelErrorBoundary>
         </Panel>
         <Panel title={t('domains.mostBlocked')}>
-          {topBlocked.isError ? (
-            <ErrorState message={topBlocked.error?.message} onRetry={() => topBlocked.refetch()} />
-          ) : (
-            <DomainRankingTable
-              items={topBlocked.data?.items ?? []}
-              isLoading={topBlocked.isLoading}
-              emphasize="blocked_count"
-            />
-          )}
+          <PanelErrorBoundary panelLabel={t('domains.mostBlocked')}>
+            {topBlocked.isError ? (
+              <ErrorState
+                message={topBlocked.error?.message}
+                onRetry={() => topBlocked.refetch()}
+              />
+            ) : (
+              <DomainRankingTable
+                items={topBlocked.data?.items ?? []}
+                isLoading={topBlocked.isLoading}
+                emphasize="blocked_count"
+              />
+            )}
+          </PanelErrorBoundary>
         </Panel>
         <Panel title={t('domains.mostDataUsage')}>
-          {topDataUsage.isError ? (
-            <ErrorState message={topDataUsage.error?.message} onRetry={() => topDataUsage.refetch()} />
-          ) : (
-            <DomainRankingTable
-              items={topDataUsage.data?.items ?? []}
-              isLoading={topDataUsage.isLoading}
-              emphasize="total_bytes"
-            />
-          )}
+          <PanelErrorBoundary panelLabel={t('domains.mostDataUsage')}>
+            {topDataUsage.isError ? (
+              <ErrorState
+                message={topDataUsage.error?.message}
+                onRetry={() => topDataUsage.refetch()}
+              />
+            ) : (
+              <DomainRankingTable
+                items={topDataUsage.data?.items ?? []}
+                isLoading={topDataUsage.isLoading}
+                emphasize="total_bytes"
+              />
+            )}
+          </PanelErrorBoundary>
         </Panel>
         <Panel title={t('domains.byCategory')}>
-          {byCategory.isError ? (
-            <ErrorState message={byCategory.error?.message} onRetry={() => byCategory.refetch()} />
-          ) : (
-            <CategoryBreakdown
-              items={byCategory.data?.items ?? []}
-              isLoading={byCategory.isLoading}
-              selectedCategory={category}
-              onSelectCategory={setCategory}
-            />
-          )}
+          <PanelErrorBoundary panelLabel={t('domains.byCategory')}>
+            {byCategory.isError ? (
+              <ErrorState
+                message={byCategory.error?.message}
+                onRetry={() => byCategory.refetch()}
+              />
+            ) : (
+              <CategoryBreakdown
+                items={byCategory.data?.items ?? []}
+                isLoading={byCategory.isLoading}
+                selectedCategory={category}
+                onSelectCategory={setCategory}
+              />
+            )}
+          </PanelErrorBoundary>
         </Panel>
       </div>
     </div>

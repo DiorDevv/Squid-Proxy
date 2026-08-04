@@ -106,24 +106,24 @@ class WsTicketStore:
         self.ttl_seconds = ttl_seconds
         self._sweep_every = sweep_every
         self._issued_since_sweep = 0
-        self._tickets: dict[str, tuple[str, str, float]] = {}
+        self._tickets: dict[str, tuple[str, str, str | None, float]] = {}
 
-    def issue(self, user_id: str, role: str) -> str:
+    def issue(self, user_id: str, role: str, branch: str | None = None) -> str:
         self._issued_since_sweep += 1
         if self._issued_since_sweep >= self._sweep_every:
             self._sweep_expired()
         ticket = secrets.token_urlsafe(24)
-        self._tickets[ticket] = (user_id, role, time.monotonic() + self.ttl_seconds)
+        self._tickets[ticket] = (user_id, role, branch, time.monotonic() + self.ttl_seconds)
         return ticket
 
-    def consume(self, ticket: str) -> tuple[str, str] | None:
+    def consume(self, ticket: str) -> tuple[str, str, str | None] | None:
         entry = self._tickets.pop(ticket, None)
         if entry is None:
             return None
-        user_id, role, expires_at = entry
+        user_id, role, branch, expires_at = entry
         if time.monotonic() > expires_at:
             return None
-        return user_id, role
+        return user_id, role, branch
 
     def _sweep_expired(self) -> None:
         """Drop tickets that were issued but never consumed before expiring.
@@ -134,6 +134,6 @@ class WsTicketStore:
         """
         self._issued_since_sweep = 0
         now = time.monotonic()
-        expired = [key for key, (_, _, expires_at) in self._tickets.items() if now > expires_at]
+        expired = [key for key, (_, _, _, expires_at) in self._tickets.items() if now > expires_at]
         for key in expired:
             del self._tickets[key]

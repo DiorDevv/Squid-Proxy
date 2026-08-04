@@ -419,6 +419,10 @@ export const en = {
   'errorBoundary.message': 'An unexpected error occurred. Reloading the page usually fixes this.',
   'errorBoundary.reload': 'Reload page',
 
+  'panelErrorBoundary.message': "This panel couldn't be displayed.",
+  'panelErrorBoundary.messageWithLabel': "The {{panel}} panel couldn't be displayed.",
+  'panelErrorBoundary.retry': 'Retry',
+
   // --- Session ---
   'session.verifying': 'Verifying session…',
   'session.expired': 'Session expired. Please sign in again.',

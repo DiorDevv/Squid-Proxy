@@ -1,4 +1,4 @@
-"""Tests for Ut1BlacklistScheduler.check() -- patches ut1_blacklist.refresh
+"""Tests for Ut1BlacklistScheduler.run() -- patches ut1_blacklist.refresh
 itself (a real refresh does network I/O and CPU-heavy hashing, covered by
 its own tests in test_ut1_blacklist.py) rather than exercising either here."""
 
@@ -22,7 +22,7 @@ async def test_check_is_noop_when_disabled(monkeypatch):
     calls: list = []
     monkeypatch.setattr(scheduler_module, "refresh", _fake_refresh(Ut1Blacklist({}), calls))
 
-    await Ut1BlacklistScheduler().check()
+    await Ut1BlacklistScheduler().run()
 
     assert calls == []
 
@@ -43,7 +43,7 @@ async def test_check_refreshes_and_installs_blacklist_when_enabled(monkeypatch):
     monkeypatch.setattr(scheduler_module, "refresh", _fake_refresh(blacklist, calls))
 
     try:
-        await Ut1BlacklistScheduler().check()
+        await Ut1BlacklistScheduler().run()
 
         assert len(calls) == 1
         assert str(calls[0][0]) == "some-dir"

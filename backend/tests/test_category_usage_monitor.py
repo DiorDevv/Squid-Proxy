@@ -60,7 +60,7 @@ async def test_check_flags_client_over_threshold(db_session: AsyncSession, monke
     await db_session.commit()
 
     job = CategoryUsageMonitorJob()
-    await job.check()
+    await job.run()
 
     anomalies = (
         (await db_session.execute(select(AnomalyEvent).where(AnomalyEvent.title == ANOMALY_TITLE)))
@@ -87,7 +87,7 @@ async def test_check_does_not_flag_client_under_threshold(db_session: AsyncSessi
     await db_session.commit()
 
     job = CategoryUsageMonitorJob()
-    await job.check()
+    await job.run()
 
     anomalies = (
         (await db_session.execute(select(AnomalyEvent).where(AnomalyEvent.title == ANOMALY_TITLE)))
@@ -115,7 +115,7 @@ async def test_check_does_not_flag_work_category_time(db_session: AsyncSession, 
     await db_session.commit()
 
     job = CategoryUsageMonitorJob()
-    await job.check()
+    await job.run()
 
     anomalies = (
         (await db_session.execute(select(AnomalyEvent).where(AnomalyEvent.title == ANOMALY_TITLE)))
@@ -141,8 +141,8 @@ async def test_check_does_not_re_flag_within_the_same_day(db_session: AsyncSessi
     await db_session.commit()
 
     job = CategoryUsageMonitorJob()
-    await job.check()
-    await job.check()  # simulate a second hourly tick on the same ongoing violation
+    await job.run()
+    await job.run()  # simulate a second hourly tick on the same ongoing violation
 
     anomalies = (
         (await db_session.execute(select(AnomalyEvent).where(AnomalyEvent.title == ANOMALY_TITLE)))
@@ -168,7 +168,7 @@ async def test_check_is_noop_when_threshold_disabled(db_session: AsyncSession, m
     await db_session.commit()
 
     job = CategoryUsageMonitorJob()
-    await job.check()
+    await job.run()
 
     anomalies = (
         (await db_session.execute(select(AnomalyEvent).where(AnomalyEvent.title == ANOMALY_TITLE)))
@@ -199,7 +199,7 @@ async def test_check_combines_multiple_non_exempt_categories_for_the_same_minute
     await db_session.commit()
 
     job = CategoryUsageMonitorJob()
-    await job.check()
+    await job.run()
 
     # 5 overlapping minutes across two categories == 5 active minutes, still
     # under the 10-minute threshold.

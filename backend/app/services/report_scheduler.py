@@ -10,7 +10,6 @@ app/models/report_schedule_state.py) -- so a restart mid-interval doesn't
 cause a duplicate or missed send the way an in-memory timestamp would.
 """
 
-import asyncio
 import logging
 from datetime import UTC, datetime, timedelta
 
@@ -20,7 +19,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.config import get_settings
 from app.models.db import AsyncSessionLocal
 from app.models.report_schedule_state import ReportScheduleState
-from app.services.ops_alerting import notify_operator_failure
+from app.services.interval_job import IntervalJob
 from app.services.report_service import generate_and_send_report
 
 logger = logging.getLogger(__name__)
@@ -33,43 +32,15 @@ _SCHEDULE_INTERVALS = {
 }
 
 
-class ReportScheduler:
+class ReportScheduler(IntervalJob):
+    job_name = "report-scheduler"
+    failure_source_tag = "report_scheduler"
+    failure_log_message = "Report scheduler check failed; will retry next interval"
+
     def __init__(self, interval_seconds: int = 900) -> None:
-        self.interval_seconds = interval_seconds
-        self._task: asyncio.Task | None = None
-        self._stop_event = asyncio.Event()
+        super().__init__(interval_seconds)
 
-    def start(self) -> None:
-        self._task = asyncio.create_task(self._run_forever(), name="report-scheduler")
-
-    async def stop(self) -> None:
-        self._stop_event.set()
-        if self._task is not None:
-            try:
-                await asyncio.wait_for(self._task, timeout=10)
-            except TimeoutError:
-                self._task.cancel()
-
-    async def _run_forever(self) -> None:
-        while True:
-            try:
-                await asyncio.wait_for(self._stop_event.wait(), timeout=self.interval_seconds)
-                break
-            except TimeoutError:
-                await self._check_catching_errors()
-
-    async def _check_catching_errors(self) -> None:
-        """A single bad check must never permanently stop this job -- see
-        RetentionJob._purge_catching_errors for the same reasoning."""
-        try:
-            await self.check()
-        except Exception:
-            logger.exception("Report scheduler check failed; will retry next interval")
-            await notify_operator_failure(
-                "report_scheduler", "Report scheduler check failed; will retry next interval"
-            )
-
-    async def check(self) -> None:
+    async def run(self) -> None:
         settings = get_settings()
         schedule_interval = _SCHEDULE_INTERVALS.get(settings.REPORT_SCHEDULE)
         if schedule_interval is None or not settings.REPORT_RECIPIENTS:

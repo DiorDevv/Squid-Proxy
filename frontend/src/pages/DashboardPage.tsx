@@ -7,6 +7,7 @@ import { TopBlockedDomains } from '@/components/dashboard/TopBlockedDomains'
 import { LiveEventsTicker } from '@/components/dashboard/LiveEventsTicker'
 import { InsightsPanel } from '@/components/dashboard/InsightsPanel'
 import { Panel } from '@/components/common/Panel'
+import { PanelErrorBoundary } from '@/components/common/PanelErrorBoundary'
 import { ErrorState } from '@/components/common/ErrorState'
 import { RangeSelector } from '@/components/common/RangeSelector'
 import { BranchSelector } from '@/components/common/BranchSelector'
@@ -36,8 +37,14 @@ export default function DashboardPage() {
   // Reuses the *resolved* since/until the backend already computed for the
   // current period (rather than re-deriving "what does '24h' mean" here) so
   // the previous window is always an exact, equal-duration predecessor.
-  const previousPeriodParams = summary ? getPreviousPeriodParams(summary.since, summary.until, branch) : null
-  const previousSummaryQuery = useSummary(previousPeriodParams ?? {}, false, previousPeriodParams !== null)
+  const previousPeriodParams = summary
+    ? getPreviousPeriodParams(summary.since, summary.until, branch)
+    : null
+  const previousSummaryQuery = useSummary(
+    previousPeriodParams ?? {},
+    false,
+    previousPeriodParams !== null,
+  )
   const previousSummary = previousSummaryQuery.data
 
   return (
@@ -63,7 +70,10 @@ export default function DashboardPage() {
           tone="info"
           loading={summaryQuery.isLoading}
           updating={summaryQuery.isFetching && !summaryQuery.isLoading}
-          deltaPercent={getPercentChange(summary?.total_requests ?? 0, previousSummary?.total_requests)}
+          deltaPercent={getPercentChange(
+            summary?.total_requests ?? 0,
+            previousSummary?.total_requests,
+          )}
         />
         <SummaryCard
           label={t('dashboard.blocked')}
@@ -72,7 +82,10 @@ export default function DashboardPage() {
           tone="warning"
           loading={summaryQuery.isLoading}
           updating={summaryQuery.isFetching && !summaryQuery.isLoading}
-          deltaPercent={getPercentChange(summary?.blocked_requests ?? 0, previousSummary?.blocked_requests)}
+          deltaPercent={getPercentChange(
+            summary?.blocked_requests ?? 0,
+            previousSummary?.blocked_requests,
+          )}
         />
         <SummaryCard
           label={t('dashboard.allowed')}
@@ -81,7 +94,10 @@ export default function DashboardPage() {
           tone="success"
           loading={summaryQuery.isLoading}
           updating={summaryQuery.isFetching && !summaryQuery.isLoading}
-          deltaPercent={getPercentChange(summary?.allowed_requests ?? 0, previousSummary?.allowed_requests)}
+          deltaPercent={getPercentChange(
+            summary?.allowed_requests ?? 0,
+            previousSummary?.allowed_requests,
+          )}
         />
         <SummaryCard
           label={t('dashboard.activeClients')}
@@ -90,25 +106,44 @@ export default function DashboardPage() {
           tone="purple"
           loading={summaryQuery.isLoading}
           updating={summaryQuery.isFetching && !summaryQuery.isLoading}
-          deltaPercent={getPercentChange(summary?.active_client_count ?? 0, previousSummary?.active_client_count)}
+          deltaPercent={getPercentChange(
+            summary?.active_client_count ?? 0,
+            previousSummary?.active_client_count,
+          )}
         />
       </div>
 
       <div className="grid grid-cols-1 gap-4 xl:grid-cols-3">
         <Panel title={t('dashboard.trafficOverTime')} className="xl:col-span-2">
-          {timeseriesQuery.isError ? (
-            <ErrorState message={timeseriesQuery.error?.message} onRetry={() => timeseriesQuery.refetch()} />
-          ) : (
-            <TrafficChart points={timeseriesQuery.data?.points ?? []} loading={timeseriesQuery.isLoading} />
-          )}
+          <PanelErrorBoundary panelLabel={t('dashboard.trafficOverTime')}>
+            {timeseriesQuery.isError ? (
+              <ErrorState
+                message={timeseriesQuery.error?.message}
+                onRetry={() => timeseriesQuery.refetch()}
+              />
+            ) : (
+              <TrafficChart
+                points={timeseriesQuery.data?.points ?? []}
+                loading={timeseriesQuery.isLoading}
+              />
+            )}
+          </PanelErrorBoundary>
         </Panel>
 
         <Panel title={t('dashboard.topBlockedDomains')}>
-          {topBlockedQuery.isError ? (
-            <ErrorState message={topBlockedQuery.error?.message} onRetry={() => topBlockedQuery.refetch()} />
-          ) : (
-            <TopBlockedDomains items={topBlockedQuery.data?.items ?? []} loading={topBlockedQuery.isLoading} />
-          )}
+          <PanelErrorBoundary panelLabel={t('dashboard.topBlockedDomains')}>
+            {topBlockedQuery.isError ? (
+              <ErrorState
+                message={topBlockedQuery.error?.message}
+                onRetry={() => topBlockedQuery.refetch()}
+              />
+            ) : (
+              <TopBlockedDomains
+                items={topBlockedQuery.data?.items ?? []}
+                loading={topBlockedQuery.isLoading}
+              />
+            )}
+          </PanelErrorBoundary>
         </Panel>
       </div>
 
@@ -128,11 +163,15 @@ export default function DashboardPage() {
             </span>
           }
         >
-          <LiveEventsTicker />
+          <PanelErrorBoundary panelLabel={t('dashboard.liveEvents')}>
+            <LiveEventsTicker />
+          </PanelErrorBoundary>
         </Panel>
 
         <Panel title={t('dashboard.insights')}>
-          <InsightsPanel />
+          <PanelErrorBoundary panelLabel={t('dashboard.insights')}>
+            <InsightsPanel />
+          </PanelErrorBoundary>
         </Panel>
       </div>
     </div>

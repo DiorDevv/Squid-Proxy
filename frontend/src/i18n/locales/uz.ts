@@ -405,6 +405,10 @@ export const uz = {
   'errorBoundary.message': "Kutilmagan xatolik yuz berdi. Sahifani qayta yuklash odatda yordam beradi.",
   'errorBoundary.reload': 'Sahifani qayta yuklash',
 
+  'panelErrorBoundary.message': "Ushbu panelni ko'rsatib bo'lmadi.",
+  'panelErrorBoundary.messageWithLabel': "{{panel}} panelini ko'rsatib bo'lmadi.",
+  'panelErrorBoundary.retry': 'Qayta urinish',
+
   'session.verifying': 'Sessiya tekshirilmoqda…',
   'session.expired': 'Sessiya muddati tugadi. Iltimos, qaytadan tizimga kiring.',
 } satisfies Record<TranslationKey, string>

@@ -56,7 +56,7 @@ async def test_check_flags_job_over_threshold(db_session: AsyncSession, monkeypa
     db_session.add(_job(created_at=now - timedelta(hours=10)))
     await db_session.commit()
 
-    await UndownloadedExportMonitorJob().check()
+    await UndownloadedExportMonitorJob().run()
 
     assert len(await _anomalies(db_session)) == 1
 
@@ -70,7 +70,7 @@ async def test_check_does_not_flag_job_under_threshold(db_session: AsyncSession,
     db_session.add(_job(created_at=now - timedelta(hours=2)))
     await db_session.commit()
 
-    await UndownloadedExportMonitorJob().check()
+    await UndownloadedExportMonitorJob().run()
 
     assert await _anomalies(db_session) == []
 
@@ -84,7 +84,7 @@ async def test_check_is_noop_when_warn_hours_not_configured(db_session: AsyncSes
     db_session.add(_job(created_at=now - timedelta(days=30)))
     await db_session.commit()
 
-    await UndownloadedExportMonitorJob().check()
+    await UndownloadedExportMonitorJob().run()
 
     assert await _anomalies(db_session) == []
 
@@ -98,7 +98,7 @@ async def test_check_does_not_flag_downloaded_job(db_session: AsyncSession, monk
     db_session.add(_job(created_at=now - timedelta(hours=10), downloaded_at=now - timedelta(hours=9)))
     await db_session.commit()
 
-    await UndownloadedExportMonitorJob().check()
+    await UndownloadedExportMonitorJob().run()
 
     assert await _anomalies(db_session) == []
 
@@ -112,7 +112,7 @@ async def test_check_does_not_flag_non_done_job(db_session: AsyncSession, monkey
     db_session.add(_job(status=ExportJobStatus.FAILED, created_at=now - timedelta(hours=10)))
     await db_session.commit()
 
-    await UndownloadedExportMonitorJob().check()
+    await UndownloadedExportMonitorJob().run()
 
     assert await _anomalies(db_session) == []
 
@@ -127,7 +127,7 @@ async def test_check_does_not_re_flag_within_cooldown(db_session: AsyncSession, 
     await db_session.commit()
 
     job = UndownloadedExportMonitorJob()
-    await job.check()
-    await job.check()  # simulates the next check interval while still undownloaded
+    await job.run()
+    await job.run()  # simulates the next check interval while still undownloaded
 
     assert len(await _anomalies(db_session)) == 1

@@ -6,7 +6,6 @@ ClientMinuteAggregate (fast, pre-aggregated) rather than raw_events, since
 only a per-client byte total is needed, not per-event detail.
 """
 
-import asyncio
 import logging
 from datetime import UTC, datetime, timedelta
 
@@ -19,7 +18,7 @@ from app.models.client_aggregate import ClientMinuteAggregate
 from app.models.db import AsyncSessionLocal
 from app.services import alert_settings_service, insights_service
 from app.services.alerting import maybe_alert
-from app.services.ops_alerting import notify_operator_failure
+from app.services.interval_job import IntervalJob
 
 logger = logging.getLogger(__name__)
 
@@ -30,41 +29,15 @@ ANOMALY_TITLE = "Client exceeded daily data quota"
 _CRITICAL_MULTIPLIER = 2
 
 
-class QuotaMonitorJob:
+class QuotaMonitorJob(IntervalJob):
+    job_name = "quota-monitor"
+    failure_source_tag = "quota_monitor"
+    failure_log_message = "Quota check failed; will retry next interval"
+
     def __init__(self, interval_seconds: int = 3600) -> None:
-        self.interval_seconds = interval_seconds
-        self._task: asyncio.Task | None = None
-        self._stop_event = asyncio.Event()
+        super().__init__(interval_seconds)
 
-    def start(self) -> None:
-        self._task = asyncio.create_task(self._run_forever(), name="quota-monitor")
-
-    async def stop(self) -> None:
-        self._stop_event.set()
-        if self._task is not None:
-            try:
-                await asyncio.wait_for(self._task, timeout=10)
-            except TimeoutError:
-                self._task.cancel()
-
-    async def _run_forever(self) -> None:
-        while True:
-            try:
-                await asyncio.wait_for(self._stop_event.wait(), timeout=self.interval_seconds)
-                break
-            except TimeoutError:
-                await self._check_catching_errors()
-
-    async def _check_catching_errors(self) -> None:
-        """A single bad check must never permanently stop this job -- see
-        RetentionJob._purge_catching_errors for the same reasoning."""
-        try:
-            await self.check()
-        except Exception:
-            logger.exception("Quota check failed; will retry next interval")
-            await notify_operator_failure("quota_monitor", "Quota check failed; will retry next interval")
-
-    async def check(self) -> None:
+    async def run(self) -> None:
         now = datetime.now(UTC)
         since = now - timedelta(hours=24)
 

@@ -22,7 +22,6 @@ when an admin opens one client's detail view) is unaffected -- that's an
 on-demand, single-client query, not a per-check full scan of everyone.
 """
 
-import asyncio
 import logging
 from datetime import UTC, datetime, timedelta
 
@@ -36,7 +35,7 @@ from app.models.db import AsyncSessionLocal
 from app.models.domain_category import DomainCategoryLabel
 from app.services import alert_settings_service, insights_service
 from app.services.alerting import maybe_alert
-from app.services.ops_alerting import notify_operator_failure
+from app.services.interval_job import IntervalJob
 
 logger = logging.getLogger(__name__)
 
@@ -48,43 +47,15 @@ ANOMALY_TITLE = "Excessive non-work category time"
 _EXEMPT_CATEGORIES = {DomainCategoryLabel.WORK_TOOLS, DomainCategoryLabel.UNCATEGORIZED}
 
 
-class CategoryUsageMonitorJob:
+class CategoryUsageMonitorJob(IntervalJob):
+    job_name = "category-usage-monitor"
+    failure_source_tag = "category_usage_monitor"
+    failure_log_message = "Category usage check failed; will retry next interval"
+
     def __init__(self, interval_seconds: int = 3600) -> None:
-        self.interval_seconds = interval_seconds
-        self._task: asyncio.Task | None = None
-        self._stop_event = asyncio.Event()
+        super().__init__(interval_seconds)
 
-    def start(self) -> None:
-        self._task = asyncio.create_task(self._run_forever(), name="category-usage-monitor")
-
-    async def stop(self) -> None:
-        self._stop_event.set()
-        if self._task is not None:
-            try:
-                await asyncio.wait_for(self._task, timeout=10)
-            except TimeoutError:
-                self._task.cancel()
-
-    async def _run_forever(self) -> None:
-        while True:
-            try:
-                await asyncio.wait_for(self._stop_event.wait(), timeout=self.interval_seconds)
-                break
-            except TimeoutError:
-                await self._check_catching_errors()
-
-    async def _check_catching_errors(self) -> None:
-        """A single bad check must never permanently stop this job -- see
-        RetentionJob._purge_catching_errors for the same reasoning."""
-        try:
-            await self.check()
-        except Exception:
-            logger.exception("Category usage check failed; will retry next interval")
-            await notify_operator_failure(
-                "category_usage_monitor", "Category usage check failed; will retry next interval"
-            )
-
-    async def check(self) -> None:
+    async def run(self) -> None:
         now = datetime.now(UTC)
         since = now - timedelta(hours=24)
 

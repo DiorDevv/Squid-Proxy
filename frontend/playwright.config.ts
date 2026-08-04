@@ -9,7 +9,17 @@ import { STORAGE_STATE_PATH } from './e2e/global-setup'
  * e2e/global-setup.ts for why authentication happens once, up front. */
 export default defineConfig({
   testDir: './e2e',
-  fullyParallel: true,
+  // Every spec file shares the *one* refresh-token cookie global-setup.ts
+  // saves (see its own docstring on why: avoiding the login rate limit).
+  // Refresh tokens rotate on use, so two files' "authenticated" describe
+  // blocks both calling bootstrap() at the same time -- which fullyParallel
+  // (or any workers > 1) allows across files, not just within one -- race
+  // to redeem the same cookie; whichever loses gets bounced to /login and
+  // every test in that file fails. Single-worker execution keeps the whole
+  // suite to one continuous session, matching what global-setup's own
+  // single up-front login already assumes.
+  fullyParallel: false,
+  workers: 1,
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 1 : 0,
   reporter: 'list',

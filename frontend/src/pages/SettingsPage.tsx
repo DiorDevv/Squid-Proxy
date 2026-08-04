@@ -14,6 +14,7 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { Panel } from '@/components/common/Panel'
+import { PanelErrorBoundary } from '@/components/common/PanelErrorBoundary'
 import { UserManagementPanel } from '@/components/settings/UserManagementPanel'
 import { AuditLogPanel } from '@/components/settings/AuditLogPanel'
 import { DomainCategoriesPanel } from '@/components/settings/DomainCategoriesPanel'
@@ -118,7 +119,9 @@ export default function SettingsPage() {
       // (dropped connection, 5xx, ...) it never gets that status again and
       // would otherwise stop polling forever with the button stuck
       // disabled -- surface it and let the user just start a new export.
-      toast.error(job.error instanceof ApiError ? job.error.message : t('settings.exportErrorToast'))
+      toast.error(
+        job.error instanceof ApiError ? job.error.message : t('settings.exportErrorToast'),
+      )
       return
     }
     if (!job.data) return
@@ -126,7 +129,9 @@ export default function SettingsPage() {
       const downloadingJobId = jobId
       downloadExportJob(downloadingJobId)
         .then(() => toast.success(t('settings.exportSuccessToast')))
-        .catch((err) => toast.error(err instanceof ApiError ? err.message : t('settings.exportErrorToast')))
+        .catch((err) =>
+          toast.error(err instanceof ApiError ? err.message : t('settings.exportErrorToast')),
+        )
         .finally(() =>
           // Only clear the tracker if it's still pointing at *this*
           // download -- if the admin already started a second export while
@@ -171,12 +176,19 @@ export default function SettingsPage() {
         ...extraFilters,
       }
     } else {
-      params = { range: exportRange, format: exportFormat, blockedOnly, branch: exportBranch, ...extraFilters }
+      params = {
+        range: exportRange,
+        format: exportFormat,
+        blockedOnly,
+        branch: exportBranch,
+        ...extraFilters,
+      }
     }
 
     createJob.mutate(params, {
       onSuccess: (created) => setJobId(created.id),
-      onError: (err) => toast.error(err instanceof ApiError ? err.message : t('settings.exportErrorToast')),
+      onError: (err) =>
+        toast.error(err instanceof ApiError ? err.message : t('settings.exportErrorToast')),
     })
   }
 
@@ -199,7 +211,8 @@ export default function SettingsPage() {
   function handleCancel() {
     if (jobId === null) return
     cancelJob.mutate(jobId, {
-      onError: (err) => toast.error(err instanceof ApiError ? err.message : t('settings.exportCancelErrorToast')),
+      onError: (err) =>
+        toast.error(err instanceof ApiError ? err.message : t('settings.exportCancelErrorToast')),
     })
   }
 
@@ -217,23 +230,33 @@ export default function SettingsPage() {
   return (
     <div className="flex flex-col gap-4">
       <Panel title={t('settings.userManagement')}>
-        <UserManagementPanel />
+        <PanelErrorBoundary panelLabel={t('settings.userManagement')}>
+          <UserManagementPanel />
+        </PanelErrorBoundary>
       </Panel>
 
       <Panel title={t('settings.auditLog')}>
-        <AuditLogPanel />
+        <PanelErrorBoundary panelLabel={t('settings.auditLog')}>
+          <AuditLogPanel />
+        </PanelErrorBoundary>
       </Panel>
 
       <Panel title={t('settings.domainCategories')}>
-        <DomainCategoriesPanel />
+        <PanelErrorBoundary panelLabel={t('settings.domainCategories')}>
+          <DomainCategoriesPanel />
+        </PanelErrorBoundary>
       </Panel>
 
       <Panel title={t('settings.alertSettings')}>
-        <AlertSettingsPanel />
+        <PanelErrorBoundary panelLabel={t('settings.alertSettings')}>
+          <AlertSettingsPanel />
+        </PanelErrorBoundary>
       </Panel>
 
       <Panel title={t('settings.reports')}>
-        <ReportsPanel />
+        <PanelErrorBoundary panelLabel={t('settings.reports')}>
+          <ReportsPanel />
+        </PanelErrorBoundary>
       </Panel>
 
       <Panel title={t('settings.liveUpdates')}>
@@ -242,209 +265,233 @@ export default function SettingsPage() {
             <dt className="text-xs uppercase tracking-wide text-muted-foreground">
               {t('settings.realtimeTransport')}
             </dt>
-            <dd className="font-data mt-1 text-foreground">{t('settings.realtimeTransportValue')}</dd>
+            <dd className="font-data mt-1 text-foreground">
+              {t('settings.realtimeTransportValue')}
+            </dd>
           </div>
           <div>
             <dt className="text-xs uppercase tracking-wide text-muted-foreground">
               {t('settings.pollingInterval')}
             </dt>
-            <dd className="font-data mt-1 text-foreground">{POLLING_FALLBACK_INTERVAL_MS / 1000}s</dd>
+            <dd className="font-data mt-1 text-foreground">
+              {POLLING_FALLBACK_INTERVAL_MS / 1000}s
+            </dd>
           </div>
         </dl>
         <p className="text-xs text-muted-foreground">{t('settings.liveUpdatesDescription')}</p>
       </Panel>
 
       <Panel title={t('settings.exportEvents')}>
-        <div className="flex flex-col gap-4">
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
-            <div className="flex flex-col gap-1.5">
-              <Label>{t('settings.range')}</Label>
-              <Select value={exportRange} onValueChange={(v) => setExportRange(v as ExportRangeValue)}>
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="1h">{t('settings.rangeLastHour')}</SelectItem>
-                  <SelectItem value="24h">{t('settings.rangeLast24Hours')}</SelectItem>
-                  <SelectItem value="7d">{t('settings.rangeLast7Days')}</SelectItem>
-                  <SelectItem value={CUSTOM_RANGE}>{t('common.custom')}</SelectItem>
-                </SelectContent>
-              </Select>
-              <p className="text-xs text-muted-foreground">{t('settings.exportRangeIndependent')}</p>
-            </div>
-            <div className="flex flex-col gap-1.5">
-              <Label>{t('settings.format')}</Label>
-              <Select value={exportFormat} onValueChange={(v) => setExportFormat(v as ExportFormatValue)}>
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="csv">CSV</SelectItem>
-                  <SelectItem value="json">JSON</SelectItem>
-                  <SelectItem value="xlsx">Excel (.xlsx)</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-            {/* Single-branch deployments (the common case) have nothing to
-                filter by -- same threshold BranchSelector.tsx uses. */}
-            {(branches.data?.items.length ?? 0) > 1 && (
+        <PanelErrorBoundary panelLabel={t('settings.exportEvents')}>
+          <div className="flex flex-col gap-4">
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
               <div className="flex flex-col gap-1.5">
-                <Label>{t('branch.filter')}</Label>
+                <Label>{t('settings.range')}</Label>
                 <Select
-                  value={exportBranch ?? ALL_BRANCHES}
-                  onValueChange={(v) => setExportBranch(v === ALL_BRANCHES ? null : v)}
+                  value={exportRange}
+                  onValueChange={(v) => setExportRange(v as ExportRangeValue)}
                 >
                   <SelectTrigger>
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value={ALL_BRANCHES}>{t('branch.all')}</SelectItem>
-                    {branches.data?.items.map((item) => (
-                      <SelectItem key={item.slug} value={item.slug}>
-                        {item.label}
+                    <SelectItem value="1h">{t('settings.rangeLastHour')}</SelectItem>
+                    <SelectItem value="24h">{t('settings.rangeLast24Hours')}</SelectItem>
+                    <SelectItem value="7d">{t('settings.rangeLast7Days')}</SelectItem>
+                    <SelectItem value={CUSTOM_RANGE}>{t('common.custom')}</SelectItem>
+                  </SelectContent>
+                </Select>
+                <p className="text-xs text-muted-foreground">
+                  {t('settings.exportRangeIndependent')}
+                </p>
+              </div>
+              <div className="flex flex-col gap-1.5">
+                <Label>{t('settings.format')}</Label>
+                <Select
+                  value={exportFormat}
+                  onValueChange={(v) => setExportFormat(v as ExportFormatValue)}
+                >
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="csv">CSV</SelectItem>
+                    <SelectItem value="json">JSON</SelectItem>
+                    <SelectItem value="xlsx">Excel (.xlsx)</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              {/* Single-branch deployments (the common case) have nothing to
+                filter by -- same threshold BranchSelector.tsx uses. */}
+              {(branches.data?.items.length ?? 0) > 1 && (
+                <div className="flex flex-col gap-1.5">
+                  <Label>{t('branch.filter')}</Label>
+                  <Select
+                    value={exportBranch ?? ALL_BRANCHES}
+                    onValueChange={(v) => setExportBranch(v === ALL_BRANCHES ? null : v)}
+                  >
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value={ALL_BRANCHES}>{t('branch.all')}</SelectItem>
+                      {branches.data?.items.map((item) => (
+                        <SelectItem key={item.slug} value={item.slug}>
+                          {item.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              )}
+              <div className="flex items-end gap-2 pb-1.5">
+                <Checkbox
+                  id="blocked-only-export"
+                  checked={blockedOnly}
+                  onCheckedChange={(checked) => setBlockedOnly(checked === true)}
+                />
+                <Label htmlFor="blocked-only-export" className="font-normal">
+                  {t('common.blockedOnly')}
+                </Label>
+              </div>
+            </div>
+
+            {/* Narrower filters than range/branch/blocked-only above -- kept
+              in their own row since they're used less often, rather than
+              crowding the primary controls. */}
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-4">
+              <div className="flex flex-col gap-1.5">
+                <Label htmlFor="export-domain">{t('settings.exportDomainFilter')}</Label>
+                <Input
+                  id="export-domain"
+                  placeholder={t('settings.exportDomainFilterPlaceholder')}
+                  value={exportDomain}
+                  onChange={(e) => setExportDomain(e.target.value)}
+                />
+              </div>
+              <div className="flex flex-col gap-1.5">
+                <Label htmlFor="export-client-ip">{t('settings.exportClientIpFilter')}</Label>
+                <Input
+                  id="export-client-ip"
+                  placeholder="10.0.0.5"
+                  value={exportClientIp}
+                  onChange={(e) => setExportClientIp(e.target.value)}
+                />
+              </div>
+              <div className="flex flex-col gap-1.5">
+                <Label>{t('domains.categoryFilter')}</Label>
+                <Select
+                  value={exportCategory ?? ALL_CATEGORIES}
+                  onValueChange={(v) =>
+                    setExportCategory(v === ALL_CATEGORIES ? null : (v as DomainCategoryLabel))
+                  }
+                >
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value={ALL_CATEGORIES}>{t('domains.allCategories')}</SelectItem>
+                    {CATEGORY_OPTIONS.map((option) => (
+                      <SelectItem key={option} value={option}>
+                        {t(CATEGORY_LABEL_KEYS[option])}
                       </SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
               </div>
+              <div className="flex flex-col gap-1.5">
+                <Label>{t('settings.exportColumns')}</Label>
+                <Popover>
+                  <PopoverTrigger asChild>
+                    <Button variant="outline" className="justify-between font-normal">
+                      {exportColumns === null
+                        ? t('settings.exportAllColumns')
+                        : t('settings.exportColumnsSelected', { count: exportColumns.length })}
+                      <ChevronDown className="h-4 w-4 opacity-60" aria-hidden="true" />
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent align="start" className="flex w-56 flex-col gap-2">
+                    {EXPORT_COLUMNS.map((column) => {
+                      const checked = exportColumns === null || exportColumns.includes(column)
+                      return (
+                        <div key={column} className="flex items-center gap-2">
+                          <Checkbox
+                            id={`export-column-${column}`}
+                            checked={checked}
+                            onCheckedChange={(v) => toggleExportColumn(column, v === true)}
+                          />
+                          <Label htmlFor={`export-column-${column}`} className="font-normal">
+                            {t(EXPORT_COLUMN_LABEL_KEYS[column])}
+                          </Label>
+                        </div>
+                      )
+                    })}
+                  </PopoverContent>
+                </Popover>
+              </div>
+            </div>
+
+            {exportRange === CUSTOM_RANGE && (
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+                <div className="flex flex-col gap-1.5">
+                  <Label htmlFor="export-range-from">{t('common.from')}</Label>
+                  <input
+                    id="export-range-from"
+                    type="datetime-local"
+                    value={customFrom}
+                    onChange={(e) => setCustomFrom(e.target.value)}
+                    className="font-data h-9 rounded-md border border-input bg-background px-2 text-xs text-foreground transition-all duration-150 outline-none hover:border-ring/40 focus-visible:border-ring focus-visible:shadow-[0_0_16px_-6px_var(--ring)]"
+                  />
+                </div>
+                <div className="flex flex-col gap-1.5">
+                  <Label htmlFor="export-range-to">{t('common.to')}</Label>
+                  <input
+                    id="export-range-to"
+                    type="datetime-local"
+                    value={customTo}
+                    onChange={(e) => setCustomTo(e.target.value)}
+                    className="font-data h-9 rounded-md border border-input bg-background px-2 text-xs text-foreground transition-all duration-150 outline-none hover:border-ring/40 focus-visible:border-ring focus-visible:shadow-[0_0_16px_-6px_var(--ring)]"
+                  />
+                </div>
+              </div>
             )}
-            <div className="flex items-end gap-2 pb-1.5">
-              <Checkbox
-                id="blocked-only-export"
-                checked={blockedOnly}
-                onCheckedChange={(checked) => setBlockedOnly(checked === true)}
-              />
-              <Label htmlFor="blocked-only-export" className="font-normal">
-                {t('common.blockedOnly')}
-              </Label>
-            </div>
-          </div>
 
-          {/* Narrower filters than range/branch/blocked-only above -- kept
-              in their own row since they're used less often, rather than
-              crowding the primary controls. */}
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-4">
-            <div className="flex flex-col gap-1.5">
-              <Label htmlFor="export-domain">{t('settings.exportDomainFilter')}</Label>
-              <Input
-                id="export-domain"
-                placeholder={t('settings.exportDomainFilterPlaceholder')}
-                value={exportDomain}
-                onChange={(e) => setExportDomain(e.target.value)}
-              />
-            </div>
-            <div className="flex flex-col gap-1.5">
-              <Label htmlFor="export-client-ip">{t('settings.exportClientIpFilter')}</Label>
-              <Input
-                id="export-client-ip"
-                placeholder="10.0.0.5"
-                value={exportClientIp}
-                onChange={(e) => setExportClientIp(e.target.value)}
-              />
-            </div>
-            <div className="flex flex-col gap-1.5">
-              <Label>{t('domains.categoryFilter')}</Label>
-              <Select
-                value={exportCategory ?? ALL_CATEGORIES}
-                onValueChange={(v) => setExportCategory(v === ALL_CATEGORIES ? null : (v as DomainCategoryLabel))}
-              >
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value={ALL_CATEGORIES}>{t('domains.allCategories')}</SelectItem>
-                  {CATEGORY_OPTIONS.map((option) => (
-                    <SelectItem key={option} value={option}>
-                      {t(CATEGORY_LABEL_KEYS[option])}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="flex flex-col gap-1.5">
-              <Label>{t('settings.exportColumns')}</Label>
-              <Popover>
-                <PopoverTrigger asChild>
-                  <Button variant="outline" className="justify-between font-normal">
-                    {exportColumns === null
-                      ? t('settings.exportAllColumns')
-                      : t('settings.exportColumnsSelected', { count: exportColumns.length })}
-                    <ChevronDown className="h-4 w-4 opacity-60" aria-hidden="true" />
-                  </Button>
-                </PopoverTrigger>
-                <PopoverContent align="start" className="flex w-56 flex-col gap-2">
-                  {EXPORT_COLUMNS.map((column) => {
-                    const checked = exportColumns === null || exportColumns.includes(column)
-                    return (
-                      <div key={column} className="flex items-center gap-2">
-                        <Checkbox
-                          id={`export-column-${column}`}
-                          checked={checked}
-                          onCheckedChange={(v) => toggleExportColumn(column, v === true)}
-                        />
-                        <Label htmlFor={`export-column-${column}`} className="font-normal">
-                          {t(EXPORT_COLUMN_LABEL_KEYS[column])}
-                        </Label>
-                      </div>
-                    )
-                  })}
-                </PopoverContent>
-              </Popover>
-            </div>
-          </div>
-
-          {exportRange === CUSTOM_RANGE && (
-            <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
-              <div className="flex flex-col gap-1.5">
-                <Label htmlFor="export-range-from">{t('common.from')}</Label>
-                <input
-                  id="export-range-from"
-                  type="datetime-local"
-                  value={customFrom}
-                  onChange={(e) => setCustomFrom(e.target.value)}
-                  className="font-data h-9 rounded-md border border-input bg-background px-2 text-xs text-foreground transition-all duration-150 outline-none hover:border-ring/40 focus-visible:border-ring focus-visible:shadow-[0_0_16px_-6px_var(--ring)]"
-                />
-              </div>
-              <div className="flex flex-col gap-1.5">
-                <Label htmlFor="export-range-to">{t('common.to')}</Label>
-                <input
-                  id="export-range-to"
-                  type="datetime-local"
-                  value={customTo}
-                  onChange={(e) => setCustomTo(e.target.value)}
-                  className="font-data h-9 rounded-md border border-input bg-background px-2 text-xs text-foreground transition-all duration-150 outline-none hover:border-ring/40 focus-visible:border-ring focus-visible:shadow-[0_0_16px_-6px_var(--ring)]"
-                />
-              </div>
-            </div>
-          )}
-
-          <div className="flex items-center gap-2">
-            <Button onClick={handleExport} disabled={active || createJob.isPending} className="w-fit gap-2">
-              <Download className="h-4 w-4" aria-hidden="true" />
-              {exportButtonLabel()}
-            </Button>
-            {active && (
+            <div className="flex items-center gap-2">
               <Button
-                onClick={handleCancel}
-                disabled={cancelJob.isPending}
-                variant="outline"
+                onClick={handleExport}
+                disabled={active || createJob.isPending}
                 className="w-fit gap-2"
               >
-                <X className="h-4 w-4" aria-hidden="true" />
-                {t('settings.cancelExport')}
+                <Download className="h-4 w-4" aria-hidden="true" />
+                {exportButtonLabel()}
               </Button>
-            )}
+              {active && (
+                <Button
+                  onClick={handleCancel}
+                  disabled={cancelJob.isPending}
+                  variant="outline"
+                  className="w-fit gap-2"
+                >
+                  <X className="h-4 w-4" aria-hidden="true" />
+                  {t('settings.cancelExport')}
+                </Button>
+              )}
+            </div>
+            <p className="text-xs text-muted-foreground">{t('settings.exportNote')}</p>
           </div>
-          <p className="text-xs text-muted-foreground">{t('settings.exportNote')}</p>
-        </div>
+        </PanelErrorBoundary>
       </Panel>
 
       <Panel title={t('settings.recentExports')}>
-        <ExportJobsPanel />
+        <PanelErrorBoundary panelLabel={t('settings.recentExports')}>
+          <ExportJobsPanel />
+        </PanelErrorBoundary>
       </Panel>
 
       <Panel title={t('settings.exportCleanupSettings')}>
-        <ExportSettingsPanel />
+        <PanelErrorBoundary panelLabel={t('settings.exportCleanupSettings')}>
+          <ExportSettingsPanel />
+        </PanelErrorBoundary>
       </Panel>
     </div>
   )

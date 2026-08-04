@@ -4,8 +4,15 @@ import type { SortingState } from '@tanstack/react-table'
 import { toast } from 'sonner'
 import { ArrowLeft, Activity, Database, Info, ShieldX, Users } from 'lucide-react'
 import { Button } from '@/components/ui/button'
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
 import { Panel } from '@/components/common/Panel'
+import { PanelErrorBoundary } from '@/components/common/PanelErrorBoundary'
 import { ErrorState } from '@/components/common/ErrorState'
 import { RangeSelector } from '@/components/common/RangeSelector'
 import { DomainClientsTable } from '@/components/domains/DomainClientsTable'
@@ -32,12 +39,22 @@ export default function DomainDetailPage() {
 
   const rangeParams = useRangeSearchParams()
   const summaryQuery = useDomainSummary(domain, rangeParams)
-  const clientsQuery = useDomainClients({ domain, rangeParams, limit: LIMIT, offset, sortBy, order })
+  const clientsQuery = useDomainClients({
+    domain,
+    rangeParams,
+    limit: LIMIT,
+    offset,
+    sortBy,
+    order,
+  })
   const setCategory = useSetDomainCategory()
 
   function handleCategoryChange(category: DomainCategoryLabel) {
     if (!domain) return
-    setCategory.mutate({ domain, category }, { onError: () => toast.error(t('common.errorDefault')) })
+    setCategory.mutate(
+      { domain, category },
+      { onError: () => toast.error(t('common.errorDefault')) },
+    )
   }
 
   const summary = summaryQuery.data
@@ -64,7 +81,10 @@ export default function DomainDetailPage() {
           </Button>
           <h1 className="font-data text-lg font-semibold text-foreground">{domain}</h1>
           {summary && (
-            <Select value={summary.category} onValueChange={(value) => handleCategoryChange(value as DomainCategoryLabel)}>
+            <Select
+              value={summary.category}
+              onValueChange={(value) => handleCategoryChange(value as DomainCategoryLabel)}
+            >
               <SelectTrigger size="sm" className="w-40" aria-label={t('domainDetail.category')}>
                 <SelectValue />
               </SelectTrigger>
@@ -139,20 +159,25 @@ export default function DomainDetailPage() {
           )
         }
       >
-        {clientsQuery.isError ? (
-          <ErrorState message={clientsQuery.error?.message} onRetry={() => clientsQuery.refetch()} />
-        ) : (
-          <DomainClientsTable
-            items={clientsQuery.data?.items ?? []}
-            total={clientsQuery.data?.total ?? 0}
-            limit={LIMIT}
-            offset={offset}
-            onOffsetChange={setOffset}
-            sorting={sorting}
-            onSortingChange={setSorting}
-            isLoading={clientsQuery.isLoading}
-          />
-        )}
+        <PanelErrorBoundary panelLabel={t('domainDetail.clientsTitle')}>
+          {clientsQuery.isError ? (
+            <ErrorState
+              message={clientsQuery.error?.message}
+              onRetry={() => clientsQuery.refetch()}
+            />
+          ) : (
+            <DomainClientsTable
+              items={clientsQuery.data?.items ?? []}
+              total={clientsQuery.data?.total ?? 0}
+              limit={LIMIT}
+              offset={offset}
+              onOffsetChange={setOffset}
+              sorting={sorting}
+              onSortingChange={setSorting}
+              isLoading={clientsQuery.isLoading}
+            />
+          )}
+        </PanelErrorBoundary>
       </Panel>
     </div>
   )

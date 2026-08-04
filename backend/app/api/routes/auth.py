@@ -168,5 +168,5 @@ async def issue_ws_ticket(
     request: Request, current_user: CurrentUser = Depends(get_current_user)
 ) -> WsTicketResponse:
     store = request.app.state.ws_ticket_store
-    ticket = store.issue(user_id=current_user.user_id, role=current_user.role)
+    ticket = store.issue(user_id=current_user.user_id, role=current_user.role, branch=current_user.branch)
     return WsTicketResponse(ticket=ticket, expires_in_seconds=int(store.ttl_seconds))

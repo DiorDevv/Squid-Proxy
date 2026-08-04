@@ -30,7 +30,11 @@ class WebSocketManager:
     SEND_TIMEOUT_SECONDS = 5.0
 
     def __init__(self) -> None:
-        self._connections: set[WebSocket] = set()
+        # None = unrestricted (receives every branch's events) -- matches
+        # every existing caller's default, so a connection whose branch is
+        # never specified behaves exactly as before this per-connection
+        # filtering existed.
+        self._connections: dict[WebSocket, str | None] = {}
         self._loop: asyncio.AbstractEventLoop | None = None
         self._pending: list[dict] = []
         self._flush_scheduled = False
@@ -38,14 +42,14 @@ class WebSocketManager:
     def bind_loop(self, loop: asyncio.AbstractEventLoop) -> None:
         self._loop = loop
 
-    async def connect(self, websocket: WebSocket) -> None:
+    async def connect(self, websocket: WebSocket, branch: str | None = None) -> None:
         await websocket.accept()
-        self._connections.add(websocket)
+        self._connections[websocket] = branch
         if self._loop is None:
             self._loop = asyncio.get_running_loop()
 
     def disconnect(self, websocket: WebSocket) -> None:
-        self._connections.discard(websocket)
+        self._connections.pop(websocket, None)
 
     @property
     def connection_count(self) -> int:
@@ -84,9 +88,23 @@ class WebSocketManager:
         batch, self._pending = self._pending, []
 
         dead: list[WebSocket] = []
-        for connection in list(self._connections):
+        for connection, conn_branch in list(self._connections.items()):
+            # None = unrestricted, sees every branch's events unfiltered --
+            # otherwise only forward the slice of this batch matching the
+            # connection's own branch (see WsTicketStore/ws.py for how that
+            # branch got attached to the connection in the first place).
+            filtered = (
+                batch
+                if conn_branch is None
+                else [item for item in batch if item.get("branch") == conn_branch]
+            )
+            if not filtered:
+                # Nothing in this batch belongs to this connection's branch
+                # -- skip the send entirely rather than pushing a pointless
+                # empty-array frame every batch tick.
+                continue
             try:
-                await asyncio.wait_for(connection.send_json(batch), timeout=self.SEND_TIMEOUT_SECONDS)
+                await asyncio.wait_for(connection.send_json(filtered), timeout=self.SEND_TIMEOUT_SECONDS)
             except Exception:
                 logger.warning("Dropping /ws/live connection after send failure", exc_info=True)
                 dead.append(connection)

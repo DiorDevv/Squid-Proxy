@@ -35,7 +35,7 @@ dependencies = [
     # multi-million-row export bounded.
     "openpyxl>=3.1,<4",
     "websockets>=13.1,<14",
-    "httpx>=0.27,<0.28",
+    "httpx>=0.27,<0.29",
     "sentry-sdk[fastapi]>=2.18,<3",
     # /metrics endpoint (see app/api/routes/metrics.py) -- no heavy
     # transitive deps, just the client-library primitives (Gauge,

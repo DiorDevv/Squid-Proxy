@@ -248,8 +248,10 @@ async def delete_file_if_after_download_mode(job_id: str) -> None:
         await session.commit()
 
 
-async def list_jobs(session: AsyncSession, limit: int = 20) -> list[ExportJob]:
+async def list_jobs(session: AsyncSession, limit: int = 20, branch: str | None = None) -> list[ExportJob]:
     query = select(ExportJob).order_by(ExportJob.created_at.desc()).limit(limit)
+    if branch is not None:
+        query = query.where(ExportJob.branch == branch)
     return list((await session.execute(query)).scalars().all())
 
 

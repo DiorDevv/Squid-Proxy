@@ -65,3 +65,24 @@ async def test_send_report_now_records_audit_entry(
         )
     ).scalar_one()
     assert "filiallar" in entry.detail
+
+
+async def test_branch_admin_cannot_send_report_for_other_branch(
+    app_client: AsyncClient, branch_a_admin_token, auth_headers, monkeypatch
+):
+    """`branch` used to be a plain unchecked Query param here, letting any
+    branch-scoped admin force-send another branch's report."""
+    monkeypatch.setattr(
+        reports_module,
+        "get_settings",
+        lambda: Settings(
+            REPORT_RECIPIENTS=["ops@example.com"],
+            SMTP_HOST="smtp.example.com",
+            SMTP_FROM_ADDRESS="squid-watch@example.com",
+        ),
+    )
+
+    response = await app_client.post(
+        "/api/reports/send-now?branch=branch-b", headers=auth_headers(branch_a_admin_token)
+    )
+    assert response.status_code == 403

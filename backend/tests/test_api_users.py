@@ -4,6 +4,8 @@ from httpx import AsyncClient
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import LogSource, Settings
+from app.core.security import hash_password
 from app.models.refresh_token import RefreshToken
 from app.models.user import User, UserRole
 from app.services import user_service
@@ -259,3 +261,190 @@ async def test_service_update_role_allows_demoting_when_multiple_admins_exist(db
         db_session, second_admin.id, UserRole.VIEWER, current_user_id=other_user.id
     )
     assert updated.role == UserRole.VIEWER
+
+
+# --- Branch scoping: a branch-scoped admin must only see/manage users in
+# their own branch, and must never be able to grant unrestricted (branch=
+# None) or another branch's access to anyone -- regression coverage for the
+# IDOR/privilege-escalation gap user_service used to have no enforcement
+# for at all (update_branch's old docstring incorrectly assumed branch
+# "only ever narrows data visibility, never grants anything"). ---
+
+
+def _multi_branch_settings() -> Settings:
+    return Settings(
+        LOG_SOURCES=[
+            LogSource(branch="default", path="/data/default/access.log"),
+            LogSource(branch="branch-a", path="/data/branch-a/access.log"),
+            LogSource(branch="branch-b", path="/data/branch-b/access.log"),
+        ]
+    )
+
+
+async def _create_branch_b_user(db_session: AsyncSession, *, email: str = "other.branch@example.com") -> User:
+    other_branch_user = User(
+        email=email, hashed_password=hash_password("unused-pass-123"), role=UserRole.VIEWER, branch="branch-b"
+    )
+    db_session.add(other_branch_user)
+    await db_session.commit()
+    await db_session.refresh(other_branch_user)
+    return other_branch_user
+
+
+async def test_branch_admin_list_users_excludes_other_branches(
+    app_client: AsyncClient, branch_a_admin_token, auth_headers, db_session: AsyncSession
+):
+    await _create_branch_b_user(db_session)
+
+    response = await app_client.get("/api/users", headers=auth_headers(branch_a_admin_token))
+    assert response.status_code == 200
+    emails = {u["email"] for u in response.json()}
+    assert "branch-a-admin@example.com" in emails
+    assert "other.branch@example.com" not in emails
+
+
+async def test_branch_admin_create_user_defaults_to_own_branch(
+    app_client: AsyncClient, branch_a_admin_token, auth_headers, monkeypatch
+):
+    monkeypatch.setattr(user_service, "get_settings", _multi_branch_settings)
+
+    response = await app_client.post(
+        "/api/users",
+        headers=auth_headers(branch_a_admin_token),
+        json={"email": "new.viewer.branch-a@example.com", "password": "supersecret1", "role": "viewer"},
+    )
+    assert response.status_code == 201
+    assert response.json()["branch"] == "branch-a"
+
+
+async def test_branch_admin_cannot_create_user_in_other_branch(
+    app_client: AsyncClient, branch_a_admin_token, auth_headers, monkeypatch
+):
+    monkeypatch.setattr(user_service, "get_settings", _multi_branch_settings)
+
+    response = await app_client.post(
+        "/api/users",
+        headers=auth_headers(branch_a_admin_token),
+        json={
+            "email": "sneaky@example.com",
+            "password": "supersecret1",
+            "role": "viewer",
+            "branch": "branch-b",
+        },
+    )
+    assert response.status_code == 403
+
+
+async def test_branch_admin_cannot_create_unrestricted_user(
+    app_client: AsyncClient, branch_a_admin_token, auth_headers, monkeypatch
+):
+    """Explicitly requesting branch=null (unrestricted) from a branch-scoped
+    admin must never actually produce an unrestricted account -- it's
+    silently pinned to the actor's own branch instead, the same
+    substitution behavior as api.deps.resolve_branch for query params."""
+    monkeypatch.setattr(user_service, "get_settings", _multi_branch_settings)
+
+    response = await app_client.post(
+        "/api/users",
+        headers=auth_headers(branch_a_admin_token),
+        json={
+            "email": "wannabe.unrestricted@example.com",
+            "password": "supersecret1",
+            "role": "admin",
+            "branch": None,
+        },
+    )
+    assert response.status_code == 201
+    assert response.json()["branch"] == "branch-a"
+
+
+async def test_branch_admin_cannot_view_other_branch_user(
+    app_client: AsyncClient, branch_a_admin_token, auth_headers, db_session: AsyncSession
+):
+    other_branch_user = await _create_branch_b_user(db_session)
+
+    response = await app_client.patch(
+        f"/api/users/{other_branch_user.id}/role",
+        headers=auth_headers(branch_a_admin_token),
+        json={"role": "admin"},
+    )
+    assert response.status_code == 404
+
+
+async def test_branch_admin_cannot_reset_password_of_other_branch_user(
+    app_client: AsyncClient, branch_a_admin_token, auth_headers, db_session: AsyncSession
+):
+    other_branch_user = await _create_branch_b_user(db_session)
+
+    response = await app_client.post(
+        f"/api/users/{other_branch_user.id}/reset-password",
+        headers=auth_headers(branch_a_admin_token),
+        json={"new_password": "brand-new-password-1"},
+    )
+    assert response.status_code == 404
+
+
+async def test_branch_admin_cannot_delete_other_branch_user(
+    app_client: AsyncClient, branch_a_admin_token, auth_headers, db_session: AsyncSession
+):
+    other_branch_user = await _create_branch_b_user(db_session)
+
+    response = await app_client.delete(
+        f"/api/users/{other_branch_user.id}", headers=auth_headers(branch_a_admin_token)
+    )
+    assert response.status_code == 404
+
+
+async def test_branch_admin_cannot_move_other_branch_user_into_own_branch(
+    app_client: AsyncClient, branch_a_admin_token, auth_headers, db_session: AsyncSession
+):
+    other_branch_user = await _create_branch_b_user(db_session)
+
+    response = await app_client.patch(
+        f"/api/users/{other_branch_user.id}/branch",
+        headers=auth_headers(branch_a_admin_token),
+        json={"branch": "branch-a"},
+    )
+    assert response.status_code == 404
+
+
+async def test_branch_admin_cannot_escalate_own_branch_to_unrestricted(
+    app_client: AsyncClient, branch_a_admin_token, auth_headers, db_session: AsyncSession, monkeypatch
+):
+    """The core privilege-escalation regression: api.deps.resolve_branch
+    treats branch=None as unrestricted access to every branch's data, so a
+    branch-scoped admin granting themselves branch=null would be a full
+    escalation. Must be a no-op (still "branch-a"), not honored."""
+    monkeypatch.setattr(user_service, "get_settings", _multi_branch_settings)
+    admin_row = (
+        await db_session.execute(select(User).where(User.email == "branch-a-admin@example.com"))
+    ).scalar_one()
+
+    response = await app_client.patch(
+        f"/api/users/{admin_row.id}/branch",
+        headers=auth_headers(branch_a_admin_token),
+        json={"branch": None},
+    )
+    assert response.status_code == 200
+    assert response.json()["branch"] == "branch-a"
+
+    await db_session.refresh(admin_row)
+    assert admin_row.branch == "branch-a"
+
+
+async def test_branch_admin_cannot_move_own_branch_to_another_branch(
+    app_client: AsyncClient, branch_a_admin_token, auth_headers, db_session: AsyncSession
+):
+    admin_row = (
+        await db_session.execute(select(User).where(User.email == "branch-a-admin@example.com"))
+    ).scalar_one()
+
+    response = await app_client.patch(
+        f"/api/users/{admin_row.id}/branch",
+        headers=auth_headers(branch_a_admin_token),
+        json={"branch": "branch-b"},
+    )
+    assert response.status_code == 403
+
+    await db_session.refresh(admin_row)
+    assert admin_row.branch == "branch-a"

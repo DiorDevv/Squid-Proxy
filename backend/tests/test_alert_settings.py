@@ -96,3 +96,48 @@ async def test_alert_settings_put_and_get_via_api(app_client: AsyncClient, admin
 
     get_response = await app_client.get("/api/alert-settings", headers=auth_headers(admin_token))
     assert set(get_response.json()["sensitive_categories"]) == {"gambling", "video_streaming"}
+
+
+# --- Branch scoping: previously `branch` was a plain unchecked Query param
+# here, letting any branch-scoped admin read or overwrite another branch's
+# alert thresholds. ---
+
+
+async def test_branch_admin_get_alert_settings_defaults_to_own_branch(
+    app_client: AsyncClient, branch_a_admin_token, auth_headers
+):
+    response = await app_client.get("/api/alert-settings", headers=auth_headers(branch_a_admin_token))
+    assert response.status_code == 200
+    assert response.json()["branch"] == "branch-a"
+
+
+async def test_branch_admin_cannot_read_other_branch_alert_settings(
+    app_client: AsyncClient, branch_a_admin_token, auth_headers
+):
+    response = await app_client.get(
+        "/api/alert-settings", params={"branch": "branch-b"}, headers=auth_headers(branch_a_admin_token)
+    )
+    assert response.status_code == 403
+
+
+async def test_branch_admin_cannot_overwrite_other_branch_alert_settings(
+    app_client: AsyncClient, branch_a_admin_token, auth_headers, admin_token
+):
+    put_response = await app_client.put(
+        "/api/alert-settings",
+        params={"branch": "branch-b"},
+        headers=auth_headers(branch_a_admin_token),
+        json={
+            "sensitive_categories": ["gambling"],
+            "non_work_minutes_threshold": 1,
+            "client_daily_byte_quota_bytes": None,
+            "uncategorized_domain_request_threshold": None,
+        },
+    )
+    assert put_response.status_code == 403
+
+    # branch-b's settings must be untouched by the rejected attempt.
+    get_response = await app_client.get(
+        "/api/alert-settings", params={"branch": "branch-b"}, headers=auth_headers(admin_token)
+    )
+    assert get_response.json()["sensitive_categories"] == []

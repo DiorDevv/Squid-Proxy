@@ -1,11 +1,11 @@
 import logging
 from datetime import UTC, datetime, timedelta
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import CurrentUser, get_current_user, get_db, require_admin
+from app.api.deps import CurrentUser, get_current_user, get_db, require_admin, resolve_branch
 from app.core.config import get_settings
 from app.models.audit_log import AuditAction
 from app.models.report_schedule_state import ReportScheduleState
@@ -34,7 +34,7 @@ async def read_report_status(db: AsyncSession = Depends(get_db)) -> ReportStatus
 
 @router.post("/send-now", response_model=SendReportNowResponse)
 async def send_report_now(
-    branch: str | None = Query(default=None),
+    branch: str | None = Depends(resolve_branch),
     db: AsyncSession = Depends(get_db),
     current_user: CurrentUser = Depends(get_current_user),
 ) -> SendReportNowResponse:

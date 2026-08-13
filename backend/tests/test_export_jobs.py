@@ -1005,3 +1005,81 @@ async def test_share_export_job_route_404_before_ready(
 
     response = await app_client.post(f"/api/export/jobs/{job_id}/share", headers=auth_headers(admin_token))
     assert response.status_code == 409
+
+
+# --- Branch scoping: a branch-scoped admin must not be able to see, poll,
+# cancel, download, share, or revoke another branch's export job by ID --
+# regression coverage for the IDOR export/jobs routes used to have zero
+# branch enforcement for. ---
+
+
+async def _create_branch_b_job(db_session: AsyncSession) -> str:
+    job = await export_job_service.create_job(
+        db_session, RangeParam.ONE_HOUR.since(), datetime.now(UTC), "csv", False, "branch-b", "some-admin-id"
+    )
+    return job.id
+
+
+async def test_branch_admin_list_export_jobs_excludes_other_branches(
+    app_client: AsyncClient, branch_a_admin_token, auth_headers, db_session: AsyncSession
+):
+    await _create_branch_b_job(db_session)
+
+    response = await app_client.get("/api/export/jobs", headers=auth_headers(branch_a_admin_token))
+    assert response.status_code == 200
+    assert response.json() == []
+
+
+async def test_branch_admin_cannot_get_other_branch_job(
+    app_client: AsyncClient, branch_a_admin_token, auth_headers, db_session: AsyncSession
+):
+    job_id = await _create_branch_b_job(db_session)
+
+    response = await app_client.get(
+        f"/api/export/jobs/{job_id}", headers=auth_headers(branch_a_admin_token)
+    )
+    assert response.status_code == 404
+
+
+async def test_branch_admin_cannot_cancel_other_branch_job(
+    app_client: AsyncClient, branch_a_admin_token, auth_headers, db_session: AsyncSession
+):
+    job_id = await _create_branch_b_job(db_session)
+
+    response = await app_client.post(
+        f"/api/export/jobs/{job_id}/cancel", headers=auth_headers(branch_a_admin_token)
+    )
+    assert response.status_code == 404
+
+
+async def test_branch_admin_cannot_download_other_branch_job(
+    app_client: AsyncClient, branch_a_admin_token, auth_headers, db_session: AsyncSession
+):
+    job_id = await _create_branch_b_job(db_session)
+
+    response = await app_client.get(
+        f"/api/export/jobs/{job_id}/download", headers=auth_headers(branch_a_admin_token)
+    )
+    assert response.status_code == 404
+
+
+async def test_branch_admin_cannot_share_other_branch_job(
+    app_client: AsyncClient, branch_a_admin_token, auth_headers, db_session: AsyncSession
+):
+    job_id = await _create_branch_b_job(db_session)
+
+    response = await app_client.post(
+        f"/api/export/jobs/{job_id}/share", headers=auth_headers(branch_a_admin_token)
+    )
+    assert response.status_code == 404
+
+
+async def test_branch_admin_cannot_revoke_other_branch_job_share(
+    app_client: AsyncClient, branch_a_admin_token, auth_headers, db_session: AsyncSession
+):
+    job_id = await _create_branch_b_job(db_session)
+
+    response = await app_client.post(
+        f"/api/export/jobs/{job_id}/share/revoke", headers=auth_headers(branch_a_admin_token)
+    )
+    assert response.status_code == 404

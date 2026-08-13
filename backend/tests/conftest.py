@@ -142,6 +142,29 @@ async def viewer_token(app_client: AsyncClient, db_session: AsyncSession) -> str
     return response.json()["access_token"]
 
 
+@pytest_asyncio.fixture
+async def branch_a_admin_token(app_client: AsyncClient, db_session: AsyncSession) -> str:
+    """An admin scoped to "branch-a" only -- for branch-isolation regression
+    tests, where a second branch's users/exports/settings must be invisible
+    and unreachable to this account (see api/deps.resolve_branch and the
+    equivalent per-service enforcement in user_service.py)."""
+    db_session.add(
+        User(
+            email="branch-a-admin@example.com",
+            hashed_password=hash_password("branch-a-admin-pass-123"),
+            role=UserRole.ADMIN,
+            branch="branch-a",
+        )
+    )
+    await db_session.commit()
+    response = await app_client.post(
+        "/api/auth/login",
+        json={"email": "branch-a-admin@example.com", "password": "branch-a-admin-pass-123"},
+    )
+    assert response.status_code == 200, response.text
+    return response.json()["access_token"]
+
+
 @pytest.fixture(autouse=True)
 def _reset_rate_limiter():
     limiter.reset()

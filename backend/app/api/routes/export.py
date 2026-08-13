@@ -9,13 +9,23 @@ from app.core.config import get_settings
 from app.core.rate_limit import limiter
 from app.models.audit_log import AuditAction
 from app.models.domain_category import DomainCategoryLabel
-from app.models.export_job import ExportJobStatus
+from app.models.export_job import ExportJob, ExportJobStatus
 from app.schemas.common import EffectiveRange, resolve_range
 from app.schemas.export import ExportJobOut, ExportShareLinkOut
 from app.services import audit_service, export_job_service
 from app.services.export_service import EXPORT_COLUMNS, download_csv, download_json
 
 router = APIRouter(prefix="/api", tags=["export"])
+
+
+def _authorize_job_access(job: ExportJob, current_user: CurrentUser) -> None:
+    """A branch-scoped admin may only read/cancel/download/share a job
+    scoped to their own branch. A job with no branch (created by an
+    unrestricted admin, covers every branch) is out of reach too -- treated
+    as 404 rather than 403 since, from a branch-scoped caller's point of
+    view, a job it can't touch shouldn't confirm it exists."""
+    if current_user.branch is not None and job.branch != current_user.branch:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Export job not found.")
 
 
 class ExportFormat(str, Enum):
@@ -153,16 +163,23 @@ async def create_export_job(
 
 
 @router.get("/export/jobs", dependencies=[Depends(require_admin)])
-async def list_export_jobs(db: AsyncSession = Depends(get_db)) -> list[ExportJobOut]:
-    jobs = await export_job_service.list_jobs(db)
+async def list_export_jobs(
+    branch: str | None = Depends(resolve_branch), db: AsyncSession = Depends(get_db)
+) -> list[ExportJobOut]:
+    jobs = await export_job_service.list_jobs(db, branch=branch)
     return [export_job_service.to_out(job) for job in jobs]
 
 
 @router.get("/export/jobs/{job_id}", dependencies=[Depends(require_admin)])
-async def get_export_job(job_id: str, db: AsyncSession = Depends(get_db)) -> ExportJobOut:
+async def get_export_job(
+    job_id: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: CurrentUser = Depends(get_current_user),
+) -> ExportJobOut:
     job = await export_job_service.get_job(db, job_id)
     if job is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Export job not found.")
+    _authorize_job_access(job, current_user)
     return export_job_service.to_out(job)
 
 
@@ -179,6 +196,7 @@ async def cancel_export_job(
     job = await export_job_service.get_job(db, job_id)
     if job is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Export job not found.")
+    _authorize_job_access(job, current_user)
     if job.status not in (ExportJobStatus.PENDING, ExportJobStatus.RUNNING):
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
@@ -206,6 +224,7 @@ async def download_export_job(
     job = await export_job_service.get_job(db, job_id)
     if job is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Export job not found.")
+    _authorize_job_access(job, current_user)
     if job.status != ExportJobStatus.DONE or not job.file_path:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
@@ -249,6 +268,7 @@ async def share_export_job(
     job = await export_job_service.get_job(db, job_id)
     if job is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Export job not found.")
+    _authorize_job_access(job, current_user)
     if job.status != ExportJobStatus.DONE or not job.file_path:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
@@ -266,6 +286,7 @@ async def revoke_export_job_share(
     job = await export_job_service.get_job(db, job_id)
     if job is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Export job not found.")
+    _authorize_job_access(job, current_user)
     await export_job_service.revoke_share_link(db, job, current_user.user_id)
     return export_job_service.to_out(job)
 

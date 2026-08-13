@@ -17,8 +17,10 @@ router = APIRouter(prefix="/api/users", tags=["users"], dependencies=[Depends(re
 
 
 @router.get("", response_model=list[UserSummary])
-async def read_users(db: AsyncSession = Depends(get_db)) -> list[UserSummary]:
-    users = await user_service.list_users(db)
+async def read_users(
+    db: AsyncSession = Depends(get_db), current_user: CurrentUser = Depends(get_current_user)
+) -> list[UserSummary]:
+    users = await user_service.list_users(db, actor_branch=current_user.branch)
     return [UserSummary.model_validate(u, from_attributes=True) for u in users]
 
 
@@ -31,7 +33,13 @@ async def create_user(
     current_user: CurrentUser = Depends(get_current_user),
 ) -> UserSummary:
     user = await user_service.create_user(
-        db, body.email, body.password, body.role, current_user.user_id, branch=body.branch
+        db,
+        body.email,
+        body.password,
+        body.role,
+        current_user.user_id,
+        branch=body.branch,
+        actor_branch=current_user.branch,
     )
     return UserSummary.model_validate(user, from_attributes=True)
 
@@ -45,7 +53,9 @@ async def update_user_role(
     db: AsyncSession = Depends(get_db),
     current_user: CurrentUser = Depends(get_current_user),
 ) -> UserSummary:
-    user = await user_service.update_role(db, user_id, body.role, current_user.user_id)
+    user = await user_service.update_role(
+        db, user_id, body.role, current_user.user_id, actor_branch=current_user.branch
+    )
     return UserSummary.model_validate(user, from_attributes=True)
 
 
@@ -58,7 +68,9 @@ async def update_user_branch(
     db: AsyncSession = Depends(get_db),
     current_user: CurrentUser = Depends(get_current_user),
 ) -> UserSummary:
-    user = await user_service.update_branch(db, user_id, body.branch, current_user.user_id)
+    user = await user_service.update_branch(
+        db, user_id, body.branch, current_user.user_id, actor_branch=current_user.branch
+    )
     return UserSummary.model_validate(user, from_attributes=True)
 
 
@@ -71,7 +83,9 @@ async def reset_user_password(
     db: AsyncSession = Depends(get_db),
     current_user: CurrentUser = Depends(get_current_user),
 ) -> None:
-    await user_service.reset_password(db, user_id, body.new_password, current_user.user_id)
+    await user_service.reset_password(
+        db, user_id, body.new_password, current_user.user_id, actor_branch=current_user.branch
+    )
 
 
 @router.delete("/{user_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -82,4 +96,4 @@ async def delete_user(
     db: AsyncSession = Depends(get_db),
     current_user: CurrentUser = Depends(get_current_user),
 ) -> None:
-    await user_service.delete_user(db, user_id, current_user.user_id)
+    await user_service.delete_user(db, user_id, current_user.user_id, actor_branch=current_user.branch)

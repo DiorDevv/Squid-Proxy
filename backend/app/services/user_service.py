@@ -32,6 +32,36 @@ LAST_ADMIN = HTTPException(
 )
 
 
+NO_BRANCH_ACCESS = HTTPException(
+    status_code=status.HTTP_403_FORBIDDEN,
+    detail="You do not have access to this branch.",
+)
+
+
+def _enforce_actor_branch(requested: str | None, actor_branch: str | None) -> str | None:
+    """Same substitution/rejection contract as api.deps.resolve_branch:
+    an unrestricted actor (actor_branch is None) passes `requested` through
+    unchanged; a branch-scoped actor gets their own branch silently
+    substituted if they didn't ask for a specific one, and a 403 if they
+    explicitly asked for a *different* one -- this is what stops a
+    branch-scoped admin from creating a user in (or moving one to) another
+    branch, or granting anyone (including themselves) unrestricted (None)
+    access, which update_branch used to allow outright."""
+    if actor_branch is None:
+        return requested
+    if requested is not None and requested != actor_branch:
+        raise NO_BRANCH_ACCESS
+    return actor_branch
+
+
+def _require_same_branch(user: User, actor_branch: str | None) -> None:
+    """A branch-scoped actor may only act on users already in their own
+    branch -- 404 rather than 403 so a cross-branch user ID doesn't confirm
+    that the account exists at all."""
+    if actor_branch is not None and user.branch != actor_branch:
+        raise USER_NOT_FOUND
+
+
 def _validate_branch(branch: str | None) -> None:
     """None (unrestricted) always passes -- only a *non-null* branch is
     checked against the configured set, so a typo here can't silently lock
@@ -47,8 +77,11 @@ def _validate_branch(branch: str | None) -> None:
         )
 
 
-async def list_users(session: AsyncSession) -> list[User]:
-    rows = (await session.execute(select(User).order_by(User.created_at))).scalars().all()
+async def list_users(session: AsyncSession, actor_branch: str | None = None) -> list[User]:
+    query = select(User).order_by(User.created_at)
+    if actor_branch is not None:
+        query = query.where(User.branch == actor_branch)
+    rows = (await session.execute(query)).scalars().all()
     return list(rows)
 
 
@@ -59,10 +92,12 @@ async def create_user(
     role: UserRole,
     actor_user_id: str,
     branch: str | None = None,
+    actor_branch: str | None = None,
 ) -> User:
     existing = (await session.execute(select(User).where(User.email == email))).scalar_one_or_none()
     if existing is not None:
         raise EMAIL_TAKEN
+    branch = _enforce_actor_branch(branch, actor_branch)
     _validate_branch(branch)
 
     user = User(email=email, hashed_password=hash_password(password), role=role, branch=branch)
@@ -92,11 +127,18 @@ async def _count_admins(session: AsyncSession) -> int:
     ).scalar_one()
 
 
-async def update_role(session: AsyncSession, user_id: str, new_role: UserRole, current_user_id: str) -> User:
+async def update_role(
+    session: AsyncSession,
+    user_id: str,
+    new_role: UserRole,
+    current_user_id: str,
+    actor_branch: str | None = None,
+) -> User:
     if user_id == current_user_id:
         raise CANNOT_MODIFY_SELF
 
     user = await _get_user_or_404(session, user_id)
+    _require_same_branch(user, actor_branch)
     if user.role == UserRole.ADMIN and new_role != UserRole.ADMIN and await _count_admins(session) <= 1:
         raise LAST_ADMIN
 
@@ -116,14 +158,25 @@ async def update_role(session: AsyncSession, user_id: str, new_role: UserRole, c
 
 
 async def update_branch(
-    session: AsyncSession, user_id: str, branch: str | None, actor_user_id: str
+    session: AsyncSession,
+    user_id: str,
+    branch: str | None,
+    actor_user_id: str,
+    actor_branch: str | None = None,
 ) -> User:
-    """No self-modification/last-admin guard like update_role -- branch
-    isn't a privilege-escalation vector (it only ever narrows data
-    visibility, never grants anything), so there's nothing unsafe about an
-    admin changing their own branch scope or every user sharing one."""
-    _validate_branch(branch)
+    """No self-modification/last-admin guard like update_role -- but unlike
+    that stale assumption once here, branch *is* a privilege-escalation
+    vector: api.deps.resolve_branch treats branch=None as unrestricted
+    (every data route), so a branch-scoped admin setting anyone's (including
+    their own) branch to None, or to a branch that isn't theirs, would grant
+    broader access than they have. _enforce_actor_branch closes that: a
+    branch-scoped actor may only set a target's branch to their own branch
+    (a no-op in practice), and only for a target already in that branch
+    (_require_same_branch)."""
     user = await _get_user_or_404(session, user_id)
+    _require_same_branch(user, actor_branch)
+    branch = _enforce_actor_branch(branch, actor_branch)
+    _validate_branch(branch)
 
     old_branch = user.branch
     user.branch = branch
@@ -140,8 +193,15 @@ async def update_branch(
     return user
 
 
-async def reset_password(session: AsyncSession, user_id: str, new_password: str, actor_user_id: str) -> None:
+async def reset_password(
+    session: AsyncSession,
+    user_id: str,
+    new_password: str,
+    actor_user_id: str,
+    actor_branch: str | None = None,
+) -> None:
     user = await _get_user_or_404(session, user_id)
+    _require_same_branch(user, actor_branch)
     user.hashed_password = hash_password(new_password)
     # A password reset is often a response to a compromised account -- also
     # revoke any refresh tokens already issued to this user, so a stolen
@@ -162,11 +222,14 @@ async def reset_password(session: AsyncSession, user_id: str, new_password: str,
     await session.commit()
 
 
-async def delete_user(session: AsyncSession, user_id: str, current_user_id: str) -> None:
+async def delete_user(
+    session: AsyncSession, user_id: str, current_user_id: str, actor_branch: str | None = None
+) -> None:
     if user_id == current_user_id:
         raise CANNOT_MODIFY_SELF
 
     user = await _get_user_or_404(session, user_id)
+    _require_same_branch(user, actor_branch)
     if user.role == UserRole.ADMIN and await _count_admins(session) <= 1:
         raise LAST_ADMIN
 

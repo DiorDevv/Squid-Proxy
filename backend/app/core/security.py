@@ -7,23 +7,29 @@ import uuid
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
+import bcrypt
 from jose import JWTError, jwt
-from passlib.context import CryptContext
 
 from app.core.config import get_settings
 
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
-
 ACCESS_TOKEN_TYPE = "access"
+
+
+def _bcrypt_bytes(password: str) -> bytes:
+    # bcrypt only uses the first 72 bytes of input and raises on longer
+    # input as of 4.1 (older versions silently truncated) -- truncate
+    # ourselves so behavior is consistent across versions.
+    return password.encode("utf-8")[:72]
+
 
 # A precomputed bcrypt hash of a random value, with no matching plaintext.
 # Used to run a real bcrypt verify for nonexistent users so login's response
 # time doesn't reveal whether an email is registered (timing side-channel).
-_DUMMY_HASH = pwd_context.hash(secrets.token_urlsafe(32))
+_DUMMY_HASH = bcrypt.hashpw(_bcrypt_bytes(secrets.token_urlsafe(32)), bcrypt.gensalt()).decode("ascii")
 
 
 def hash_password(password: str) -> str:
-    return pwd_context.hash(password)
+    return bcrypt.hashpw(_bcrypt_bytes(password), bcrypt.gensalt()).decode("ascii")
 
 
 def verify_password(password: str, hashed: str | None) -> bool:
@@ -34,7 +40,8 @@ def verify_password(password: str, hashed: str | None) -> bool:
     nonexistent email take the same time as a wrong-password login for a
     real one.
     """
-    return pwd_context.verify(password, hashed if hashed is not None else _DUMMY_HASH) and hashed is not None
+    target = hashed if hashed is not None else _DUMMY_HASH
+    return bcrypt.checkpw(_bcrypt_bytes(password), target.encode("ascii")) and hashed is not None
 
 
 def create_access_token(user_id: str, role: str, branch: str | None = None) -> str:

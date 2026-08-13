@@ -21,13 +21,10 @@ dependencies = [
     "asyncpg>=0.30,<0.32",
     "alembic>=1.14,<1.15",
     "python-jose[cryptography]>=3.3,<4",
-    "passlib[bcrypt]>=1.7,<2",
-    # Capped below 4.1: passlib 1.7.4 (unmaintained upstream, no newer release
-    # exists) probes `bcrypt.__about__.__version__` to detect the backend
-    # version, an attribute bcrypt itself removed in 4.1.0. Above that, every
-    # startup logs a spurious (harmless but alarming) traceback. Verified
-    # this pin is what stops it -- see the docker-compose dry run.
-    "bcrypt>=4.0,<4.1",
+    # Hashing goes straight through bcrypt (see app/core/security.py) --
+    # passlib's bcrypt handler is unmaintained upstream and incompatible
+    # with bcrypt>=4.1 (probes a version attribute bcrypt removed).
+    "bcrypt>=4.0,<5.1",
     "python-multipart>=0.0.17",
     "slowapi>=0.1.9,<0.2",
     # xlsx export (write-only Workbook, see services/export_service.py) --

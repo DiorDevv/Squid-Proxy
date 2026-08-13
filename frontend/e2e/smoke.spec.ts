@@ -22,9 +22,18 @@ const ADMIN_PASSWORD = process.env.E2E_ADMIN_PASSWORD ?? 'admin12345'
 // settled state that is neither a loading skeleton nor an error -- data
 // presence itself isn't asserted, so this passes against an empty backend
 // (no demo generator) just as well as a seeded one.
+//
+// Scoped to the <main> landmark (see AppShell.tsx), not the whole page --
+// LogHealthBanner renders outside <main> and, when the log tailer can't
+// reach a Squid log (true for every CI/e2e run, which has no real Squid
+// installed), its "no new traffic is being recorded" text also matches the
+// /no .* (recorded|found)/i empty-state pattern below, making the
+// page-wide locator resolve to 2 elements (a Playwright strict-mode
+// violation) instead of the one this is meant to find.
 async function expectPageLoadedWithoutError(page: Page) {
-  await expect(page.getByRole('button', { name: 'Retry' })).not.toBeVisible()
-  await expect(page.getByRole('table').or(page.getByText(/no .* (recorded|found)/i))).toBeVisible()
+  const main = page.getByRole('main')
+  await expect(main.getByRole('button', { name: 'Retry' })).not.toBeVisible()
+  await expect(main.getByRole('table').or(main.getByText(/no .* (recorded|found)/i))).toBeVisible()
 }
 
 test.describe('login', () => {

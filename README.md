@@ -309,9 +309,14 @@ RING_BUFFER_MAX_EVENTS=1000000
 AGGREGATION_INTERVAL_SECONDS=30
 DATABASE_POOL_SIZE=10
 DATABASE_MAX_OVERFLOW=20
+BACKEND_MEMORY_LIMIT=6g
+BACKEND_CPU_LIMIT=2
+POSTGRES_MEMORY_LIMIT=8g
+POSTGRES_CPU_LIMIT=4
 ```
-and copy the large-deployment block from `docker-compose.override.yml.example` for host resource
-limits (backend ~6GB RAM/2 CPU, Postgres ~8GB RAM/4 CPU with write-heavy-workload tuning flags).
+and copy the Postgres write-heavy-workload tuning flags (`shared_buffers`, `effective_cache_size`,
+`max_wal_size`) from `docker-compose.override.yml.example` — the only part of large-deployment
+sizing that still needs an override file rather than a plain `.env` variable.
 
 **Required host sizing at this scale** (see `ARCHITECTURE.md` for the derivation):
 

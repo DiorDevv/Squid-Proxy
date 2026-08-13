@@ -15,6 +15,18 @@ x-backend-common: &backend-common
       HTTPS_PROXY: ${HTTPS_PROXY:-}
       NO_PROXY: ${NO_PROXY:-}
   logging: *default-logging
+  # Safety caps against a runaway process (e.g. a stuck aggregation job)
+  # starving the host -- not sizing guidance. `mem_limit`/`cpus` (not
+  # `deploy.resources.limits`, which several Compose versions only apply
+  # under Swarm) are what docker-compose.override.yml.example's own
+  # large-deployment block already uses, so plain `docker compose up`
+  # actually enforces this. Raise both alongside
+  # DATABASE_POOL_SIZE/RING_BUFFER_MAX_EVENTS/etc. for a large deployment
+  # (see "Capacity planning for large deployments" in README.md); the
+  # defaults here match the demo/small-deployment defaults those settings
+  # already use.
+  mem_limit: ${BACKEND_MEMORY_LIMIT:-1g}
+  cpus: "${BACKEND_CPU_LIMIT:-2}"
   environment:
     ENVIRONMENT: production
     DATABASE_URL: postgresql+asyncpg://squid:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in your .env before starting}@postgres:5432/squid_dashboard
@@ -22,7 +34,11 @@ x-backend-common: &backend-common
     JWT_SECRET: ${JWT_SECRET:?Set JWT_SECRET in your .env before starting}
     ADMIN_EMAIL: ${ADMIN_EMAIL:-admin@example.com}
     ADMIN_PASSWORD: ${ADMIN_PASSWORD:?Set ADMIN_PASSWORD in your .env before starting}
-    CORS_ORIGINS: '["http://localhost:8080"]'
+    # JSON array of allowed origins. Defaults to the bundled nginx/frontend
+    # container's own published port -- override in .env (e.g.
+    # CORS_ORIGINS=["https://dashboard.example.com"]) once this is served
+    # behind a real domain, rather than editing this file directly.
+    CORS_ORIGINS: '${CORS_ORIGINS:-["http://localhost:8080"]}'
     # Optional -- see "Error tracking" in .env.example. Empty/unset stays inert.
     SENTRY_DSN: ${SENTRY_DSN:-}
     # Optional -- traffic-anomaly and operator-failure webhooks (see
@@ -62,6 +78,8 @@ services:
       POSTGRES_USER: squid
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in your .env before starting}
       POSTGRES_DB: squid_dashboard
+    mem_limit: ${POSTGRES_MEMORY_LIMIT:-1g}
+    cpus: "${POSTGRES_CPU_LIMIT:-2}"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
@@ -125,6 +143,8 @@ services:
         HTTPS_PROXY: ${HTTPS_PROXY:-}
         NO_PROXY: ${NO_PROXY:-}
     logging: *default-logging
+    mem_limit: 256m
+    cpus: "1"
     ports:
       - "${FRONTEND_PORT:-8080}:80"
     networks:
@@ -158,6 +178,8 @@ services:
       # ops_alerting: falls back to ALERT_WEBHOOK_URL if unset.
       OPS_ALERT_WEBHOOK_URL: ${OPS_ALERT_WEBHOOK_URL:-}
       ALERT_WEBHOOK_URL: ${ALERT_WEBHOOK_URL:-}
+    mem_limit: 512m
+    cpus: "1"
     volumes:
       - db_backup_data:/backups
       - ./backend/scripts/backup_postgres_docker.sh:/backup_postgres_docker.sh:ro
@@ -188,6 +210,8 @@ services:
         NO_PROXY: ${NO_PROXY:-}
     profiles: ["demo"]
     logging: *default-logging
+    mem_limit: 256m
+    cpus: "1"
     volumes:
       - squid_log_data:/data/squid-logs
     command:

@@ -46,4 +46,9 @@ def downgrade() -> None:
     op.drop_index('ix_export_jobs_created_at', table_name='export_jobs')
     op.drop_index('ix_export_jobs_status', table_name='export_jobs')
     op.drop_table('export_jobs')
-    op.execute('DROP TYPE IF EXISTS exportjobstatus')
+    # sa.Enum(...).drop (not a raw `DROP TYPE`, which is Postgres-only syntax
+    # and breaks a full downgrade on SQLite) -- matches the pattern
+    # f2a8c5d1e9b7 already uses for exportcleanupmode: a no-op on SQLite
+    # (Enum there is just a VARCHAR + CHECK constraint, no real type object),
+    # DROP TYPE on Postgres.
+    sa.Enum(name='exportjobstatus').drop(op.get_bind(), checkfirst=True)

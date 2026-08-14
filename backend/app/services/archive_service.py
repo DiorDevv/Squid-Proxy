@@ -22,9 +22,25 @@ Called from two places:
 
 One file per configured branch (report_scheduler.py sends reports the same
 way), named squid-events-<branch>-<since_date>_<until_date>.csv.gz in
-output_dir. Archive files older than keep_days are deleted after a
+output_dir (or the same name plus a trailing .enc when ARCHIVE_ENCRYPTION_KEY
+is set -- see below). Archive files older than keep_days are deleted after a
 successful run -- rotation for the *archive* on this server, independent of
 the live database's own retention window.
+
+**Encryption at rest.** These files hold the same client-IP/domain-visited
+detail the multi-branch TLS requirement protects in transit (see
+ARCHITECTURE.md) -- with no key configured they'd otherwise sit on disk in
+the clear indefinitely (up to ARCHIVE_KEEP_DAYS). When
+settings.ARCHIVE_ENCRYPTION_KEY is set, the completed gzip file is encrypted
+with it (Fernet: AES-128-CBC + HMAC, i.e. authenticated -- a tampered or
+truncated file fails to decrypt rather than silently returning corrupt CSV)
+before the atomic rename, and gets a trailing ".enc" on its filename so it's
+never mistaken for a plain .csv.gz. Decrypt with
+scripts/decrypt_archive.py. Encryption happens as one extra pass over the
+already-gzipped bytes (not streamed inline with the CSV write) since Fernet
+tokens aren't chunkable -- gzip has typically already shrunk a week of raw
+events enough that holding the compressed form in memory once is cheap
+relative to the row-streaming CSV generation itself.
 
 Each successful per-branch write also upserts an ArchiveRun row
 (branch -> archived up to `now`), which retention.py checks before its next
@@ -53,6 +69,8 @@ import os
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
+from cryptography.fernet import Fernet
+
 from app.core.config import get_settings
 from app.models.archive_run import ArchiveRun
 from app.models.db import AsyncSessionLocal
@@ -60,12 +78,21 @@ from app.services.export_service import stream_csv
 
 logger = logging.getLogger(__name__)
 
-ARCHIVE_FILENAME_GLOB = "squid-events-*.csv.gz"
+# Matches both plain (squid-events-...csv.gz) and encrypted
+# (squid-events-...csv.gz.enc) archives -- see "Encryption at rest" above.
+ARCHIVE_FILENAME_GLOB = "squid-events-*.csv.gz*"
 
 
 def _purge_old_archives(output_dir: Path, keep_days: int) -> None:
     cutoff = datetime.now(UTC).timestamp() - keep_days * 86400
     for path in output_dir.glob(ARCHIVE_FILENAME_GLOB):
+        # The broadened glob above also matches a still-being-written
+        # ....csv.gz.tmp from a run currently in progress -- never a
+        # concern in practice (this only runs after that same run's loop
+        # has already renamed its own tmp file away) but excluded anyway
+        # since matching it is accidental, not intended.
+        if path.name.endswith(".tmp"):
+            continue
         if path.stat().st_mtime < cutoff:
             path.unlink()
             logger.info("Purged old archive", extra={"path": str(path)})
@@ -81,20 +108,34 @@ async def archive(output_dir: Path, keep_days: int) -> None:
     default_since = now - timedelta(days=7)
     output_dir.mkdir(parents=True, exist_ok=True)
 
+    encryption_key = settings.ARCHIVE_ENCRYPTION_KEY
+    if not encryption_key:
+        logger.warning(
+            "ARCHIVE_ENCRYPTION_KEY is unset -- archives will be written as "
+            "plaintext gzip, readable by anyone with filesystem access. Set "
+            "it (see .env.example) to encrypt archived client-IP/domain "
+            "history at rest."
+        )
+
     async with AsyncSessionLocal() as session:
         for source in settings.effective_log_sources:
             existing_run = await session.get(ArchiveRun, source.branch)
             since = min(default_since, existing_run.archived_until) if existing_run else default_since
 
-            filename = f"squid-events-{source.branch}-{since.date()}_{now.date()}.csv.gz"
+            base_filename = f"squid-events-{source.branch}-{since.date()}_{now.date()}.csv.gz"
+            filename = f"{base_filename}.enc" if encryption_key else base_filename
             path = output_dir / filename
             # Write to a temp path and only rename into place once the whole
-            # export has streamed successfully -- a crash or a full disk
-            # mid-write must never leave a truncated/corrupt .csv.gz sitting
-            # under the real filename, since that's indistinguishable from a
-            # good archive until someone actually opens it (same reasoning
-            # as log_tailer.py's state-file persistence).
-            tmp_path = path.with_name(path.name + ".tmp")
+            # export (and, if enabled, its encryption) has completed
+            # successfully -- a crash or a full disk mid-write must never
+            # leave a truncated/corrupt file sitting under the real
+            # filename, since that's indistinguishable from a good archive
+            # until someone actually opens it (same reasoning as
+            # log_tailer.py's state-file persistence). Named off
+            # base_filename, not filename, so it never itself ends in
+            # ".csv.gz" or ".csv.gz.enc" and can't be mistaken for a
+            # finished archive if a crash leaves it behind.
+            tmp_path = output_dir / f"{base_filename}.tmp"
 
             # row_counter is incremented by stream_csv itself, once per
             # actual row written -- counting "\r\n" occurrences in the
@@ -110,6 +151,14 @@ async def archive(output_dir: Path, keep_days: int) -> None:
                 ):
                     f.write(chunk)
             row_count = row_counter[0]
+
+            if encryption_key:
+                # Fernet tokens aren't chunkable, so this is one extra pass
+                # over the already-gzipped bytes rather than streamed inline
+                # above -- see the module docstring's "Encryption at rest"
+                # section for why that's the right tradeoff here.
+                plaintext = tmp_path.read_bytes()
+                tmp_path.write_bytes(Fernet(encryption_key.encode()).encrypt(plaintext))
             os.replace(tmp_path, path)  # atomic on POSIX
 
             logger.info(
@@ -119,6 +168,7 @@ async def archive(output_dir: Path, keep_days: int) -> None:
                     "row_count": row_count,
                     "path": str(path),
                     "size_bytes": path.stat().st_size,
+                    "encrypted": encryption_key is not None,
                 },
             )
 

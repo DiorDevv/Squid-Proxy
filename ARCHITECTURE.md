@@ -61,7 +61,7 @@ A per-minute aggregate can answer "how much traffic," but not "what did client X
 request at 14:32:07" — and a security/compliance dashboard needs the latter for
 `/api/clients/{id}/activity` and `/api/export`, for ranges beyond whatever currently fits in the
 in-memory ring buffer. `raw_events` is the durable, queryable source for that, with its own
-(shorter) retention window (`RETENTION_DAYS_RAW_EVENTS`, default 7 days) independent of
+(shorter) retention window (`RETENTION_DAYS_RAW_EVENTS`, default 30 days) independent of
 `RETENTION_DAYS_AGGREGATES` (default ~400 days) — aggregates are cheap to keep for long-term
 trend reporting; full per-event detail is comparatively expensive to retain indefinitely, so the
 two are allowed to age out on different schedules (`app/services/retention.py`).

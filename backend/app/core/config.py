@@ -84,7 +84,13 @@ class Settings(BaseSettings):
     RING_BUFFER_MAX_EVENTS: int = 500_000
 
     # --- Retention ---
-    RETENTION_DAYS_RAW_EVENTS: int = 7
+    # 30 days: long enough that an incident noticed a couple weeks late still
+    # has per-request detail in the live, queryable database rather than
+    # only in a weekly archive file that has to be pulled off disk and
+    # grepped by hand. Raise further only alongside real disk headroom --
+    # see "Sizing for a large client count" in ARCHITECTURE.md for the
+    # per-day disk-cost math this scales from.
+    RETENTION_DAYS_RAW_EVENTS: int = 30
     RETENTION_DAYS_AGGREGATES: int = 400
     # How often the ring buffer flushes to DB aggregates. Lower = less
     # runway needed in RING_BUFFER_MAX_EVENTS above per flush cycle, at the
@@ -116,6 +122,15 @@ class Settings(BaseSettings):
     # vs. how long between actually calling archive() (expensive).
     ARCHIVE_CHECK_INTERVAL_SECONDS: int = 3600
     ARCHIVE_MIN_INTERVAL_SECONDS: int = 604800
+    # Archives hold the same client-IP/domain-visited detail the "Multi-branch
+    # deployment" TLS requirement (see ARCHITECTURE.md) protects in transit --
+    # unset, they sit on disk in the clear. Set to a `Fernet.generate_key()`
+    # value (see .env.example) to have archive() encrypt each file before it
+    # ever touches disk; unset stays backward-compatible (plain .csv.gz,
+    # matching every archive already written by an existing deployment).
+    # Losing this key means losing the ability to ever read past archives --
+    # store it somewhere other than this server, not just in .env here.
+    ARCHIVE_ENCRYPTION_KEY: str | None = None
 
     # --- Background export jobs (see api/routes/export.py, ExportJob) ---
     EXPORT_JOBS_DIR: str = "./export_jobs"

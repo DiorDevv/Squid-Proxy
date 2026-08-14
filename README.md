@@ -407,7 +407,7 @@ testing without waiting for the schedule.
 ## Archiving raw event detail before it's purged
 
 Full per-request detail (`raw_events` — every URL, client, timestamp) is only kept for
-`RETENTION_DAYS_RAW_EVENTS` (default 7 days) before `RetentionJob` permanently deletes it; only
+`RETENTION_DAYS_RAW_EVENTS` (default 30 days) before `RetentionJob` permanently deletes it; only
 the smaller per-minute/per-hour aggregates survive long-term (`RETENTION_DAYS_AGGREGATES`, default
 ~400 days). That's the right tradeoff for the live database, but if your organization needs to
 keep the full detail longer (e.g. a compliance requirement), it needs to be archived externally
@@ -419,6 +419,30 @@ periodically writes one gzip-compressed CSV per configured branch
 (`squid-events-<branch>-<since>_<until>.csv.gz`) to `ARCHIVE_OUTPUT_DIR` (default `./archives`,
 mounted as its own Docker volume so it survives container recreation), and prunes archive files
 older than `ARCHIVE_KEEP_DAYS` (default 365) from there. No setup required for the common case.
+
+**Encrypt archives at rest.** These files carry the same client-IP/domain-visited detail as the
+live database. Set `ARCHIVE_ENCRYPTION_KEY` (generate one with
+`python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"`) and
+every archive from then on is written as `....csv.gz.enc` instead — encrypted before it ever
+touches disk. Decrypt with:
+
+```bash
+cd backend
+.venv/bin/python scripts/decrypt_archive.py --key-file /path/to/key.txt archives/squid-events-*.csv.gz.enc
+```
+
+Keep a copy of that key somewhere other than this server (a password manager, a separate secrets
+store) — it's the only thing standing between this server's disk being lost/stolen and every past
+archive being unreadable either way. Unset (the default) writes plain gzip, matching every archive
+a deployment predating this setting already wrote.
+
+**This alone is not a disaster-recovery plan.** `ARCHIVE_OUTPUT_DIR` and the Postgres backups
+under [Database backups](#database-backups) below both default to local Docker volumes — on the
+*same* disk as the live database. Encrypting archives protects them from someone reading the
+disk; it does nothing if the disk itself is lost (hardware failure, a deleted VM, ransomware).
+Copying archives and backups to storage on a different machine — another server, an S3-compatible
+bucket, anything not on this host — is a deliberate step you still need to add yourself; nothing
+here does it for you.
 
 If you'd rather manage this fully yourself instead — a different external destination, your own
 cron/systemd timer, tighter control over exactly when it runs — set `ARCHIVE_ENABLED=false` and

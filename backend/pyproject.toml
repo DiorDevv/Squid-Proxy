@@ -21,6 +21,10 @@ dependencies = [
     "asyncpg>=0.30,<0.32",
     "alembic>=1.14,<1.20",
     "python-jose[cryptography]>=3.3,<4",
+    # Used directly (not just as python-jose's transitive dep) to encrypt
+    # archived raw-event exports at rest -- see
+    # app/services/archive_service.py's "Encryption at rest" section.
+    "cryptography>=43,<51",
     # Hashing goes straight through bcrypt (see app/core/security.py) --
     # passlib's bcrypt handler is unmaintained upstream and incompatible
     # with bcrypt>=4.1 (probes a version attribute bcrypt removed).

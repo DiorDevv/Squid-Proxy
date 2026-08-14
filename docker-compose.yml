@@ -61,6 +61,11 @@ x-backend-common: &backend-common
     AGGREGATION_INTERVAL_SECONDS: ${AGGREGATION_INTERVAL_SECONDS:-60}
     DATABASE_POOL_SIZE: ${DATABASE_POOL_SIZE:-5}
     DATABASE_MAX_OVERFLOW: ${DATABASE_MAX_OVERFLOW:-10}
+    RETENTION_DAYS_RAW_EVENTS: ${RETENTION_DAYS_RAW_EVENTS:-30}
+    # Optional -- see "Archiving raw event detail before it's purged" in
+    # backend/.env.example for how to generate one. Empty/unset stays
+    # inert (archives written as plain gzip, matching prior behavior).
+    ARCHIVE_ENCRYPTION_KEY: ${ARCHIVE_ENCRYPTION_KEY:-}
   volumes:
     - squid_log_data:/data/squid-logs
     - archive_data:/app/archives

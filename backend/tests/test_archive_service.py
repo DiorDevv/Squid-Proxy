@@ -2,10 +2,12 @@
 (it lived only as scripts/archive_weekly_export.py's inline logic)."""
 
 import gzip
+import io
 import os
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
+from cryptography.fernet import Fernet
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import Settings
@@ -35,9 +37,9 @@ def _make_event(**overrides) -> RawEvent:
     return RawEvent(**defaults)
 
 
-def _patch(monkeypatch, db_session: AsyncSession) -> None:
+def _patch(monkeypatch, db_session: AsyncSession, settings: Settings | None = None) -> None:
     monkeypatch.setattr(archive_service, "AsyncSessionLocal", lambda: db_session)
-    monkeypatch.setattr(archive_service, "get_settings", lambda: Settings())
+    monkeypatch.setattr(archive_service, "get_settings", lambda: settings or Settings())
 
 
 async def test_archive_writes_gzip_csv_and_upserts_archive_run(
@@ -107,3 +109,50 @@ async def test_archive_purges_files_older_than_keep_days(
     assert not old_file.exists()
     # This run's own fresh archive must survive its own purge pass.
     assert list(tmp_path.glob("squid-events-default-*.csv.gz"))
+
+
+async def test_archive_encrypts_when_key_configured(db_session: AsyncSession, tmp_path: Path, monkeypatch):
+    key = Fernet.generate_key().decode()
+    _patch(monkeypatch, db_session, Settings(ARCHIVE_ENCRYPTION_KEY=key))
+
+    db_session.add_all([_make_event(client_ip=f"10.0.0.{i}") for i in range(3)])
+    await db_session.commit()
+
+    await archive_service.archive(tmp_path, keep_days=365)
+
+    # Written as .csv.gz.enc, not plain .csv.gz -- an encrypted archive must
+    # never be mistaken for a plain one (or vice versa) by filename alone.
+    plain_files = list(tmp_path.glob("squid-events-default-*.csv.gz"))
+    assert plain_files == []
+    encrypted_files = list(tmp_path.glob("squid-events-default-*.csv.gz.enc"))
+    assert len(encrypted_files) == 1
+
+    # The on-disk bytes must actually be ciphertext, not a plaintext gzip
+    # stream with ".enc" just tacked onto the filename.
+    ciphertext = encrypted_files[0].read_bytes()
+    assert not ciphertext.startswith(b"\x1f\x8b")  # gzip magic bytes
+
+    # ...but round-trips back to the same CSV content a plain archive
+    # would have held, via the same decrypt path scripts/decrypt_archive.py
+    # uses.
+    plaintext_gzip = Fernet(key.encode()).decrypt(ciphertext)
+    with gzip.open(io.BytesIO(plaintext_gzip), "rt", newline="") as f:
+        content = f.read()
+    assert content.count("\r\n") == 4  # header + 3 rows
+
+    assert list(tmp_path.glob("*.tmp")) == []
+
+
+async def test_archive_purges_old_encrypted_files(db_session: AsyncSession, tmp_path: Path, monkeypatch):
+    key = Fernet.generate_key().decode()
+    _patch(monkeypatch, db_session, Settings(ARCHIVE_ENCRYPTION_KEY=key))
+
+    old_file = tmp_path / "squid-events-default-2020-01-01_2020-01-08.csv.gz.enc"
+    old_file.write_bytes(b"")
+    old_mtime = (datetime.now(UTC) - timedelta(days=400)).timestamp()
+    os.utime(old_file, (old_mtime, old_mtime))
+
+    await archive_service.archive(tmp_path, keep_days=365)
+
+    assert not old_file.exists()
+    assert list(tmp_path.glob("squid-events-default-*.csv.gz.enc"))

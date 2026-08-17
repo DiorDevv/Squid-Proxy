@@ -416,9 +416,12 @@ before it ages out.
 **This now happens automatically, out of the box.** `ARCHIVE_ENABLED` defaults to `true`: an
 in-process job (`ArchiveScheduler`, started the same way `RetentionJob`/`Aggregator`/etc. are)
 periodically writes one gzip-compressed CSV per configured branch
-(`squid-events-<branch>-<since>_<until>.csv.gz`) to `ARCHIVE_OUTPUT_DIR` (default `./archives`,
-mounted as its own Docker volume so it survives container recreation), and prunes archive files
-older than `ARCHIVE_KEEP_DAYS` (default 365) from there. No setup required for the common case.
+(`squid-events-<branch>-<since>_<until>.csv.gz`) to `ARCHIVE_OUTPUT_DIR` (default `./archives`;
+the Docker path bind-mounts this to `./archives` next to `docker-compose.yml` on the host,
+rather than a Docker-managed named volume, specifically so the files are directly
+browsable/downloadable -- `ls`, SFTP, `rsync` to off-site storage -- without going through
+`docker compose exec`/`cp` first), and prunes archive files older than `ARCHIVE_KEEP_DAYS`
+(default 365) from there. No setup required for the common case.
 
 **Encrypt archives at rest.** These files carry the same client-IP/domain-visited detail as the
 live database. Set `ARCHIVE_ENCRYPTION_KEY` (generate one with

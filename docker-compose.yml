@@ -68,7 +68,15 @@ x-backend-common: &backend-common
     ARCHIVE_ENCRYPTION_KEY: ${ARCHIVE_ENCRYPTION_KEY:-}
   volumes:
     - squid_log_data:/data/squid-logs
-    - archive_data:/app/archives
+    # Bind-mounted (not a named volume, unlike the others here) so archived
+    # .csv.gz/.csv.gz.enc files are directly browsable/downloadable from the
+    # host (ls, SFTP/SCP, rsync to off-site storage) without needing `docker
+    # compose exec`/`docker compose cp` first -- these files are exactly the
+    # thing an operator needs to actually get to when investigating older
+    # traffic, so hiding them inside Docker-managed storage costs real
+    # usability for no benefit here. See .gitignore -- ./archives is
+    # deliberately excluded so real traffic data can never end up committed.
+    - ./archives:/app/archives
     - ut1_blacklist_data:/app/ut1_blacklist_data
     - log_tailer_state:/app/log_tailer_state
   depends_on:
@@ -249,7 +257,6 @@ networks:
 volumes:
   postgres_data:
   squid_log_data:
-  archive_data:
   db_backup_data:
   ut1_blacklist_data:
   log_tailer_state:

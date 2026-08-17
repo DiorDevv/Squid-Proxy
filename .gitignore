@@ -19,6 +19,13 @@ backend/archives/
 backend/backups/
 backend/ut1_blacklist_data/
 backend/log_tailer_state/
+# Same as backend/archives/ above, but for the Docker path -- docker-
+# compose.yml bind-mounts the backend's /app/archives here (repo root, next
+# to docker-compose.yml) instead of a Docker-managed named volume, so it's
+# directly browsable/downloadable from the host. Real per-request traffic
+# detail (client IPs, visited URLs) must never land in git regardless of
+# which path wrote it.
+/archives/
 
 # Env
 .env

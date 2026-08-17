@@ -20,6 +20,12 @@ User=squid-dashboard
 Group=squid-dashboard
 WorkingDirectory=/opt/squid-dashboard/backend
 EnvironmentFile=/opt/squid-dashboard/backend/.env
+# Overrides ENVIRONMENT regardless of what .env has (a systemd Environment=
+# after EnvironmentFile= wins) -- app/core/config.py only rejects the
+# placeholder JWT_SECRET/ADMIN_PASSWORD/POSTGRES_PASSWORD defaults when
+# ENVIRONMENT=="production", so a bare-metal deploy that never sets this
+# would silently run with forgeable secrets instead of failing to start.
+Environment=ENVIRONMENT=production
 # Applies any pending Alembic migrations before the app starts -- the app's
 # own init_db() only ever creates tables that don't exist yet, it never
 # alters existing ones, so this is required for schema changes to actually

@@ -83,15 +83,31 @@ logger = logging.getLogger(__name__)
 ARCHIVE_FILENAME_GLOB = "squid-events-*.csv.gz*"
 
 
+# A run that dies mid-write (disk full, killed process, bad encryption key)
+# leaves its .tmp behind under a name that never matches the plain
+# ARCHIVE_FILENAME_GLOB rename target, so nothing else ever revisits it.
+# Any .tmp still around after this many hours can't belong to an
+# in-progress run -- a real run finishes (or dies) in minutes -- so it's
+# treated as orphaned and removed regardless of keep_days.
+_STALE_TMP_HOURS = 24
+
+
 def _purge_old_archives(output_dir: Path, keep_days: int) -> None:
-    cutoff = datetime.now(UTC).timestamp() - keep_days * 86400
+    now = datetime.now(UTC).timestamp()
+    cutoff = now - keep_days * 86400
+    stale_tmp_cutoff = now - _STALE_TMP_HOURS * 3600
     for path in output_dir.glob(ARCHIVE_FILENAME_GLOB):
         # The broadened glob above also matches a still-being-written
-        # ....csv.gz.tmp from a run currently in progress -- never a
-        # concern in practice (this only runs after that same run's loop
-        # has already renamed its own tmp file away) but excluded anyway
-        # since matching it is accidental, not intended.
+        # ....csv.gz.tmp from a run currently in progress -- fine, since
+        # such a file is always younger than stale_tmp_cutoff and skipped
+        # below. Only a .tmp left behind by a run that crashed or was
+        # killed before it could rename (or delete) its own file gets
+        # cleaned up here, once it's old enough to be unambiguously
+        # orphaned rather than in-progress.
         if path.name.endswith(".tmp"):
+            if path.stat().st_mtime < stale_tmp_cutoff:
+                path.unlink()
+                logger.warning("Purged orphaned archive tmp file", extra={"path": str(path)})
             continue
         if path.stat().st_mtime < cutoff:
             path.unlink()
@@ -168,7 +184,7 @@ async def archive(output_dir: Path, keep_days: int) -> None:
                     "row_count": row_count,
                     "path": str(path),
                     "size_bytes": path.stat().st_size,
-                    "encrypted": encryption_key is not None,
+                    "encrypted": bool(encryption_key),
                 },
             )
 

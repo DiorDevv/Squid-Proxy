@@ -34,5 +34,22 @@ NotifyAccess=all
 Restart=on-failure
 RestartSec=5
 
+# Squid starts as root (needed for http_port <1024 in some deployments and
+# to open its cache dirs) then drops to cache_effective_user/group itself --
+# NoNewPrivileges doesn't interfere with that self-initiated setuid/setgid,
+# it only blocks *gaining* privileges via execve, so this is safe alongside
+# the ExecStartPre -z cache-init step above.
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+# Scoped to exactly what this instance needs to write, not the whole shared
+# /run tmpfs -- PIDFile= above is a plain top-level file (not a per-service
+# subdirectory), so ReadWritePaths targets that same file directly rather
+# than opening every other service's /run entries to this process too.
+# systemd bind-mounts a fresh empty file here on first start if it doesn't
+# exist yet, same as for the directories below.
+ReadWritePaths=/var/spool/squid-%i /var/log/squid-%i /run/squid-%i.pid
+
 [Install]
 WantedBy=multi-user.target

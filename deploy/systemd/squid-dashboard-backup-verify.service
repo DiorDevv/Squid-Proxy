@@ -31,3 +31,12 @@ Group=squid-dashboard
 WorkingDirectory=/opt/squid-dashboard/backend
 EnvironmentFile=/opt/squid-dashboard/backend/.env
 ExecStart=/opt/squid-dashboard/backend/.venv/bin/python scripts/verify_backup_restore.py --output-dir /opt/squid-dashboard/backups
+
+# Same hardening as squid-dashboard-backend.service -- this unit also holds
+# production DB credentials (via EnvironmentFile) and shouldn't run with
+# fewer sandboxing guarantees than the main service just because it's a
+# oneshot job.
+ProtectSystem=strict
+ReadWritePaths=/opt/squid-dashboard/backups
+NoNewPrivileges=true
+PrivateTmp=true

@@ -2,11 +2,15 @@
 """CLI to create/update a user (admin or viewer). Run from the backend/ dir.
 
 Usage:
-    python scripts/create_admin.py --email ops@company.com --password '...' --role admin
+    python scripts/create_admin.py --email ops@company.com --role admin
+    (prompts for the password interactively; use --password only for
+    scripted/non-interactive runs, e.g. CI -- it's visible to other local
+    users via `ps`/`/proc/<pid>/cmdline` and lands in shell history)
 """
 
 import argparse
 import asyncio
+import getpass
 import sys
 from pathlib import Path
 
@@ -36,11 +40,15 @@ async def create_or_update_user(email: str, password: str, role: str) -> None:
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--email", required=True)
-    parser.add_argument("--password", required=True)
+    parser.add_argument(
+        "--password",
+        help="Non-interactive password (scripted/CI use only -- omit to be prompted instead).",
+    )
     parser.add_argument("--role", choices=["admin", "viewer"], default="viewer")
     args = parser.parse_args()
 
-    asyncio.run(create_or_update_user(args.email, args.password, args.role))
+    password = args.password or getpass.getpass("Password: ")
+    asyncio.run(create_or_update_user(args.email, password, args.role))
 
 
 if __name__ == "__main__":

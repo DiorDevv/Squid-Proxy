@@ -6,9 +6,13 @@ gets auto-deleted; in AFTER_DOWNLOAD mode there's no scheduled deletion at
 all to warn ahead of, so this is the *only* thing that ever surfaces a
 forgotten export in that mode.
 
-Off by default (warn_undownloaded_after_hours is None until an admin sets
-one via PUT /api/export-settings) -- a fresh deployment shouldn't start
-generating anomalies for a check nobody asked for.
+On by default (warn_undownloaded_after_hours defaults to 24, see
+app/models/export_settings.py) -- unlike the other admin-configurable
+checks in this codebase, this one guards against silent data loss (a
+finished export auto-deleted before anyone downloaded it, see
+export_job_service.purge_old_jobs), not business policy, so a fresh
+deployment gets it for free rather than needing to opt in. Still fully
+off if an admin explicitly sets it back to null via PUT /api/export-settings.
 """
 
 import logging

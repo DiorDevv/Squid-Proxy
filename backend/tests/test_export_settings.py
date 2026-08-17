@@ -14,7 +14,7 @@ async def test_get_settings_row_returns_defaults_when_none_configured(db_session
     row = await export_settings_service.get_settings_row(db_session)
     assert row.cleanup_mode == ExportCleanupMode.TIME_BASED
     assert row.retention_hours == export_settings_service.DEFAULT_RETENTION_HOURS
-    assert row.warn_undownloaded_after_hours is None
+    assert row.warn_undownloaded_after_hours == export_settings_service.DEFAULT_WARN_UNDOWNLOADED_AFTER_HOURS
 
 
 async def test_update_settings_persists_and_reads_back(db_session: AsyncSession):
@@ -82,8 +82,8 @@ async def test_export_settings_get_defaults_via_api(app_client: AsyncClient, adm
     assert response.status_code == 200
     body = response.json()
     assert body["cleanup_mode"] == "time_based"
-    assert body["retention_hours"] == 48
-    assert body["warn_undownloaded_after_hours"] is None
+    assert body["retention_hours"] == 120
+    assert body["warn_undownloaded_after_hours"] == 24
 
 
 async def test_export_settings_put_and_get_via_api(app_client: AsyncClient, admin_token, auth_headers):

@@ -354,6 +354,17 @@ async def test_purge_old_jobs_deletes_expired_rows_and_files(
     recent_file = tmp_path / "recent.csv"
     recent_file.write_text("id,domain\n")
 
+    # Explicit, rather than relying on export_settings_service's default --
+    # keeps this test's pass/fail independent of whatever that default
+    # happens to be tuned to.
+    await export_settings_service.update_settings(
+        db_session,
+        cleanup_mode=ExportCleanupMode.TIME_BASED,
+        retention_hours=48,
+        warn_undownloaded_after_hours=None,
+        actor_user_id="actor-1",
+    )
+
     now = datetime.now(UTC)
     db_session.add_all(
         [

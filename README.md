@@ -487,17 +487,21 @@ large ranges) are cleaned up automatically too**, on an admin-tunable policy at
 environment variable, for the same reason alert thresholds are: it's a policy an admin should be
 able to change without a redeploy. Two mutually exclusive modes — only one applies at a time:
 
-- **Time-based** *(default, 48h)* — a finished export file is deleted once it's older than the
-  configured retention period, downloaded or not.
+- **Time-based** *(default, 120h / 5 days)* — a finished export file is deleted once it's older
+  than the configured retention period, downloaded or not. Long enough to survive a weekend (a
+  plain 48h window silently loses a Friday-afternoon export by Monday morning); lower it, or
+  switch to After download below, if disk space is the binding constraint instead.
 - **After download** — a finished export file is deleted the moment it's successfully downloaded,
   regardless of age. Useful when disk space is tight. A file that's *never* downloaded in this
   mode is never auto-deleted by age — nothing schedules its deletion — so pair it with the warning
   below.
 
-Independently of which mode is active, **`warn_undownloaded_after_hours`** *(off by default)*
-raises a dashboard anomaly once a finished export has sat undownloaded that long — e.g. an export
-kicked off mid-week and then forgotten. Same `AnomalyEvent`/webhook pipeline as the category/quota
-alerting checks above.
+Independently of which mode is active, **`warn_undownloaded_after_hours`** *(default 24h)* raises
+a dashboard anomaly once a finished export has sat undownloaded that long — e.g. an export kicked
+off mid-week and then forgotten. On by default (unlike the alerting checks above, which are
+business policy) since this specifically guards against the time-based mode above silently
+deleting a file nobody ever got to download; set it back to unset/null to turn it off. Same
+`AnomalyEvent`/webhook pipeline as the category/quota alerting checks above.
 
 ## Database backups
 

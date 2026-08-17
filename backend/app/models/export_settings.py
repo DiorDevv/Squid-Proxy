@@ -38,12 +38,33 @@ class ExportSettings(Base):
     cleanup_mode: Mapped[ExportCleanupMode] = mapped_column(
         Enum(ExportCleanupMode), default=ExportCleanupMode.TIME_BASED
     )
-    retention_hours: Mapped[int] = mapped_column(Integer, default=48)
+    # 120h (5 days) rather than a plain 2 days: an export queued Friday
+    # afternoon and picked up the following Monday morning is already ~64h
+    # later -- a 48h window silently loses exactly that common case. 5 days
+    # comfortably survives a weekend (or a short absence) with margin, at
+    # the cost of files sitting on disk a few days longer; deployments tight
+    # on disk can still lower this (or switch to AFTER_DOWNLOAD) themselves.
+    retention_hours: Mapped[int] = mapped_column(Integer, default=120)
     # None means off -- no warning raised. Applies in both cleanup modes:
     # in TIME_BASED it doubles as "warn before this job is auto-deleted";
     # in AFTER_DOWNLOAD there's no scheduled deletion to warn ahead of, so
     # it just means "warn once a DONE job has sat undownloaded this long".
-    warn_undownloaded_after_hours: Mapped[int | None] = mapped_column(Integer, nullable=True, default=None)
+    #
+    # No column-level default here, deliberately -- SQLAlchemy's client-side
+    # `default=` fires on INSERT whenever the bound value is None, with no
+    # way to tell "never set" apart from "explicitly set to None"; on a
+    # nullable column where None is itself a meaningful, admin-choosable
+    # state (off), a non-None default here would silently overwrite an
+    # admin's first-ever PUT /api/export-settings choosing "off" back to
+    # "on" (verified: an explicit `= None` on a brand-new row is replaced by
+    # the column default at flush, the same override does NOT happen on an
+    # UPDATE to an already-persisted row). The effective out-of-the-box
+    # default (24h, "on") instead lives purely in
+    # export_settings_service.DEFAULT_WARN_UNDOWNLOADED_AFTER_HOURS,
+    # applied only to the unsaved in-memory row get_settings_row() returns
+    # before any row has ever been persisted -- the same "no row inserted
+    # just to be read from" pattern the module docstring already describes.
+    warn_undownloaded_after_hours: Mapped[int | None] = mapped_column(Integer, nullable=True)
     updated_at: Mapped[datetime] = mapped_column(
         UTCDateTime, default=lambda: datetime.now(UTC), onupdate=lambda: datetime.now(UTC)
     )

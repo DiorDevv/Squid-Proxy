@@ -13,7 +13,12 @@ from app.models.export_settings import ExportCleanupMode, ExportSettings
 from app.services import audit_service
 
 SETTINGS_ROW_ID = 1
-DEFAULT_RETENTION_HOURS = 48
+# See app/models/export_settings.py's column comments for why these two
+# defaults are 120/24 rather than 48/None -- kept in sync with that file's
+# column defaults since this in-memory fallback (below) is what actually
+# answers GET /api/export-settings until an admin ever saves a row.
+DEFAULT_RETENTION_HOURS = 120
+DEFAULT_WARN_UNDOWNLOADED_AFTER_HOURS = 24
 
 
 async def get_settings_row(session: AsyncSession) -> ExportSettings:
@@ -27,7 +32,7 @@ async def get_settings_row(session: AsyncSession) -> ExportSettings:
             id=SETTINGS_ROW_ID,
             cleanup_mode=ExportCleanupMode.TIME_BASED,
             retention_hours=DEFAULT_RETENTION_HOURS,
-            warn_undownloaded_after_hours=None,
+            warn_undownloaded_after_hours=DEFAULT_WARN_UNDOWNLOADED_AFTER_HOURS,
             updated_at=datetime.now(UTC),
         )
     return row

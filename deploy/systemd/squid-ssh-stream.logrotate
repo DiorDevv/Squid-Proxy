@@ -14,13 +14,23 @@
 # Install on THIS (central) server -- adjust the path glob below first if
 # your LOCAL_LOG_PATH values don't already live under one shared directory
 # (e.g. if each branch's env file points somewhere different, list each
-# path on its own line inside the braces instead of one glob). Also set
-# `su` to whichever account owns that directory (the one squid-ssh-stream@
-# 's User=/Group= runs as, see that unit's step 3a) -- logrotate runs as
-# root by default, and refuses to touch a file under a directory that
-# account itself can write to (root operating inside a non-root-owned,
-# writable directory is exactly the setup a symlink-swap attack needs);
-# `su` tells it to rotate as that account instead of root:
+# path on its own line inside the braces instead of one glob).
+#
+# `su` MUST match whoever actually owns LOCAL_LOG_PATH right now, which
+# depends on squid-ssh-stream@.service's current User= setting, not on
+# who owns the surrounding directory:
+#   - Haven't done that unit's step 3a yet (still running as root, the
+#     default)? The log file is root-owned -- set `su root root`. This
+#     still avoids the "insecure permissions" warning below (logrotate
+#     only requires *some* `su` line to be present, not a non-root one);
+#     it just doesn't drop any privilege, because there's none to drop yet.
+#   - Already hardened that unit with User=<account>? The log file is
+#     owned by <account> -- set `su <account> <account>` to match.
+# Getting this wrong doesn't corrupt anything, but every rotation attempt
+# fails with a permission error until the account here matches the file's
+# real owner (check with `ls -la` on LOCAL_LOG_PATH) -- verify with
+# `sudo logrotate -f` after installing, don't assume it's exercised by
+# the plain `-d` dry run.
 #   sudo cp deploy/systemd/squid-ssh-stream.logrotate /etc/logrotate.d/squid-ssh-stream
 /home/CHANGE-ME/squid-watch/ssh-logs/*.log {
     daily

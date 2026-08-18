@@ -14,7 +14,13 @@
 # Install on THIS (central) server -- adjust the path glob below first if
 # your LOCAL_LOG_PATH values don't already live under one shared directory
 # (e.g. if each branch's env file points somewhere different, list each
-# path on its own line inside the braces instead of one glob):
+# path on its own line inside the braces instead of one glob). Also set
+# `su` to whichever account owns that directory (the one squid-ssh-stream@
+# 's User=/Group= runs as, see that unit's step 3a) -- logrotate runs as
+# root by default, and refuses to touch a file under a directory that
+# account itself can write to (root operating inside a non-root-owned,
+# writable directory is exactly the setup a symlink-swap attack needs);
+# `su` tells it to rotate as that account instead of root:
 #   sudo cp deploy/systemd/squid-ssh-stream.logrotate /etc/logrotate.d/squid-ssh-stream
 /home/CHANGE-ME/squid-watch/ssh-logs/*.log {
     daily
@@ -24,4 +30,5 @@
     compress
     delaycompress
     copytruncate
+    su CHANGE-ME CHANGE-ME
 }

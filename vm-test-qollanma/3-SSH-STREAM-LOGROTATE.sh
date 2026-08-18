@@ -24,6 +24,7 @@ cat > /etc/logrotate.d/squid-ssh-stream <<'EOF'
     compress
     delaycompress
     copytruncate
+    su axmadjonov axmadjonov
 }
 EOF
 

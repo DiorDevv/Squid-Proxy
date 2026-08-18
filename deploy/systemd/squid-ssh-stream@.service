@@ -1,0 +1,75 @@
+# Alternative to deploy/rsyslog/ for getting one branch's Squid access.log
+# onto this (central/dashboard) server: instead of the branch server pushing
+# over rsyslog+TLS, this server pulls, via a persistent `ssh ... tail -F`
+# pipe. Simpler to set up (no CA/certs, just one SSH keypair per branch) --
+# but read the tradeoff below before choosing this over deploy/rsyslog/.
+#
+# **Known limitation, by design of this approach (not a bug to fix here):**
+# unlike deploy/rsyslog/'s disk-queued forwarding (see that directory's
+# branch.conf, `queue.type="linkedlist"`), a dropped SSH connection here
+# loses whatever the branch's Squid wrote during the outage -- `tail -F`
+# only ever resumes from the *current* end of the remote file on
+# reconnect, it does not replay the gap. `ServerAliveInterval`/
+# `ServerAliveCountMax` below minimize how long a dead connection goes
+# undetected (so the gap is small, not eliminated), and `Restart=always`
+# reconnects automatically -- but for a security/compliance dashboard
+# where "no gaps in the audit trail" matters, deploy/rsyslog/ is the more
+# robust choice. Use this when simplicity matters more than that guarantee.
+#
+# Install (repeat per branch, %i = branch tag, matching this branch's
+# LOG_SOURCES entry exactly):
+#
+#   1. Generate a dedicated keypair on THIS (central) server -- one per
+#      branch, so a compromised key only ever exposes that one branch's
+#      log, not every branch:
+#        ssh-keygen -t ed25519 -N "" -f ~/.ssh/id_squidreader_<branch>
+#
+#   2. On the BRANCH (Squid) server, restrict that key to read-only log
+#      tailing -- append to that account's ~/.ssh/authorized_keys (as one
+#      line, no line breaks):
+#        command="tail -F /var/log/squid/access.log",no-port-forwarding,
+#        no-X11-forwarding,no-agent-forwarding,no-pty ssh-ed25519 AAAA...
+#      (the public key from step 1) -- this means even a fully stolen
+#      private key can only ever run that one tail command on the branch
+#      server, never a shell, port-forward, or anything else.
+#
+#   3. On THIS server:
+#        sudo mkdir -p /etc/squid-ssh-stream
+#        sudo cp deploy/systemd/squid-ssh-stream.env.example /etc/squid-ssh-stream/<branch>.env
+#        sudo nano /etc/squid-ssh-stream/<branch>.env   # fill in the real values
+#        sudo cp deploy/systemd/squid-ssh-stream@.service /etc/systemd/system/
+#        sudo systemctl daemon-reload
+#        sudo systemctl enable --now squid-ssh-stream@<branch>
+#        sudo systemctl status squid-ssh-stream@<branch> --no-pager
+#
+#   4. Point LOG_SOURCES at LOCAL_LOG_PATH from that env file, same as any
+#      other branch -- see README.md's "Multi-branch deployment" section.
+
+[Unit]
+Description=SSH-pulled Squid access.log stream for branch %i
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+EnvironmentFile=/etc/squid-ssh-stream/%i.env
+# ServerAliveInterval/CountMax: detects a dead/stalled connection (not just
+# a clean close) within ~45s instead of relying on the OS's much longer
+# default TCP keepalive/timeout -- directly bounds the size of the gap
+# described above. StrictHostKeyChecking=accept-new so a first connection
+# doesn't hang waiting for an interactive yes/no this unit can never answer,
+# while still refusing to silently proceed if the branch server's host key
+# ever changes afterward (a possible MITM signal, not just noise to ignore).
+# Wrapped in `sh -c` (with `exec`, so ssh replaces the shell rather than
+# running under it -- systemd then tracks/signals the actual ssh process,
+# not an extra layer) because StandardOutput=append:<path> does NOT expand
+# ${VARS} the way ExecStart= does (verified with `systemd-analyze verify` --
+# it rejected the more obvious `StandardOutput=append:${LOCAL_LOG_PATH}`
+# outright); a shell-level `>>` redirect is what actually gets the
+# per-branch path from EnvironmentFile above into the right place.
+ExecStart=/bin/sh -c 'exec /usr/bin/ssh -o ServerAliveInterval=15 -o ServerAliveCountMax=3 -o StrictHostKeyChecking=accept-new -i "$SSH_KEY_PATH" "$SQUID_SSH_USER@$SQUID_SSH_HOST" "tail -F $SQUID_ACCESS_LOG_PATH" >> "$LOCAL_LOG_PATH"'
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

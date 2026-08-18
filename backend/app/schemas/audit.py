@@ -9,6 +9,7 @@ class AuditLogEntryOut(BaseModel):
     id: str
     created_at: datetime
     action: AuditAction
+    branch: str | None
     actor_email: str
     target_email: str | None
     detail: str | None

@@ -98,3 +98,76 @@ async def test_audit_log_lists_recent_actions(app_client: AsyncClient, admin_tok
     assert body["items"][0]["action"] == "user_created"
     assert body["items"][0]["target_email"] == "audited@example.com"
     assert body["total"] >= 1
+
+
+async def test_branch_admin_cannot_see_other_branch_audit_entries(
+    app_client: AsyncClient, admin_token, branch_a_admin_token, auth_headers, db_session: AsyncSession
+):
+    """GET /api/audit-log used to have no branch scoping at all -- a
+    branch-a admin could read every branch's user/export/alert-settings
+    history. This is the regression test for that fix (see
+    api/routes/audit.py's resolve_branch dependency and
+    audit_service.list_entries's branch filter). Role-change (not create,
+    which validates `branch` against the configured branch list -- only
+    "default" is configured in tests) is used to attach a target user to an
+    arbitrary branch."""
+    target = await _seed_user(db_session, "branch-b-target", "branch-b-user@example.com", UserRole.VIEWER)
+    target.branch = "branch-b"
+    await db_session.commit()
+
+    role_response = await app_client.patch(
+        f"/api/users/{target.id}/role", headers=auth_headers(admin_token), json={"role": "admin"}
+    )
+    assert role_response.status_code == 200
+
+    response = await app_client.get("/api/audit-log", headers=auth_headers(branch_a_admin_token))
+    assert response.status_code == 200
+    target_emails = [item["target_email"] for item in response.json()["items"]]
+    assert "branch-b-user@example.com" not in target_emails
+
+
+async def test_branch_admin_sees_own_branch_audit_entries(
+    app_client: AsyncClient, admin_token, branch_a_admin_token, auth_headers, db_session: AsyncSession
+):
+    target = await _seed_user(db_session, "branch-a-target", "branch-a-user@example.com", UserRole.VIEWER)
+    target.branch = "branch-a"
+    await db_session.commit()
+
+    role_response = await app_client.patch(
+        f"/api/users/{target.id}/role", headers=auth_headers(admin_token), json={"role": "admin"}
+    )
+    assert role_response.status_code == 200
+
+    response = await app_client.get("/api/audit-log", headers=auth_headers(branch_a_admin_token))
+    assert response.status_code == 200
+    target_emails = [item["target_email"] for item in response.json()["items"]]
+    assert "branch-a-user@example.com" in target_emails
+
+
+async def test_branch_admin_still_sees_entries_with_no_branch(
+    app_client: AsyncClient, admin_token, branch_a_admin_token, auth_headers
+):
+    """A domain-category change has no branch dimension at all (every admin,
+    scoped or not, can set one) -- it must stay visible to a branch-scoped
+    admin rather than disappearing along with genuinely other-branch
+    entries."""
+    set_response = await app_client.put(
+        "/api/domain-categories/example.com",
+        headers=auth_headers(admin_token),
+        json={"category": "work_tools"},
+    )
+    assert set_response.status_code == 200
+
+    response = await app_client.get("/api/audit-log", headers=auth_headers(branch_a_admin_token))
+    assert response.status_code == 200
+    actions = [item["action"] for item in response.json()["items"]]
+    assert "domain_category_set" in actions
+
+
+async def test_branch_admin_requesting_another_branchs_audit_log_is_forbidden(
+    app_client: AsyncClient, branch_a_admin_token, auth_headers
+):
+    response = await app_client.get(
+        "/api/audit-log", params={"branch": "branch-b"}, headers=auth_headers(branch_a_admin_token)
+    )
+    assert response.status_code == 403

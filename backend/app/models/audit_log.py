@@ -50,6 +50,14 @@ class AuditLogEntry(Base):
         UTCDateTime, index=True, default=lambda: datetime.now(UTC)
     )
     action: Mapped[AuditAction] = mapped_column(Enum(AuditAction), index=True)
+    # None means the action wasn't confined to one branch -- either the
+    # affected resource has no branch dimension at all (domain categories,
+    # export settings), or the actor was unrestricted and the action reached
+    # across every branch (e.g. an "all branches" report run). Either way
+    # every admin, branch-scoped or not, is entitled to see it: the entries
+    # that must stay hidden from a branch-scoped admin are exactly the ones
+    # tagged with *another* branch (see audit_service.list_entries).
+    branch: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
     actor_user_id: Mapped[str] = mapped_column(String(36), index=True)
     actor_email: Mapped[str] = mapped_column(String(255))
     target_user_id: Mapped[str | None] = mapped_column(String(36), nullable=True, index=True)

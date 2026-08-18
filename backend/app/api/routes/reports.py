@@ -68,6 +68,7 @@ async def send_report_now(
         db,
         action=AuditAction.REPORT_SENT_NOW,
         actor_user_id=current_user.user_id,
+        branch=branch,
         detail=f"branch={branch or 'all'}",
     )
     await db.commit()

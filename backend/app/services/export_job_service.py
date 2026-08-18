@@ -178,6 +178,7 @@ async def create_job(
         session,
         action=AuditAction.EXPORT_CREATED,
         actor_user_id=actor_user_id,
+        branch=branch,
         detail=detail,
     )
     await session.commit()
@@ -217,6 +218,7 @@ async def record_download(
         session,
         action=AuditAction.EXPORT_DOWNLOADED,
         actor_user_id=actor_user_id,
+        branch=job.branch,
         detail=detail,
     )
     # Only the *first* download counts -- a job re-downloaded later (an
@@ -552,6 +554,7 @@ async def create_share_link(session: AsyncSession, job: ExportJob, actor_user_id
         session,
         action=AuditAction.EXPORT_SHARED,
         actor_user_id=actor_user_id,
+        branch=job.branch,
         detail=f"job_id={job.id}, expires_at={expires_at.isoformat()}",
     )
     await session.commit()
@@ -571,6 +574,7 @@ async def revoke_share_link(session: AsyncSession, job: ExportJob, actor_user_id
         session,
         action=AuditAction.EXPORT_SHARE_REVOKED,
         actor_user_id=actor_user_id,
+        branch=job.branch,
         detail=f"job_id={job.id}",
     )
     await session.commit()

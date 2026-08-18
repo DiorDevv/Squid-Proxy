@@ -106,6 +106,7 @@ async def create_user(
         session,
         action=AuditAction.USER_CREATED,
         actor_user_id=actor_user_id,
+        branch=branch,
         target_email=email,
         detail=f"role={role.value}, branch={branch or 'unrestricted'}",
     )
@@ -148,6 +149,7 @@ async def update_role(
         session,
         action=AuditAction.USER_ROLE_CHANGED,
         actor_user_id=current_user_id,
+        branch=user.branch,
         target_user_id=user.id,
         target_email=user.email,
         detail=f"{old_role.value} -> {new_role.value}",
@@ -184,6 +186,14 @@ async def update_branch(
         session,
         action=AuditAction.USER_BRANCH_CHANGED,
         actor_user_id=actor_user_id,
+        # Tagged with the *old* branch: a branch-scoped admin can only ever
+        # reach this (via _enforce_actor_branch/_require_same_branch above)
+        # by moving a user within their own branch, so old == new == their
+        # branch for them either way. Only an unrestricted admin can move a
+        # user across branches -- tagging the origin means the branch losing
+        # the user still sees the departure even though it no longer matches
+        # the user's current branch.
+        branch=old_branch,
         target_user_id=user.id,
         target_email=user.email,
         detail=f"{old_branch or 'unrestricted'} -> {branch or 'unrestricted'}",
@@ -216,6 +226,7 @@ async def reset_password(
         session,
         action=AuditAction.USER_PASSWORD_RESET,
         actor_user_id=actor_user_id,
+        branch=user.branch,
         target_user_id=user.id,
         target_email=user.email,
     )
@@ -237,6 +248,7 @@ async def delete_user(
         session,
         action=AuditAction.USER_DELETED,
         actor_user_id=current_user_id,
+        branch=user.branch,
         target_user_id=user.id,
         target_email=user.email,
     )

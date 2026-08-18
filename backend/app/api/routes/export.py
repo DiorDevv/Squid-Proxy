@@ -208,7 +208,11 @@ async def cancel_export_job(
     # own service function alongside a DB write) -- so this audits directly
     # here instead.
     await audit_service.record(
-        db, action=AuditAction.EXPORT_CANCELLED, actor_user_id=current_user.user_id, detail=f"job_id={job_id}"
+        db,
+        action=AuditAction.EXPORT_CANCELLED,
+        actor_user_id=current_user.user_id,
+        branch=job.branch,
+        detail=f"job_id={job_id}",
     )
     await db.commit()
     return export_job_service.to_out(job)

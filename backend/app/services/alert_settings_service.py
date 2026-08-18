@@ -81,6 +81,7 @@ async def update_settings(
         session,
         action=AuditAction.ALERT_SETTINGS_UPDATED,
         actor_user_id=actor_user_id,
+        branch=branch,
         detail=f"branch={branch}",
     )
     await session.commit()

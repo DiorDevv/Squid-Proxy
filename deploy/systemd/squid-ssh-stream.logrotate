@@ -1,0 +1,27 @@
+# Rotates the local file(s) squid-ssh-stream@.service appends each branch's
+# tailed access.log to (LOCAL_LOG_PATH in /etc/squid-ssh-stream/<branch>.env)
+# -- without this they grow unbounded, same problem
+# deploy/rsyslog/squid-branches.logrotate solves for the rsyslog+TLS method.
+#
+# copytruncate is required here for the same reason as that file: the
+# ExecStart shell (`sh -c '... >> "$LOCAL_LOG_PATH"'`) keeps the destination
+# file open for as long as the unit runs, so a rename-based rotation
+# ("create" mode) would leave it writing to a now-unlinked file until the
+# unit is restarted. copytruncate avoids that -- and LogTailer already
+# handles the resulting truncation safely (see ARCHITECTURE.md's "Log
+# tailer: rotation-safe, never crashes the process").
+#
+# Install on THIS (central) server -- adjust the path glob below first if
+# your LOCAL_LOG_PATH values don't already live under one shared directory
+# (e.g. if each branch's env file points somewhere different, list each
+# path on its own line inside the braces instead of one glob):
+#   sudo cp deploy/systemd/squid-ssh-stream.logrotate /etc/logrotate.d/squid-ssh-stream
+/home/CHANGE-ME/squid-watch/ssh-logs/*.log {
+    daily
+    rotate 14
+    missingok
+    notifempty
+    compress
+    delaycompress
+    copytruncate
+}

@@ -38,12 +38,29 @@
 #        sudo cp deploy/systemd/squid-ssh-stream.env.example /etc/squid-ssh-stream/<branch>.env
 #        sudo nano /etc/squid-ssh-stream/<branch>.env   # fill in the real values
 #        sudo cp deploy/systemd/squid-ssh-stream@.service /etc/systemd/system/
+#
+#   3a. Edit the two placeholders the sandboxing below needs (search this
+#       file for "CHANGE-ME"): `User=`/`Group=` -- whichever account owns
+#       SSH_KEY_PATH and can write LOCAL_LOG_PATH (usually the same account
+#       you ran `ssh-keygen` as in step 1, NOT root); and `ReadWritePaths=`
+#       -- the *directory* holding LOCAL_LOG_PATH (not the file itself, so
+#       log rotation/recreation of that file still works). Example: if your
+#       env file has LOCAL_LOG_PATH=/home/ops/squid-watch/ssh-logs/filiallar.log
+#       and you SSH in as `ops`, set User=ops Group=ops and
+#       ReadWritePaths=/home/ops/squid-watch/ssh-logs. Skipping this step
+#       leaves the service running as root with no sandboxing at all.
+#
 #        sudo systemctl daemon-reload
 #        sudo systemctl enable --now squid-ssh-stream@<branch>
 #        sudo systemctl status squid-ssh-stream@<branch> --no-pager
 #
 #   4. Point LOG_SOURCES at LOCAL_LOG_PATH from that env file, same as any
 #      other branch -- see README.md's "Multi-branch deployment" section.
+#
+#   5. Install deploy/systemd/squid-ssh-stream.logrotate too -- nothing
+#      rotates LOCAL_LOG_PATH otherwise, and it grows unbounded (same
+#      problem deploy/rsyslog/squid-branches.logrotate solves for the
+#      rsyslog+TLS method). See that file's own header for the command.
 
 [Unit]
 Description=SSH-pulled Squid access.log stream for branch %i
@@ -70,6 +87,21 @@ EnvironmentFile=/etc/squid-ssh-stream/%i.env
 ExecStart=/bin/sh -c 'exec /usr/bin/ssh -o ServerAliveInterval=15 -o ServerAliveCountMax=3 -o StrictHostKeyChecking=accept-new -i "$SSH_KEY_PATH" "$SQUID_SSH_USER@$SQUID_SSH_HOST" "tail -F $SQUID_ACCESS_LOG_PATH" >> "$LOCAL_LOG_PATH"'
 Restart=always
 RestartSec=5
+
+# Same hardening intent as squid-instance@.service / squid-dashboard-*.service
+# -- this unit only ever needs to read one SSH private key and append to one
+# local file, never root. Unlike those units' fixed, package-chosen paths,
+# SSH_KEY_PATH/LOCAL_LOG_PATH here are whatever the operator picked in the
+# per-branch env file (step 3 above), so User=/ReadWritePaths= can't be
+# hardcoded to a value that works for every install -- see step 3a for how
+# to fill these in for your actual paths before enabling this unit.
+User=CHANGE-ME
+Group=CHANGE-ME
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=read-only
+PrivateTmp=true
+ReadWritePaths=/CHANGE-ME/directory-containing-LOCAL_LOG_PATH
 
 [Install]
 WantedBy=multi-user.target

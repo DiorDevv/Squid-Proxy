@@ -3,6 +3,7 @@ import { TrendingDown, TrendingUp } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { formatNumber } from '@/lib/format'
 import { useCountUp } from '@/hooks/useCountUp'
+import { Sparkline } from '@/components/common/Sparkline'
 
 interface SummaryCardProps {
   label: string
@@ -23,6 +24,19 @@ interface SummaryCardProps {
    * (up/down), not "good/bad" -- a rise in blocked requests isn't
    * necessarily worse than a fall, so tone stays neutral either way. */
   deltaPercent?: number | null
+  /** Recent trend, oldest first (already downsampled by the caller -- see
+   * DashboardPage). Omit when there's no per-bucket series for this metric
+   * (e.g. active client count isn't in the timeseries response) to leave
+   * the card exactly as it was before this existed, not an empty gap. */
+  sparkline?: number[]
+}
+
+const SPARKLINE_COLOR: Record<NonNullable<SummaryCardProps['tone']>, string> = {
+  default: 'var(--muted-foreground)',
+  info: 'var(--info)',
+  purple: 'var(--accent-purple)',
+  success: 'var(--success)',
+  warning: 'var(--warning)',
 }
 
 const TONE_STYLES: Record<
@@ -65,6 +79,7 @@ export function SummaryCard({
   updating,
   formatValue = formatNumber,
   deltaPercent,
+  sparkline,
 }: SummaryCardProps) {
   const animated = useCountUp(value)
   const styles = TONE_STYLES[tone]
@@ -125,6 +140,15 @@ export function SummaryCard({
           )}
         </div>
       )}
+      {/* Fixed-height slot even without a sparkline (no per-bucket series
+          for this metric, e.g. active clients) -- keeps every card in the
+          row the same height instead of the ones with a trend growing
+          taller than the one without. */}
+      <div className="h-8">
+        {!loading && sparkline && sparkline.length >= 2 && (
+          <Sparkline values={sparkline} id={tone} color={SPARKLINE_COLOR[tone]} />
+        )}
+      </div>
     </div>
   )
 }

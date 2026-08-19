@@ -21,7 +21,14 @@ const SEVERITY_LABEL_KEYS: Record<AnomalySeverity, TranslationKey> = {
   critical: 'insights.severityCritical',
 }
 
-export function InsightsPanel() {
+interface InsightsPanelProps {
+  /** Called with an anomaly's id when its row is clicked -- lets a parent
+   * (DashboardPage) highlight/scroll to the matching marker on the traffic
+   * chart. Omit to keep rows non-interactive. */
+  onSelectInsight?: (id: string) => void
+}
+
+export function InsightsPanel({ onSelectInsight }: InsightsPanelProps) {
   const { t } = useTranslation()
   const { data, isLoading, isError, error, refetch } = useRecentInsights(10)
 
@@ -49,7 +56,11 @@ export function InsightsPanel() {
       {items.map((item) => (
         <li
           key={item.id}
-          className="flex flex-col gap-1 rounded-md border border-border bg-secondary/40 px-3 py-2"
+          onClick={onSelectInsight ? () => onSelectInsight(item.id) : undefined}
+          className={cn(
+            'flex flex-col gap-1 rounded-md border border-border bg-secondary/40 px-3 py-2',
+            onSelectInsight && 'cursor-pointer transition-colors duration-150 hover:bg-secondary/70',
+          )}
         >
           <div className="flex items-center justify-between gap-2">
             <div className="flex min-w-0 items-center gap-2">

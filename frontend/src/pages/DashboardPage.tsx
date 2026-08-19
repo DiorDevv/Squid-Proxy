@@ -1,3 +1,4 @@
+import { useMemo, useRef, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { Activity, ChevronRight, Info, ShieldCheck, ShieldX, Users } from 'lucide-react'
 import { Button } from '@/components/ui/button'
@@ -17,12 +18,44 @@ import { getPercentChange, getPreviousPeriodParams } from '@/lib/compare-period'
 import { useSummary } from '@/hooks/useSummary'
 import { useTimeseries } from '@/hooks/useTimeseries'
 import { useTopBlocked } from '@/hooks/useTopDomains'
+import { useRecentInsights } from '@/hooks/useInsights'
 import { useLiveEvents } from '@/hooks/useLiveEvents'
 import { useTranslation } from '@/i18n'
+import type { Granularity } from '@/types/api'
 
-// This page's chart always requests 'minute' granularity (see the
-// useTimeseries call below), so a clicked bucket is always exactly 60s wide.
-const MINUTE_MS = 60_000
+const BUCKET_MS: Record<Granularity, number> = { minute: 60_000, hour: 3_600_000 }
+const DAY_MS = 24 * BUCKET_MS.hour
+
+/** 'minute' buckets are fine (and more useful) up to a day's worth of
+ * points; past that a multi-day chart would be rendering thousands of
+ * points for no visual benefit, so it switches to 'hour' instead. Backend
+ * already supports both (see app/schemas/common.py's Granularity) -- this
+ * is purely a frontend rendering-cost/readability choice. */
+function granularityForRange(
+  mode: 'preset' | 'custom',
+  range: '1h' | '24h' | '7d',
+  customFrom: string | null,
+  customTo: string | null,
+): Granularity {
+  if (mode === 'custom' && customFrom && customTo) {
+    const durationMs = new Date(customTo).getTime() - new Date(customFrom).getTime()
+    return durationMs > DAY_MS ? 'hour' : 'minute'
+  }
+  return range === '7d' ? 'hour' : 'minute'
+}
+
+const SPARKLINE_POINTS = 40
+
+/** Summary-card sparklines plot a fixed, small point count regardless of
+ * how many buckets the chart itself fetched (up to ~1440 for a 24h/minute
+ * view) -- a decorative strip this size has no visual use for that many
+ * vertices, and evenly-strided sampling keeps it cheap no matter how wide
+ * the selected range gets. */
+function downsample(values: number[], targetCount: number): number[] {
+  if (values.length <= targetCount) return values
+  const stride = values.length / targetCount
+  return Array.from({ length: targetCount }, (_, i) => values[Math.floor(i * stride)] ?? 0)
+}
 
 export default function DashboardPage() {
   const { t } = useTranslation()
@@ -30,12 +63,23 @@ export default function DashboardPage() {
   const rangeParams = useRangeSearchParams()
   const branch = useFiltersStore((state) => state.branch)
   const setCustomRange = useFiltersStore((state) => state.setCustomRange)
+  const filterMode = useFiltersStore((state) => state.mode)
+  const filterRange = useFiltersStore((state) => state.range)
+  const customFrom = useFiltersStore((state) => state.customFrom)
+  const customTo = useFiltersStore((state) => state.customTo)
   const { connectionState } = useLiveEvents()
   const live = connectionState === 'open'
+  const trafficPanelRef = useRef<HTMLDivElement>(null)
+  const [highlightedAnomalyId, setHighlightedAnomalyId] = useState<string | null>(null)
+
+  const granularity = granularityForRange(filterMode, filterRange, customFrom, customTo)
 
   const summaryQuery = useSummary(rangeParams, live)
-  const timeseriesQuery = useTimeseries(rangeParams, 'minute', live)
+  const timeseriesQuery = useTimeseries(rangeParams, granularity, live)
   const topBlockedQuery = useTopBlocked(rangeParams, 5, live)
+  // Same query InsightsPanel makes (identical queryKey) -- sharing its cache
+  // rather than a second independent fetch, just to also plot markers here.
+  const insightsQuery = useRecentInsights(10)
 
   const summary = summaryQuery.data
   const isEmptyRange = summaryQuery.isSuccess && summary?.total_requests === 0
@@ -47,9 +91,18 @@ export default function DashboardPage() {
   function handleSelectBucket(bucketTs: string) {
     const start = new Date(bucketTs)
     if (Number.isNaN(start.getTime())) return
-    const end = new Date(start.getTime() + MINUTE_MS)
+    const end = new Date(start.getTime() + BUCKET_MS[granularity])
     setCustomRange(start.toISOString(), end.toISOString())
     navigate('/events')
+  }
+
+  // Reverse direction of the chart's own anomaly markers -- clicking an
+  // insight emphasizes its marker and brings the chart into view, in case
+  // the panel below it (the two are stacked in separate grid rows) is
+  // scrolled out of frame.
+  function handleSelectInsight(id: string) {
+    setHighlightedAnomalyId(id)
+    trafficPanelRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' })
   }
 
   // Reuses the *resolved* since/until the backend already computed for the
@@ -64,6 +117,16 @@ export default function DashboardPage() {
     previousPeriodParams !== null,
   )
   const previousSummary = previousSummaryQuery.data
+
+  const points = timeseriesQuery.data?.points
+  const sparklines = useMemo(
+    () => ({
+      total: downsample(points?.map((p) => p.total_requests) ?? [], SPARKLINE_POINTS),
+      blocked: downsample(points?.map((p) => p.blocked_requests) ?? [], SPARKLINE_POINTS),
+      allowed: downsample(points?.map((p) => p.allowed_requests) ?? [], SPARKLINE_POINTS),
+    }),
+    [points],
+  )
 
   return (
     <div className="flex flex-col gap-4">
@@ -92,6 +155,7 @@ export default function DashboardPage() {
             summary?.total_requests ?? 0,
             previousSummary?.total_requests,
           )}
+          sparkline={sparklines.total}
         />
         <SummaryCard
           label={t('dashboard.blocked')}
@@ -104,6 +168,7 @@ export default function DashboardPage() {
             summary?.blocked_requests ?? 0,
             previousSummary?.blocked_requests,
           )}
+          sparkline={sparklines.blocked}
         />
         <SummaryCard
           label={t('dashboard.allowed')}
@@ -116,6 +181,7 @@ export default function DashboardPage() {
             summary?.allowed_requests ?? 0,
             previousSummary?.allowed_requests,
           )}
+          sparkline={sparklines.allowed}
         />
         <SummaryCard
           label={t('dashboard.activeClients')}
@@ -132,31 +198,35 @@ export default function DashboardPage() {
       </div>
 
       <div className="grid grid-cols-1 gap-4 xl:grid-cols-3">
-        <Panel
-          title={t('dashboard.trafficOverTime')}
-          className="xl:col-span-2"
-          action={
-            !timeseriesQuery.isLoading &&
-            (timeseriesQuery.data?.points.length ?? 0) > 0 && (
-              <span className="text-xs text-muted-foreground">{t('dashboard.trafficChartHint')}</span>
-            )
-          }
-        >
-          <PanelErrorBoundary panelLabel={t('dashboard.trafficOverTime')}>
-            {timeseriesQuery.isError ? (
-              <ErrorState
-                message={timeseriesQuery.error?.message}
-                onRetry={() => timeseriesQuery.refetch()}
-              />
-            ) : (
-              <TrafficChart
-                points={timeseriesQuery.data?.points ?? []}
-                loading={timeseriesQuery.isLoading}
-                onSelectBucket={handleSelectBucket}
-              />
-            )}
-          </PanelErrorBoundary>
-        </Panel>
+        <div ref={trafficPanelRef} className="xl:col-span-2">
+          <Panel
+            title={t('dashboard.trafficOverTime')}
+            action={
+              !timeseriesQuery.isLoading &&
+              (timeseriesQuery.data?.points.length ?? 0) > 0 && (
+                <span className="text-xs text-muted-foreground">{t('dashboard.trafficChartHint')}</span>
+              )
+            }
+          >
+            <PanelErrorBoundary panelLabel={t('dashboard.trafficOverTime')}>
+              {timeseriesQuery.isError ? (
+                <ErrorState
+                  message={timeseriesQuery.error?.message}
+                  onRetry={() => timeseriesQuery.refetch()}
+                />
+              ) : (
+                <TrafficChart
+                  points={timeseriesQuery.data?.points ?? []}
+                  loading={timeseriesQuery.isLoading}
+                  onSelectBucket={handleSelectBucket}
+                  anomalies={insightsQuery.data?.items ?? []}
+                  live={live}
+                  highlightedAnomalyId={highlightedAnomalyId}
+                />
+              )}
+            </PanelErrorBoundary>
+          </Panel>
+        </div>
 
         <Panel title={t('dashboard.topBlockedDomains')}>
           <PanelErrorBoundary panelLabel={t('dashboard.topBlockedDomains')}>
@@ -198,7 +268,7 @@ export default function DashboardPage() {
 
         <Panel title={t('dashboard.insights')}>
           <PanelErrorBoundary panelLabel={t('dashboard.insights')}>
-            <InsightsPanel />
+            <InsightsPanel onSelectInsight={handleSelectInsight} />
           </PanelErrorBoundary>
         </Panel>
       </div>

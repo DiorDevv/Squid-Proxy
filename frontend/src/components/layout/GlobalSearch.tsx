@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Globe, Search, Users } from 'lucide-react'
 import { Button } from '@/components/ui/button'
@@ -28,6 +28,25 @@ export function GlobalSearch() {
     setOpen(next)
     if (!next) setQuery('')
   }
+
+  // Ctrl/Cmd+K opens this from anywhere -- browsers bind that combo to their
+  // own address-bar search, so it's preventDefault'd here rather than left
+  // to fall through. Toggles rather than just opening, so the same shortcut
+  // also dismisses it without reaching for Escape.
+  useEffect(() => {
+    function handleKeyDown(e: KeyboardEvent) {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
+        e.preventDefault()
+        setOpen((prev) => {
+          const next = !prev
+          if (!next) setQuery('')
+          return next
+        })
+      }
+    }
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [])
 
   function goTo(path: string) {
     navigate(path)

@@ -15,6 +15,7 @@ const DashboardPage = lazy(() => import('@/pages/DashboardPage'))
 const ClientsPage = lazy(() => import('@/pages/ClientsPage'))
 const ClientDetailPage = lazy(() => import('@/pages/ClientDetailPage'))
 const BlockedPage = lazy(() => import('@/pages/BlockedPage'))
+const EventsPage = lazy(() => import('@/pages/EventsPage'))
 const DomainsPage = lazy(() => import('@/pages/DomainsPage'))
 const DomainDetailPage = lazy(() => import('@/pages/DomainDetailPage'))
 const SettingsPage = lazy(() => import('@/pages/SettingsPage'))
@@ -51,6 +52,7 @@ export default function App() {
             <Route path="clients" element={<ClientsPage />} />
             <Route path="clients/:clientIp" element={<ClientDetailPage />} />
             <Route path="blocked" element={<BlockedPage />} />
+            <Route path="events" element={<EventsPage />} />
             <Route path="domains" element={<DomainsPage />} />
             <Route path="domains/:domain" element={<DomainDetailPage />} />
             <Route element={<ProtectedRoute requiredRole="admin" />}>

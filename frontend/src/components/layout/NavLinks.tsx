@@ -1,5 +1,5 @@
 import { NavLink } from 'react-router-dom'
-import { Globe, LayoutDashboard, ShieldAlert, Settings, Users } from 'lucide-react'
+import { Globe, LayoutDashboard, ScrollText, ShieldAlert, Settings, Users } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useAuthStore } from '@/lib/auth-store'
 import { useLiveEvents } from '@/hooks/useLiveEvents'
@@ -9,6 +9,7 @@ export const NAV_ITEMS: { to: string; labelKey: TranslationKey; icon: typeof Lay
   { to: '/', labelKey: 'nav.dashboard', icon: LayoutDashboard, end: true },
   { to: '/clients', labelKey: 'nav.clients', icon: Users, end: false },
   { to: '/blocked', labelKey: 'nav.blocked', icon: ShieldAlert, end: false },
+  { to: '/events', labelKey: 'nav.events', icon: ScrollText, end: false },
   { to: '/domains', labelKey: 'nav.domains', icon: Globe, end: false },
 ]
 

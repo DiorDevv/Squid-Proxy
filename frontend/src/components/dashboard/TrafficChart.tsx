@@ -7,6 +7,7 @@ import {
   Tooltip,
   XAxis,
   YAxis,
+  type MouseHandlerDataParam,
 } from 'recharts'
 import { formatNumber, formatTime } from '@/lib/format'
 import { useTranslation } from '@/i18n'
@@ -15,13 +16,19 @@ import type { TimeseriesPoint } from '@/types/api'
 interface TrafficChartProps {
   points: TimeseriesPoint[]
   loading?: boolean
+  /** Called with a point's raw `bucket_ts` when the chart is clicked on (or
+   * near) that point. Omit to keep the chart non-interactive. The caller
+   * knows the bucket width it requested (see DashboardPage), so turning
+   * this into a [start, end) window is left to it rather than threaded
+   * through here. */
+  onSelectBucket?: (bucketTs: string) => void
 }
 
 const SUCCESS = '#22c55e'
 const WARNING = '#f5a524'
 const WARNING_DEEP = '#f97316'
 
-export function TrafficChart({ points, loading }: TrafficChartProps) {
+export function TrafficChart({ points, loading, onSelectBucket }: TrafficChartProps) {
   const { t } = useTranslation()
 
   if (loading) {
@@ -42,9 +49,22 @@ export function TrafficChart({ points, loading }: TrafficChartProps) {
     blocked: p.blocked_requests,
   }))
 
+  function handleClick(state: MouseHandlerDataParam) {
+    if (!onSelectBucket) return
+    // activeLabel is the clicked point's XAxis dataKey value ("ts" below) --
+    // undefined when the click lands outside the plotted area, not on/near
+    // a point, so there's nothing to drill into.
+    if (typeof state.activeLabel === 'string') onSelectBucket(state.activeLabel)
+  }
+
   return (
     <ResponsiveContainer width="100%" height={288}>
-      <AreaChart data={data} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
+      <AreaChart
+        data={data}
+        margin={{ top: 8, right: 8, left: 0, bottom: 0 }}
+        onClick={onSelectBucket ? handleClick : undefined}
+        className={onSelectBucket ? 'cursor-pointer' : undefined}
+      >
         <defs>
           <linearGradient id="allowedFill" x1="0" y1="0" x2="0" y2="1">
             <stop offset="0%" stopColor={SUCCESS} stopOpacity={0.5} />

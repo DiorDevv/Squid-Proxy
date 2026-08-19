@@ -1,4 +1,4 @@
-import { Link } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import { Activity, ChevronRight, Info, ShieldCheck, ShieldX, Users } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { SummaryCard } from '@/components/dashboard/SummaryCard'
@@ -20,10 +20,16 @@ import { useTopBlocked } from '@/hooks/useTopDomains'
 import { useLiveEvents } from '@/hooks/useLiveEvents'
 import { useTranslation } from '@/i18n'
 
+// This page's chart always requests 'minute' granularity (see the
+// useTimeseries call below), so a clicked bucket is always exactly 60s wide.
+const MINUTE_MS = 60_000
+
 export default function DashboardPage() {
   const { t } = useTranslation()
+  const navigate = useNavigate()
   const rangeParams = useRangeSearchParams()
   const branch = useFiltersStore((state) => state.branch)
+  const setCustomRange = useFiltersStore((state) => state.setCustomRange)
   const { connectionState } = useLiveEvents()
   const live = connectionState === 'open'
 
@@ -33,6 +39,18 @@ export default function DashboardPage() {
 
   const summary = summaryQuery.data
   const isEmptyRange = summaryQuery.isSuccess && summary?.total_requests === 0
+
+  // Turns a chart click into a precise custom range (see filters-store's
+  // setCustomRange) and hands off to /events, which already reads that same
+  // range -- reusing the exact filter mechanism the range picker uses,
+  // rather than a one-off query-string contract just for this entry point.
+  function handleSelectBucket(bucketTs: string) {
+    const start = new Date(bucketTs)
+    if (Number.isNaN(start.getTime())) return
+    const end = new Date(start.getTime() + MINUTE_MS)
+    setCustomRange(start.toISOString(), end.toISOString())
+    navigate('/events')
+  }
 
   // Reuses the *resolved* since/until the backend already computed for the
   // current period (rather than re-deriving "what does '24h' mean" here) so
@@ -114,7 +132,16 @@ export default function DashboardPage() {
       </div>
 
       <div className="grid grid-cols-1 gap-4 xl:grid-cols-3">
-        <Panel title={t('dashboard.trafficOverTime')} className="xl:col-span-2">
+        <Panel
+          title={t('dashboard.trafficOverTime')}
+          className="xl:col-span-2"
+          action={
+            !timeseriesQuery.isLoading &&
+            (timeseriesQuery.data?.points.length ?? 0) > 0 && (
+              <span className="text-xs text-muted-foreground">{t('dashboard.trafficChartHint')}</span>
+            )
+          }
+        >
           <PanelErrorBoundary panelLabel={t('dashboard.trafficOverTime')}>
             {timeseriesQuery.isError ? (
               <ErrorState
@@ -125,6 +152,7 @@ export default function DashboardPage() {
               <TrafficChart
                 points={timeseriesQuery.data?.points ?? []}
                 loading={timeseriesQuery.isLoading}
+                onSelectBucket={handleSelectBucket}
               />
             )}
           </PanelErrorBoundary>

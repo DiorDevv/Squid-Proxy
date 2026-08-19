@@ -7,6 +7,7 @@ export const en = {
   'nav.dashboard': 'Dashboard',
   'nav.clients': 'Clients',
   'nav.blocked': 'Blocked',
+  'nav.events': 'Events',
   'nav.domains': 'Domains',
   'nav.settings': 'Settings',
   'nav.blockedCount': '{{count}} recent blocked events',
@@ -17,6 +18,7 @@ export const en = {
   'topbar.title.clients': 'Clients',
   'topbar.title.clientDetail': 'Client detail',
   'topbar.title.blocked': 'Blocked events',
+  'topbar.title.events': 'Events',
   'topbar.title.domains': 'Domains',
   'topbar.title.settings': 'Settings',
   'topbar.title.default': 'Squid Watch',
@@ -109,6 +111,7 @@ export const en = {
   'dashboard.liveEventsHintLink': 'Blocked page',
   'dashboard.insights': 'Insights',
   'dashboard.trafficEmpty': 'No traffic recorded for this period.',
+  'dashboard.trafficChartHint': 'Click a point to see that minute’s events',
   'dashboard.legendAllowed': 'Allowed',
   'dashboard.legendBlocked': 'Blocked',
   'dashboard.topBlockedEmpty': 'No blocked domains for this period.',
@@ -191,6 +194,11 @@ export const en = {
   'blocked.detailHierarchy': 'Hierarchy',
   'blocked.detailPeer': 'Peer',
   'blocked.detailContentType': 'Content type',
+
+  // --- Events page (all requests, blocked or not, in the selected range) ---
+  'events.title': 'Events',
+  'events.filterAriaLabel': 'Filter events',
+  'events.noMatch': 'No events match "{{search}}".',
 
   // --- Domains page ---
   'domains.mostVisited': 'Most visited domains',

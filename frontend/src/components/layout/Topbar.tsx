@@ -11,6 +11,7 @@ const PAGE_TITLE_KEYS: { pattern: RegExp; titleKey: TranslationKey }[] = [
   { pattern: /^\/clients\/[^/]+$/, titleKey: 'topbar.title.clientDetail' },
   { pattern: /^\/clients$/, titleKey: 'topbar.title.clients' },
   { pattern: /^\/blocked$/, titleKey: 'topbar.title.blocked' },
+  { pattern: /^\/events$/, titleKey: 'topbar.title.events' },
   { pattern: /^\/domains$/, titleKey: 'topbar.title.domains' },
   { pattern: /^\/settings$/, titleKey: 'topbar.title.settings' },
   { pattern: /^\/$/, titleKey: 'topbar.title.dashboard' },

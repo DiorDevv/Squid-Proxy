@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react'
+import { useRef, useState, type MouseEvent as ReactMouseEvent } from 'react'
 import {
   Area,
   AreaChart,
@@ -157,8 +157,14 @@ export function TrafficChart({
   // A plain click (mouse down and up on the same bucket, no real drag)
   // falls out of this as dragStart === dragEnd, which handleMouseUp passes
   // through unchanged -- no separate onClick handler needed.
-  function handleMouseDown() {
+  function handleMouseDown(_state: MouseHandlerDataParam, event: ReactMouseEvent) {
     if (!onSelectRange || lastHoveredRef.current === null) return
+    // Without this, the browser's own native drag-to-select-text/image
+    // gesture takes over the mouse capture once the pointer moves a few
+    // pixels with the button held -- our mousemove handler stops getting
+    // called mid-drag as a result, so the drag silently collapses to
+    // whatever single bucket the mouse happened to go down on.
+    event.preventDefault()
     dragStartRef.current = lastHoveredRef.current
     setDragStart(lastHoveredRef.current)
     setDragEnd(lastHoveredRef.current)

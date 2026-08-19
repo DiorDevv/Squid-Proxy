@@ -22,8 +22,8 @@ interface TrafficChartProps {
   points: TimeseriesPoint[]
   loading?: boolean
   /** Called with the raw `bucket_ts` of the first and last bucket dragged
-   * over (the same value twice for a plain click, no drag) when the chart
-   * is clicked or click-dragged. Omit to keep the chart non-interactive.
+   * over once the drag ends -- a plain click with no movement is not a
+   * range and does not call this. Omit to keep the chart non-interactive.
    * The caller knows the bucket width it requested (see DashboardPage), so
    * turning the *last* bucket into a window end is left to it rather than
    * threaded through here. */
@@ -154,9 +154,6 @@ export function TrafficChart({
     setDragEnd(lastHoveredRef.current)
   }
 
-  // A plain click (mouse down and up on the same bucket, no real drag)
-  // falls out of this as dragStart === dragEnd, which handleMouseUp passes
-  // through unchanged -- no separate onClick handler needed.
   function handleMouseDown(_state: MouseHandlerDataParam, event: ReactMouseEvent) {
     if (!onSelectRange || lastHoveredRef.current === null) return
     // Without this, the browser's own native drag-to-select-text/image
@@ -170,10 +167,15 @@ export function TrafficChart({
     setDragEnd(lastHoveredRef.current)
   }
 
+  // Only a real drag (start and end land on different buckets) triggers
+  // onSelectRange -- a plain click with no movement resets silently instead
+  // of jumping to /events for whatever single bucket the mouse happened to
+  // land on, since that turned out to fire too easily while someone was
+  // just reading the chart.
   function handleMouseUp() {
     const start = dragStartRef.current
     const end = lastHoveredRef.current ?? start
-    if (onSelectRange && start !== null && end !== null) {
+    if (onSelectRange && start !== null && end !== null && start !== end) {
       const [from, to] = start < end ? [start, end] : [end, start]
       onSelectRange(from, to)
     }

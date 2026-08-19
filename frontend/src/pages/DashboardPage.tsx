@@ -84,14 +84,13 @@ export default function DashboardPage() {
   const summary = summaryQuery.data
   const isEmptyRange = summaryQuery.isSuccess && summary?.total_requests === 0
 
-  // Turns a chart click/drag into a precise custom range (see
+  // Turns a chart drag-selection into a precise custom range (see
   // filters-store's setCustomRange) and hands off to /events, which already
   // reads that same range -- reusing the exact filter mechanism the range
   // picker uses, rather than a one-off query-string contract just for this
   // entry point. fromBucketTs/toBucketTs are bucket *starts*, already
-  // ordered earliest-first (see TrafficChart's handleMouseUp) and equal for
-  // a plain click -- only the last one needs its own width added to reach
-  // the window's actual end.
+  // ordered earliest-first (see TrafficChart's handleMouseUp) -- only the
+  // last one needs its own width added to reach the window's actual end.
   function handleSelectRange(fromBucketTs: string, toBucketTs: string) {
     const start = new Date(fromBucketTs)
     const lastBucketStart = new Date(toBucketTs)

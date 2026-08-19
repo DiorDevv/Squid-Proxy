@@ -101,7 +101,7 @@ export const ru = {
   'dashboard.liveEventsHintLink': 'страницу Заблокировано',
   'dashboard.insights': 'Аналитика',
   'dashboard.trafficEmpty': 'За этот период трафик не зафиксирован.',
-  'dashboard.trafficChartHint': 'Нажмите или перетащите, чтобы увидеть события за этот период',
+  'dashboard.trafficChartHint': 'Перетащите, чтобы увидеть события за этот период',
   'dashboard.legendAllowed': 'Разрешено',
   'dashboard.legendBlocked': 'Заблокировано',
   'dashboard.topBlockedEmpty': 'За этот период заблокированных доменов нет.',

@@ -1,9 +1,11 @@
+import { useRef, useState } from 'react'
 import {
   Area,
   AreaChart,
   Brush,
   CartesianGrid,
   Legend,
+  ReferenceArea,
   ReferenceLine,
   ResponsiveContainer,
   Tooltip,
@@ -19,12 +21,13 @@ import type { AnomalyEvent, TimeseriesPoint } from '@/types/api'
 interface TrafficChartProps {
   points: TimeseriesPoint[]
   loading?: boolean
-  /** Called with a point's raw `bucket_ts` when the chart is clicked on (or
-   * near) that point. Omit to keep the chart non-interactive. The caller
-   * knows the bucket width it requested (see DashboardPage), so turning
-   * this into a [start, end) window is left to it rather than threaded
-   * through here. */
-  onSelectBucket?: (bucketTs: string) => void
+  /** Called with the raw `bucket_ts` of the first and last bucket dragged
+   * over (the same value twice for a plain click, no drag) when the chart
+   * is clicked or click-dragged. Omit to keep the chart non-interactive.
+   * The caller knows the bucket width it requested (see DashboardPage), so
+   * turning the *last* bucket into a window end is left to it rather than
+   * threaded through here. */
+  onSelectRange?: (fromBucketTs: string, toBucketTs: string) => void
   /** Recent anomalies (see useInsights) to mark on the chart -- not
    * range-scoped by the API, so only the ones that land within the plotted
    * points are actually shown (see anomalyMarkers below). */
@@ -96,12 +99,29 @@ function anomalyMarkers(
 export function TrafficChart({
   points,
   loading,
-  onSelectBucket,
+  onSelectRange,
   anomalies = [],
   live,
   highlightedAnomalyId,
 }: TrafficChartProps) {
   const { t } = useTranslation()
+  // Recharts' onMouseDown/onMouseUp do NOT compute their own activeLabel --
+  // unlike onMouseMove/onClick, they fire no state-updating action of their
+  // own and just read back whatever activeLabel a *previous* mousemove last
+  // left in the chart's internal store (see externalEventsMiddleware.js).
+  // That's stale/wrong for a fast click with no real cursor travel first, so
+  // this tracks the true current position itself, continuously, on every
+  // mousemove, and mousedown/mouseup both read it from here instead of
+  // trusting their own event payload's activeLabel.
+  const lastHoveredRef = useRef<string | null>(null)
+  // dragStart lives in a ref (not just the mirrored state below) for a
+  // second reason: a plain click fires mousedown and mouseup back-to-back
+  // with no render in between, so handleMouseUp's own closure would still
+  // see the pre-click (null) value of a *state* variable set in
+  // handleMouseDown. Refs update synchronously, so this doesn't race.
+  const dragStartRef = useRef<string | null>(null)
+  const [dragStart, setDragStart] = useState<string | null>(null)
+  const [dragEnd, setDragEnd] = useState<string | null>(null)
 
   if (loading) {
     return <div className="h-72 w-full animate-pulse rounded-md bg-muted" />
@@ -124,12 +144,36 @@ export function TrafficChart({
   const markers = anomalyMarkers(points, anomalies)
   const lastIndex = data.length - 1
 
-  function handleClick(state: MouseHandlerDataParam) {
-    if (!onSelectBucket) return
-    // activeLabel is the clicked point's XAxis dataKey value ("ts" below) --
-    // undefined when the click lands outside the plotted area, not on/near
-    // a point, so there's nothing to drill into.
-    if (typeof state.activeLabel === 'string') onSelectBucket(state.activeLabel)
+  // activeLabel is the hovered point's XAxis dataKey value ("ts" below) --
+  // undefined when the pointer is outside the plotted area. Runs on every
+  // move regardless of onSelectRange/dragging state, purely to keep
+  // lastHoveredRef current for mousedown/mouseup to read.
+  function handleMouseMove(state: MouseHandlerDataParam) {
+    if (typeof state.activeLabel === 'string') lastHoveredRef.current = state.activeLabel
+    if (!onSelectRange || dragStartRef.current === null) return
+    setDragEnd(lastHoveredRef.current)
+  }
+
+  // A plain click (mouse down and up on the same bucket, no real drag)
+  // falls out of this as dragStart === dragEnd, which handleMouseUp passes
+  // through unchanged -- no separate onClick handler needed.
+  function handleMouseDown() {
+    if (!onSelectRange || lastHoveredRef.current === null) return
+    dragStartRef.current = lastHoveredRef.current
+    setDragStart(lastHoveredRef.current)
+    setDragEnd(lastHoveredRef.current)
+  }
+
+  function handleMouseUp() {
+    const start = dragStartRef.current
+    const end = lastHoveredRef.current ?? start
+    if (onSelectRange && start !== null && end !== null) {
+      const [from, to] = start < end ? [start, end] : [end, start]
+      onSelectRange(from, to)
+    }
+    dragStartRef.current = null
+    setDragStart(null)
+    setDragEnd(null)
   }
 
   // Marks only the most recent point, and only while actually live -- a
@@ -152,8 +196,10 @@ export function TrafficChart({
       <AreaChart
         data={data}
         margin={{ top: 8, right: 8, left: 0, bottom: 0 }}
-        onClick={onSelectBucket ? handleClick : undefined}
-        className={onSelectBucket ? 'cursor-pointer' : undefined}
+        onMouseDown={onSelectRange ? handleMouseDown : undefined}
+        onMouseMove={onSelectRange ? handleMouseMove : undefined}
+        onMouseUp={onSelectRange ? handleMouseUp : undefined}
+        className={onSelectRange ? 'cursor-crosshair select-none' : undefined}
       >
         <defs>
           <linearGradient id="allowedFill" x1="0" y1="0" x2="0" y2="1">
@@ -233,6 +279,16 @@ export function TrafficChart({
           animationDuration={400}
           animationEasing="ease-out"
         />
+        {dragStart !== null && dragEnd !== null && dragStart !== dragEnd && (
+          <ReferenceArea
+            x1={dragStart}
+            x2={dragEnd}
+            fill="var(--color-info)"
+            fillOpacity={0.15}
+            stroke="var(--color-info)"
+            strokeOpacity={0.4}
+          />
+        )}
         {markers.map((marker) => {
           const color = marker.severity === 'critical' ? 'var(--color-destructive)' : 'var(--color-warning)'
           const isHighlighted = marker.id === highlightedAnomalyId

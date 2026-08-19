@@ -84,14 +84,19 @@ export default function DashboardPage() {
   const summary = summaryQuery.data
   const isEmptyRange = summaryQuery.isSuccess && summary?.total_requests === 0
 
-  // Turns a chart click into a precise custom range (see filters-store's
-  // setCustomRange) and hands off to /events, which already reads that same
-  // range -- reusing the exact filter mechanism the range picker uses,
-  // rather than a one-off query-string contract just for this entry point.
-  function handleSelectBucket(bucketTs: string) {
-    const start = new Date(bucketTs)
-    if (Number.isNaN(start.getTime())) return
-    const end = new Date(start.getTime() + BUCKET_MS[granularity])
+  // Turns a chart click/drag into a precise custom range (see
+  // filters-store's setCustomRange) and hands off to /events, which already
+  // reads that same range -- reusing the exact filter mechanism the range
+  // picker uses, rather than a one-off query-string contract just for this
+  // entry point. fromBucketTs/toBucketTs are bucket *starts*, already
+  // ordered earliest-first (see TrafficChart's handleMouseUp) and equal for
+  // a plain click -- only the last one needs its own width added to reach
+  // the window's actual end.
+  function handleSelectRange(fromBucketTs: string, toBucketTs: string) {
+    const start = new Date(fromBucketTs)
+    const lastBucketStart = new Date(toBucketTs)
+    if (Number.isNaN(start.getTime()) || Number.isNaN(lastBucketStart.getTime())) return
+    const end = new Date(lastBucketStart.getTime() + BUCKET_MS[granularity])
     setCustomRange(start.toISOString(), end.toISOString())
     navigate('/events')
   }
@@ -218,7 +223,7 @@ export default function DashboardPage() {
                 <TrafficChart
                   points={timeseriesQuery.data?.points ?? []}
                   loading={timeseriesQuery.isLoading}
-                  onSelectBucket={handleSelectBucket}
+                  onSelectRange={handleSelectRange}
                   anomalies={insightsQuery.data?.items ?? []}
                   live={live}
                   highlightedAnomalyId={highlightedAnomalyId}

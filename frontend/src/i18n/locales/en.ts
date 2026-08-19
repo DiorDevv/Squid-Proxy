@@ -111,7 +111,7 @@ export const en = {
   'dashboard.liveEventsHintLink': 'Blocked page',
   'dashboard.insights': 'Insights',
   'dashboard.trafficEmpty': 'No traffic recorded for this period.',
-  'dashboard.trafficChartHint': 'Click a point to see that minute’s events',
+  'dashboard.trafficChartHint': 'Click or drag to see events in that range',
   'dashboard.legendAllowed': 'Allowed',
   'dashboard.legendBlocked': 'Blocked',
   'dashboard.topBlockedEmpty': 'No blocked domains for this period.',

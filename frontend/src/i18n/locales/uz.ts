@@ -104,7 +104,7 @@ export const uz = {
   'dashboard.liveEventsHintLink': 'Bloklangan sahifasiga oʻting',
   'dashboard.insights': 'Tahlillar',
   'dashboard.trafficEmpty': 'Ushbu davr uchun trafik qayd etilmagan.',
-  'dashboard.trafficChartHint': 'Nuqtaga bosing — o‘sha daqiqadagi hodisalarni ko‘rish',
+  'dashboard.trafficChartHint': 'Bosing yoki torting — shu oraliqdagi hodisalarni ko‘rish',
   'dashboard.legendAllowed': 'Ruxsat berilgan',
   'dashboard.legendBlocked': 'Bloklangan',
   'dashboard.topBlockedEmpty': 'Ushbu davr uchun bloklangan domenlar yoʻq.',

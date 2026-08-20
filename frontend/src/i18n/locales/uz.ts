@@ -231,6 +231,10 @@ export const uz = {
   'domainDetail.columnVisits': 'Tashriflar',
   'domainDetail.columnLastVisit': 'Oxirgi tashrif',
 
+  'settings.nav.general': 'Umumiy',
+  'settings.nav.users': 'Foydalanuvchilar va audit',
+  'settings.nav.categories': 'Kategoriya va ogohlantirish',
+  'settings.nav.export': 'Eksport',
   'settings.userManagement': 'Foydalanuvchilarni boshqarish',
   'settings.auditLog': 'Audit jurnali',
   'settings.domainCategories': 'Domen turkumlari',

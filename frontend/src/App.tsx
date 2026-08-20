@@ -1,5 +1,5 @@
 import { lazy, Suspense, useEffect, useRef } from 'react'
-import { Route, Routes } from 'react-router-dom'
+import { Navigate, Route, Routes } from 'react-router-dom'
 import { AppShell } from '@/components/layout/AppShell'
 import { ProtectedRoute } from '@/routes/ProtectedRoute'
 import { Skeleton } from '@/components/ui/skeleton'
@@ -18,7 +18,11 @@ const BlockedPage = lazy(() => import('@/pages/BlockedPage'))
 const EventsPage = lazy(() => import('@/pages/EventsPage'))
 const DomainsPage = lazy(() => import('@/pages/DomainsPage'))
 const DomainDetailPage = lazy(() => import('@/pages/DomainDetailPage'))
-const SettingsPage = lazy(() => import('@/pages/SettingsPage'))
+const SettingsLayout = lazy(() => import('@/pages/settings/SettingsLayout'))
+const SettingsGeneralPage = lazy(() => import('@/pages/settings/SettingsGeneralPage'))
+const SettingsUsersPage = lazy(() => import('@/pages/settings/SettingsUsersPage'))
+const SettingsCategoriesPage = lazy(() => import('@/pages/settings/SettingsCategoriesPage'))
+const SettingsExportPage = lazy(() => import('@/pages/settings/SettingsExportPage'))
 const NotFoundPage = lazy(() => import('@/pages/NotFoundPage'))
 
 function RouteFallback() {
@@ -56,7 +60,13 @@ export default function App() {
             <Route path="domains" element={<DomainsPage />} />
             <Route path="domains/:domain" element={<DomainDetailPage />} />
             <Route element={<ProtectedRoute requiredRole="admin" />}>
-              <Route path="settings" element={<SettingsPage />} />
+              <Route path="settings" element={<SettingsLayout />}>
+                <Route index element={<Navigate to="general" replace />} />
+                <Route path="general" element={<SettingsGeneralPage />} />
+                <Route path="users" element={<SettingsUsersPage />} />
+                <Route path="categories" element={<SettingsCategoriesPage />} />
+                <Route path="export" element={<SettingsExportPage />} />
+              </Route>
             </Route>
           </Route>
         </Route>

@@ -15,11 +15,6 @@ import {
 } from '@/components/ui/select'
 import { Panel } from '@/components/common/Panel'
 import { PanelErrorBoundary } from '@/components/common/PanelErrorBoundary'
-import { UserManagementPanel } from '@/components/settings/UserManagementPanel'
-import { AuditLogPanel } from '@/components/settings/AuditLogPanel'
-import { DomainCategoriesPanel } from '@/components/settings/DomainCategoriesPanel'
-import { AlertSettingsPanel } from '@/components/settings/AlertSettingsPanel'
-import { ReportsPanel } from '@/components/settings/ReportsPanel'
 import { ExportJobsPanel } from '@/components/settings/ExportJobsPanel'
 import { ExportSettingsPanel } from '@/components/settings/ExportSettingsPanel'
 import { downloadExportJob, ApiError } from '@/lib/api-client'
@@ -27,7 +22,7 @@ import { useCancelExportJob, useCreateExportJob, useExportJob } from '@/hooks/us
 import { useBranches } from '@/hooks/useBranches'
 import { useFiltersStore } from '@/lib/filters-store'
 import { formatNumber, toDatetimeLocalValue } from '@/lib/format'
-import { EXPORT_COLUMNS, POLLING_FALLBACK_INTERVAL_MS } from '@/lib/constants'
+import { EXPORT_COLUMNS } from '@/lib/constants'
 import { CATEGORY_LABEL_KEYS, CATEGORY_OPTIONS } from '@/lib/categories'
 import { useTranslation, type TranslationKey } from '@/i18n'
 import type { DomainCategoryLabel, RangeParam } from '@/types/api'
@@ -57,7 +52,7 @@ const EXPORT_COLUMN_LABEL_KEYS: Record<(typeof EXPORT_COLUMNS)[number], Translat
   blocked: 'settings.exportColumnBlocked',
 }
 
-export default function SettingsPage() {
+export default function SettingsExportPage() {
   const { t } = useTranslation()
   // Initialized from (not bound to) the same global range/branch filter the
   // Dashboard/Domains/Clients/Blocked pages all share (useFiltersStore) --
@@ -229,58 +224,6 @@ export default function SettingsPage() {
 
   return (
     <div className="flex flex-col gap-4">
-      <Panel title={t('settings.userManagement')}>
-        <PanelErrorBoundary panelLabel={t('settings.userManagement')}>
-          <UserManagementPanel />
-        </PanelErrorBoundary>
-      </Panel>
-
-      <Panel title={t('settings.auditLog')}>
-        <PanelErrorBoundary panelLabel={t('settings.auditLog')}>
-          <AuditLogPanel />
-        </PanelErrorBoundary>
-      </Panel>
-
-      <Panel title={t('settings.domainCategories')}>
-        <PanelErrorBoundary panelLabel={t('settings.domainCategories')}>
-          <DomainCategoriesPanel />
-        </PanelErrorBoundary>
-      </Panel>
-
-      <Panel title={t('settings.alertSettings')}>
-        <PanelErrorBoundary panelLabel={t('settings.alertSettings')}>
-          <AlertSettingsPanel />
-        </PanelErrorBoundary>
-      </Panel>
-
-      <Panel title={t('settings.reports')}>
-        <PanelErrorBoundary panelLabel={t('settings.reports')}>
-          <ReportsPanel />
-        </PanelErrorBoundary>
-      </Panel>
-
-      <Panel title={t('settings.liveUpdates')}>
-        <dl className="grid grid-cols-1 gap-3 text-sm sm:grid-cols-2">
-          <div>
-            <dt className="text-xs uppercase tracking-wide text-muted-foreground">
-              {t('settings.realtimeTransport')}
-            </dt>
-            <dd className="font-data mt-1 text-foreground">
-              {t('settings.realtimeTransportValue')}
-            </dd>
-          </div>
-          <div>
-            <dt className="text-xs uppercase tracking-wide text-muted-foreground">
-              {t('settings.pollingInterval')}
-            </dt>
-            <dd className="font-data mt-1 text-foreground">
-              {POLLING_FALLBACK_INTERVAL_MS / 1000}s
-            </dd>
-          </div>
-        </dl>
-        <p className="text-xs text-muted-foreground">{t('settings.liveUpdatesDescription')}</p>
-      </Panel>
-
       <Panel title={t('settings.exportEvents')}>
         <PanelErrorBoundary panelLabel={t('settings.exportEvents')}>
           <div className="flex flex-col gap-4">

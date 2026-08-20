@@ -228,6 +228,10 @@ export const ru = {
   'domainDetail.columnVisits': 'Посещения',
   'domainDetail.columnLastVisit': 'Последнее посещение',
 
+  'settings.nav.general': 'Общие',
+  'settings.nav.users': 'Пользователи и аудит',
+  'settings.nav.categories': 'Категории и оповещения',
+  'settings.nav.export': 'Экспорт',
   'settings.userManagement': 'Управление пользователями',
   'settings.auditLog': 'Журнал аудита',
   'settings.domainCategories': 'Категории доменов',

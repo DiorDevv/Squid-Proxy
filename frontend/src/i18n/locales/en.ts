@@ -244,6 +244,10 @@ export const en = {
   'domainDetail.columnLastVisit': 'Last visit',
 
   // --- Settings page ---
+  'settings.nav.general': 'General',
+  'settings.nav.users': 'Users & audit',
+  'settings.nav.categories': 'Categories & alerts',
+  'settings.nav.export': 'Export',
   'settings.userManagement': 'User management',
   'settings.auditLog': 'Audit log',
   'settings.domainCategories': 'Domain categories',

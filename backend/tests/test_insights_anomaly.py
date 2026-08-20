@@ -65,6 +65,8 @@ async def test_traffic_spike_flagged_when_current_window_far_exceeds_baseline(db
 
     spikes = [a for a in anomalies if a.title == "Traffic spike detected"]
     assert len(spikes) == 1
+    assert spikes[0].kind == "traffic_spike"
+    assert spikes[0].params == {"current": 40, "baseline": 10, "windows": 6}
 
 
 async def test_traffic_spike_not_flagged_without_enough_history(db_session: AsyncSession):
@@ -93,6 +95,8 @@ async def test_new_blocked_domain_is_flagged(db_session: AsyncSession):
     new_domain_anomalies = [a for a in anomalies if a.title == "New blocked domain observed"]
     assert len(new_domain_anomalies) == 1
     assert new_domain_anomalies[0].domain == "evil.example"
+    assert new_domain_anomalies[0].kind == "new_blocked_domain"
+    assert new_domain_anomalies[0].params == {"domain": "evil.example"}
 
 
 async def test_previously_seen_blocked_domain_is_not_flagged(db_session: AsyncSession):
@@ -131,6 +135,8 @@ async def test_client_mostly_blocked_is_flagged(db_session: AsyncSession):
     client_anomalies = [a for a in anomalies if a.title == "Client mostly blocked"]
     assert len(client_anomalies) == 1
     assert client_anomalies[0].client_ip == "10.0.0.9"
+    assert client_anomalies[0].kind == "client_blocked_ratio"
+    assert client_anomalies[0].params == {"clientIp": "10.0.0.9", "blocked": 4, "total": 5, "ratio": 80}
 
 
 async def test_client_blocked_ratio_below_threshold_is_not_flagged(db_session: AsyncSession):
@@ -172,6 +178,12 @@ async def test_sensitive_category_first_visit_is_flagged(db_session: AsyncSessio
     assert len(flagged) == 1
     assert flagged[0].client_ip == "10.0.0.20"
     assert flagged[0].domain == "gambling-paradise.bet"
+    assert flagged[0].kind == "sensitive_category_visit"
+    assert flagged[0].params == {
+        "clientIp": "10.0.0.20",
+        "domain": "gambling-paradise.bet",
+        "category": "gambling",
+    }
 
 
 async def test_sensitive_category_visit_not_flagged_when_no_categories_configured(db_session: AsyncSession):

@@ -2,7 +2,7 @@ import enum
 import uuid
 from datetime import datetime
 
-from sqlalchemy import Enum, String, Text
+from sqlalchemy import JSON, Enum, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.config import DEFAULT_BRANCH
@@ -34,3 +34,9 @@ class AnomalyEvent(Base):
     client_ip: Mapped[str | None] = mapped_column(String(45), nullable=True, index=True)
     domain: Mapped[str | None] = mapped_column(String(255), nullable=True, index=True)
     branch: Mapped[str] = mapped_column(String(64), default=DEFAULT_BRANCH, index=True)
+    # Machine-readable discriminator (e.g. "traffic_spike") + interpolation
+    # values for that kind's i18n template -- see app/insights/base.py's
+    # Anomaly.kind/params. NULL on rows written before this existed; the
+    # frontend falls back to the English title/description above for those.
+    kind: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    params: Mapped[dict | None] = mapped_column(JSON, nullable=True)

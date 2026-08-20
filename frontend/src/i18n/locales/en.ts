@@ -121,6 +121,17 @@ export const en = {
   'insights.severityMedium': 'Medium',
   'insights.severityHigh': 'High',
   'insights.severityCritical': 'Critical',
+  'insights.anomaly.trafficSpike.title': 'Traffic spike detected',
+  'insights.anomaly.trafficSpike.description':
+    '{{current}} requests in the last window vs. a baseline of ~{{baseline}} over the previous {{windows}} windows.',
+  'insights.anomaly.newBlockedDomain.title': 'New blocked domain observed',
+  'insights.anomaly.newBlockedDomain.description': '{{domain}} was blocked for the first time in this window.',
+  'insights.anomaly.clientBlockedRatio.title': 'Client mostly blocked',
+  'insights.anomaly.clientBlockedRatio.description':
+    '{{clientIp}} had {{blocked}}/{{total}} requests blocked ({{ratio}}%) in this window.',
+  'insights.anomaly.sensitiveCategoryVisit.title': 'Sensitive category visited',
+  'insights.anomaly.sensitiveCategoryVisit.description':
+    '{{clientIp}} visited {{domain}} ({{category}}) for the first time.',
 
   'notifications.bellLabel': 'Notifications',
   'notifications.title': 'Recent anomalies',

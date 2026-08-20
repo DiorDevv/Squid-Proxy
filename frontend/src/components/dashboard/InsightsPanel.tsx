@@ -5,6 +5,7 @@ import { EmptyState } from '@/components/common/EmptyState'
 import { ErrorState } from '@/components/common/ErrorState'
 import { useRecentInsights } from '@/hooks/useInsights'
 import { useTranslation, type TranslationKey } from '@/i18n'
+import { localizeAnomaly } from '@/lib/insights'
 import type { AnomalySeverity } from '@/types/api'
 
 const SEVERITY_STYLES: Record<AnomalySeverity, string> = {
@@ -53,35 +54,38 @@ export function InsightsPanel({ onSelectInsight }: InsightsPanelProps) {
 
   return (
     <ul className="flex max-h-96 flex-col gap-2 overflow-y-auto pr-1">
-      {items.map((item) => (
-        <li
-          key={item.id}
-          onClick={onSelectInsight ? () => onSelectInsight(item.id) : undefined}
-          className={cn(
-            'flex flex-col gap-1 rounded-md border border-border bg-secondary/40 px-3 py-2',
-            onSelectInsight && 'cursor-pointer transition-colors duration-150 hover:bg-secondary/70',
-          )}
-        >
-          <div className="flex items-center justify-between gap-2">
-            <div className="flex min-w-0 items-center gap-2">
-              <TriangleAlert className="h-3.5 w-3.5 shrink-0 text-warning" aria-hidden="true" />
-              <span className="truncate text-sm font-medium text-foreground">{item.title}</span>
+      {items.map((item) => {
+        const { title, description } = localizeAnomaly(item, t)
+        return (
+          <li
+            key={item.id}
+            onClick={onSelectInsight ? () => onSelectInsight(item.id) : undefined}
+            className={cn(
+              'flex flex-col gap-1 rounded-md border border-border bg-secondary/40 px-3 py-2',
+              onSelectInsight && 'cursor-pointer transition-colors duration-150 hover:bg-secondary/70',
+            )}
+          >
+            <div className="flex items-center justify-between gap-2">
+              <div className="flex min-w-0 items-center gap-2">
+                <TriangleAlert className="h-3.5 w-3.5 shrink-0 text-warning" aria-hidden="true" />
+                <span className="truncate text-sm font-medium text-foreground">{title}</span>
+              </div>
+              <span
+                className={cn(
+                  'shrink-0 rounded-full px-2 py-0.5 text-[10px] font-medium tracking-wide uppercase',
+                  SEVERITY_STYLES[item.severity],
+                )}
+              >
+                {t(SEVERITY_LABEL_KEYS[item.severity])}
+              </span>
             </div>
-            <span
-              className={cn(
-                'shrink-0 rounded-full px-2 py-0.5 text-[10px] font-medium tracking-wide uppercase',
-                SEVERITY_STYLES[item.severity],
-              )}
-            >
-              {t(SEVERITY_LABEL_KEYS[item.severity])}
+            <p className="text-xs text-muted-foreground">{description}</p>
+            <span className="font-data text-[10px] text-muted-foreground">
+              {formatRelativeTime(item.generated_at)}
             </span>
-          </div>
-          <p className="text-xs text-muted-foreground">{item.description}</p>
-          <span className="font-data text-[10px] text-muted-foreground">
-            {formatRelativeTime(item.generated_at)}
-          </span>
-        </li>
-      ))}
+          </li>
+        )
+      })}
     </ul>
   )
 }

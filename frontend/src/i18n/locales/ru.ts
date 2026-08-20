@@ -111,6 +111,17 @@ export const ru = {
   'insights.severityMedium': 'Средний',
   'insights.severityHigh': 'Высокий',
   'insights.severityCritical': 'Критический',
+  'insights.anomaly.trafficSpike.title': 'Обнаружен всплеск трафика',
+  'insights.anomaly.trafficSpike.description':
+    '{{current}} запросов за последнее окно против базового уровня ~{{baseline}} за предыдущие {{windows}} окон.',
+  'insights.anomaly.newBlockedDomain.title': 'Обнаружен новый заблокированный домен',
+  'insights.anomaly.newBlockedDomain.description': '{{domain}} был заблокирован впервые в этом окне.',
+  'insights.anomaly.clientBlockedRatio.title': 'Клиент преимущественно заблокирован',
+  'insights.anomaly.clientBlockedRatio.description':
+    'У {{clientIp}} заблокировано {{blocked}}/{{total}} запросов ({{ratio}}%) в этом окне.',
+  'insights.anomaly.sensitiveCategoryVisit.title': 'Посещение чувствительной категории',
+  'insights.anomaly.sensitiveCategoryVisit.description':
+    '{{clientIp}} впервые посетил {{domain}} ({{category}}).',
 
   'notifications.bellLabel': 'Уведомления',
   'notifications.title': 'Последние аномалии',

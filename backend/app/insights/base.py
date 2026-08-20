@@ -34,6 +34,14 @@ class Anomaly(BaseModel):
     domain: str | None = None
     branch: str | None = None
     generated_at: datetime
+    # `kind` + `params` let the frontend re-render title/description in the
+    # user's chosen UI language (see i18n/locales/*.ts's insights.anomaly.*
+    # keys) instead of showing the English text above verbatim. `title` and
+    # `description` stay English-only and are still what's sent to webhooks
+    # (see app/services/alerting.py) and shown for any older row that
+    # predates this and so has no kind/params.
+    kind: str | None = None
+    params: dict[str, str | int] | None = None
 
 
 class InsightsProvider(ABC):

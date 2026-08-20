@@ -185,6 +185,8 @@ export interface AnomalyEvent {
   client_ip: string | null
   domain: string | null
   branch: string
+  kind: string | null
+  params: Record<string, string | number> | null
 }
 
 export type ExportJobStatus = 'pending' | 'running' | 'done' | 'failed' | 'cancelled'

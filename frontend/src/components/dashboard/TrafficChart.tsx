@@ -16,6 +16,7 @@ import {
 } from 'recharts'
 import { formatNumber, formatTime } from '@/lib/format'
 import { useTranslation } from '@/i18n'
+import { localizeAnomaly } from '@/lib/insights'
 import type { AnomalyEvent, TimeseriesPoint } from '@/types/api'
 
 interface TrafficChartProps {
@@ -60,6 +61,7 @@ const SEVERITY_RANK: Record<AnomalyEvent['severity'], number> = { low: 0, medium
 function anomalyMarkers(
   points: TimeseriesPoint[],
   anomalies: AnomalyEvent[],
+  t: ReturnType<typeof useTranslation>['t'],
 ): { ts: string; id: string; title: string; severity: AnomalyEvent['severity'] }[] {
   const first = points[0]
   if (!first || anomalies.length === 0) return []
@@ -88,7 +90,7 @@ function anomalyMarkers(
       byTs.set(nearest.bucket_ts, {
         ts: nearest.bucket_ts,
         id: anomaly.id,
-        title: anomaly.title,
+        title: localizeAnomaly(anomaly, t).title,
         severity: anomaly.severity,
       })
     }
@@ -141,7 +143,7 @@ export function TrafficChart({
     blocked: p.blocked_requests,
     total: p.total_requests,
   }))
-  const markers = anomalyMarkers(points, anomalies)
+  const markers = anomalyMarkers(points, anomalies, t)
   const lastIndex = data.length - 1
 
   // activeLabel is the hovered point's XAxis dataKey value ("ts" below) --

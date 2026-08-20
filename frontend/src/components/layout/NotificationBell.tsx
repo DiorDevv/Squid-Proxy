@@ -9,6 +9,7 @@ import { formatRelativeTime } from '@/lib/format'
 import { useRecentInsights } from '@/hooks/useInsights'
 import { useNotificationsStore } from '@/lib/notifications-store'
 import { useTranslation, type TranslationKey } from '@/i18n'
+import { localizeAnomaly } from '@/lib/insights'
 import type { AnomalySeverity } from '@/types/api'
 
 const SEVERITY_STYLES: Record<AnomalySeverity, string> = {
@@ -100,31 +101,34 @@ export function NotificationBell() {
             <EmptyState message={t('notifications.empty')} />
           ) : (
             <ul className="flex flex-col gap-2">
-              {items.map((item) => (
-                <li
-                  key={item.id}
-                  className="flex flex-col gap-1 rounded-md border border-border bg-secondary/40 px-3 py-2"
-                >
-                  <div className="flex items-center justify-between gap-2">
-                    <div className="flex min-w-0 items-center gap-2">
-                      <TriangleAlert className="h-3.5 w-3.5 shrink-0 text-warning" aria-hidden="true" />
-                      <span className="truncate text-sm font-medium text-foreground">{item.title}</span>
+              {items.map((item) => {
+                const { title, description } = localizeAnomaly(item, t)
+                return (
+                  <li
+                    key={item.id}
+                    className="flex flex-col gap-1 rounded-md border border-border bg-secondary/40 px-3 py-2"
+                  >
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="flex min-w-0 items-center gap-2">
+                        <TriangleAlert className="h-3.5 w-3.5 shrink-0 text-warning" aria-hidden="true" />
+                        <span className="truncate text-sm font-medium text-foreground">{title}</span>
+                      </div>
+                      <span
+                        className={cn(
+                          'shrink-0 rounded-full px-2 py-0.5 text-[10px] font-medium tracking-wide uppercase',
+                          SEVERITY_STYLES[item.severity],
+                        )}
+                      >
+                        {t(SEVERITY_LABEL_KEYS[item.severity])}
+                      </span>
                     </div>
-                    <span
-                      className={cn(
-                        'shrink-0 rounded-full px-2 py-0.5 text-[10px] font-medium tracking-wide uppercase',
-                        SEVERITY_STYLES[item.severity],
-                      )}
-                    >
-                      {t(SEVERITY_LABEL_KEYS[item.severity])}
+                    <p className="text-xs text-muted-foreground">{description}</p>
+                    <span className="font-data text-[10px] text-muted-foreground">
+                      {formatRelativeTime(item.generated_at)}
                     </span>
-                  </div>
-                  <p className="text-xs text-muted-foreground">{item.description}</p>
-                  <span className="font-data text-[10px] text-muted-foreground">
-                    {formatRelativeTime(item.generated_at)}
-                  </span>
-                </li>
-              ))}
+                  </li>
+                )
+              })}
             </ul>
           )}
         </div>

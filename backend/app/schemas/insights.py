@@ -14,3 +14,5 @@ class AnomalyEventOut(BaseModel):
     client_ip: str | None
     domain: str | None
     branch: str
+    kind: str | None
+    params: dict[str, str | int] | None

@@ -114,6 +114,17 @@ export const uz = {
   'insights.severityMedium': 'Oʻrta',
   'insights.severityHigh': 'Yuqori',
   'insights.severityCritical': 'Kritik',
+  'insights.anomaly.trafficSpike.title': 'Trafik keskin oshdi',
+  'insights.anomaly.trafficSpike.description':
+    'Soʻnggi oynada {{current}} ta soʻrov keldi, oldingi {{windows}} oynadagi oʻrtacha ~{{baseline}} ta soʻrovga nisbatan.',
+  'insights.anomaly.newBlockedDomain.title': 'Yangi bloklangan sayt aniqlandi',
+  'insights.anomaly.newBlockedDomain.description': '{{domain}} ushbu oynada birinchi marta bloklandi.',
+  'insights.anomaly.clientBlockedRatio.title': 'Mijozning aksariyat soʻrovlari bloklandi',
+  'insights.anomaly.clientBlockedRatio.description':
+    '{{clientIp}} uchun {{blocked}}/{{total}} soʻrov ushbu oynada bloklandi ({{ratio}}%).',
+  'insights.anomaly.sensitiveCategoryVisit.title': 'Nozik toifadagi saytga tashrif',
+  'insights.anomaly.sensitiveCategoryVisit.description':
+    '{{clientIp}} {{domain}} saytiga ({{category}}) birinchi marta kirdi.',
 
   'notifications.bellLabel': 'Bildirishnomalar',
   'notifications.title': "So'nggi anomaliyalar",

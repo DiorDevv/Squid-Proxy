@@ -21,6 +21,8 @@ def persist(session: AsyncSession, anomalies: list[Anomaly]) -> list[AnomalyEven
             client_ip=anomaly.client_ip,
             domain=anomaly.domain,
             branch=anomaly.branch or DEFAULT_BRANCH,
+            kind=anomaly.kind,
+            params=anomaly.params,
         )
         for anomaly in anomalies
     ]
@@ -54,6 +56,8 @@ async def list_recent(
             client_ip=row.client_ip,
             domain=row.domain,
             branch=row.branch,
+            kind=row.kind,
+            params=row.params,
         )
         for row in rows
     ]

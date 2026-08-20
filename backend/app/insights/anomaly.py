@@ -114,6 +114,8 @@ class StatisticalAnomalyProvider(InsightsProvider):
                 severity=AnomalySeverity.HIGH,
                 branch=branch,
                 generated_at=generated_at,
+                kind="traffic_spike",
+                params={"current": current, "baseline": round(baseline), "windows": len(history)},
             )
         ]
 
@@ -150,6 +152,8 @@ class StatisticalAnomalyProvider(InsightsProvider):
                 domain=domain,
                 branch=branch,
                 generated_at=generated_at,
+                kind="new_blocked_domain",
+                params={"domain": domain},
             )
             for domain in sorted(new_domains)
         ]
@@ -182,6 +186,13 @@ class StatisticalAnomalyProvider(InsightsProvider):
                     client_ip=client_ip,
                     branch=branch,
                     generated_at=generated_at,
+                    kind="client_blocked_ratio",
+                    params={
+                        "clientIp": client_ip,
+                        "blocked": blocked[client_ip],
+                        "total": total,
+                        "ratio": round(ratio * 100),
+                    },
                 )
             )
         return anomalies
@@ -245,6 +256,12 @@ class StatisticalAnomalyProvider(InsightsProvider):
                 domain=domain,
                 branch=branch,
                 generated_at=generated_at,
+                kind="sensitive_category_visit",
+                params={
+                    "clientIp": client_ip,
+                    "domain": domain,
+                    "category": effective_category(domain, overrides).value,
+                },
             )
             for client_ip, domain in sorted(new_pairs)
         ]

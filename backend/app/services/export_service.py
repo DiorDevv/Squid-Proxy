@@ -8,6 +8,9 @@ from datetime import datetime
 from typing import Any
 
 from openpyxl import Workbook
+from openpyxl.cell import WriteOnlyCell
+from openpyxl.styles import Font
+from openpyxl.utils import get_column_letter
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -375,12 +378,45 @@ async def write_xlsx_rows(
         yield
 
 
+# Wide enough that a typical value doesn't truncate/wrap by default --
+# without this every column sits at Excel's ~8.43-character default, which
+# for a `url`/`timestamp`-heavy export looks like everything ran together
+# even though each value is already in its own cell.
+_COLUMN_WIDTHS: dict[str, float] = {
+    "id": 10,
+    "timestamp": 30,
+    "client_ip": 20,
+    "branch": 12,
+    "user": 14,
+    "method": 10,
+    "url": 50,
+    "domain": 24,
+    "action": 14,
+    "status_code": 12,
+    "bytes": 12,
+    "blocked": 10,
+}
+_DEFAULT_COLUMN_WIDTH = 15
+
+
 def new_xlsx_workbook(columns: list[str]) -> tuple[Workbook, Any]:
     """write_only=True is what keeps this bounded for a multi-million-row
     export -- openpyxl streams each appended row straight to a temp file
     instead of building the whole sheet as in-memory Cell objects, the xlsx
-    equivalent of stream_csv's chunked StringIO."""
+    equivalent of stream_csv's chunked StringIO. Column widths, a bold
+    header, and freezing that header row are all still possible in this
+    mode (unlike most per-cell styling, which write-only can't go back and
+    apply after the fact) since they're set once, up front, rather than
+    touching cells after they're written."""
     workbook = Workbook(write_only=True)
     worksheet = workbook.create_sheet("events")
-    worksheet.append(columns)
+    for index, column in enumerate(columns, start=1):
+        worksheet.column_dimensions[get_column_letter(index)].width = _COLUMN_WIDTHS.get(
+            column, _DEFAULT_COLUMN_WIDTH
+        )
+    worksheet.freeze_panes = "A2"
+    header_cells = [WriteOnlyCell(worksheet, value=column) for column in columns]
+    for cell in header_cells:
+        cell.font = Font(bold=True)
+    worksheet.append(header_cells)
     return workbook, worksheet

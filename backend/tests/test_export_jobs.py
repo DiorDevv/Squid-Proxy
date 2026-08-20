@@ -870,6 +870,44 @@ async def test_run_job_writes_xlsx_and_marks_done(db_session: AsyncSession, tmp_
     assert len(rows) == 5  # header + 4 rows
 
 
+async def test_run_job_writes_xlsx_with_control_characters_in_url(
+    db_session: AsyncSession, tmp_path: Path, monkeypatch
+):
+    """A url/user/etc. containing an ASCII control character (a malformed
+    request, or someone probing with control bytes) used to fail the whole
+    job -- openpyxl's IllegalCharacterError, raised the moment
+    worksheet.append() hit the bad value, surfaced to the user as a bare
+    "cannot be used in worksheets" error with no indication of which row.
+    The bad byte is now stripped instead of the export failing."""
+    monkeypatch.setattr(export_job_service, "_jobs_dir", lambda: tmp_path)
+    import app.models.db as db_module
+
+    monkeypatch.setattr(db_module, "AsyncSessionLocal", lambda: db_session)
+
+    db_session.add(_make_event(url="http://example.com/\x00bad\x1fpath", domain="example.com"))
+    await db_session.commit()
+
+    job = await export_job_service.create_job(
+        db_session,
+        RangeParam.ONE_HOUR.since(),
+        datetime.now(UTC),
+        "xlsx",
+        False,
+        None,
+        "test-admin",
+        columns=["url", "domain"],
+    )
+    await export_job_service.run_job(job.id)
+
+    refreshed = await db_session.get(ExportJob, job.id)
+    assert refreshed.status == ExportJobStatus.DONE
+    assert refreshed.error_message is None
+
+    workbook = load_workbook(refreshed.file_path, read_only=True)
+    rows = list(workbook["events"].iter_rows(values_only=True))
+    assert rows[1] == ("http://example.com/badpath", "example.com")
+
+
 async def test_run_job_sets_checksum_for_csv(db_session: AsyncSession, tmp_path: Path, monkeypatch):
     monkeypatch.setattr(export_job_service, "_jobs_dir", lambda: tmp_path)
     import app.models.db as db_module

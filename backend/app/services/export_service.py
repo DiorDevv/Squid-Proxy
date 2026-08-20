@@ -9,6 +9,7 @@ from typing import Any
 
 from openpyxl import Workbook
 from openpyxl.cell import WriteOnlyCell
+from openpyxl.cell.cell import ILLEGAL_CHARACTERS_RE
 from openpyxl.styles import Font
 from openpyxl.utils import get_column_letter
 from sqlalchemy import select
@@ -351,6 +352,21 @@ async def download_json(
 # an unbounded range in memory to fake the same interface.
 
 
+def _sanitize_xlsx_value(value: object) -> object:
+    """Excel's OOXML container rejects raw ASCII control characters (0x00-
+    0x08, 0x0B-0x0C, 0x0E-0x1F) anywhere in a cell -- a Squid log line's url/
+    user/etc. can contain one of these (a malformed request, or someone
+    deliberately probing with control bytes), and unlike CSV/JSON, which
+    don't care, openpyxl raises IllegalCharacterError and aborts the whole
+    export the moment it hits one. Stripping them here (xlsx-only, not
+    folded into _escape_record) means one odd byte in one row costs nothing
+    more than that byte, instead of failing an export that may already be
+    most of the way through a million rows."""
+    if isinstance(value, str):
+        return ILLEGAL_CHARACTERS_RE.sub("", value)
+    return value
+
+
 async def write_xlsx_rows(
     worksheet,
     session: AsyncSession,
@@ -374,7 +390,7 @@ async def write_xlsx_rows(
         row_counter[0] += len(batch)
         for row in batch:
             record = _escape_record(_row_to_dict(row))
-            worksheet.append([record[column] for column in columns])
+            worksheet.append([_sanitize_xlsx_value(record[column]) for column in columns])
         yield
 
 

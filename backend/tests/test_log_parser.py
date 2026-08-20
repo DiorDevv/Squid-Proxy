@@ -52,6 +52,26 @@ def test_connect_method_extracts_host_port_domain():
     assert event.content_type is None
 
 
+def test_connect_with_non_hostname_garbage_yields_no_domain():
+    # A non-HTTP/malformed CONNECT tunnel (a misbehaving client, raw bytes
+    # from a non-Squid-aware protocol) still gets logged by Squid verbatim --
+    # this must not be accepted as a "domain" just because it has no "://",
+    # or it pollutes every domain-based stat/category with junk.
+    line = "1737100800.123 12 10.0.0.7 TCP_TUNNEL/200 512 CONNECT %EF%BF%BD%01%02:443 bob HIER_DIRECT/93.184.216.34 -"
+    event = parse_line(line)
+
+    assert event is not None
+    assert event.domain is None
+
+
+def test_connect_extracts_ip_literal_domain():
+    line = "1737100800.123 12 10.0.0.7 TCP_TUNNEL/200 512 CONNECT 172.25.25.40:443 bob HIER_DIRECT/93.184.216.34 -"
+    event = parse_line(line)
+
+    assert event is not None
+    assert event.domain == "172.25.25.40"
+
+
 def test_ipv6_client_ip_is_accepted():
     line = "1737100800.123 30 2001:db8::1 TCP_MISS/200 256 GET http://example.com/ carol HIER_DIRECT/2001:db8::2 text/plain"
     event = parse_line(line)

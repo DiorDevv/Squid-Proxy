@@ -14,6 +14,7 @@ and skipped (return None) so the tailer can keep processing the stream.
 
 import ipaddress
 import logging
+import re
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from urllib.parse import urlsplit
@@ -90,22 +91,44 @@ def _parse_int(raw: str, field_name: str, line: str) -> int:
         return 0
 
 
+# A real hostname or IP literal only ever uses these characters (brackets
+# for an IPv6 literal, colon for an IPv6 literal or a CONNECT "host:port"
+# that a caller hasn't stripped the port from yet). Squid logs whatever a
+# client sent verbatim, including non-HTTP/malformed CONNECT traffic (a
+# misbehaving client, a portscan, raw bytes from a non-Squid-aware protocol)
+# -- without this, that garbage becomes a "domain" indistinguishable from a
+# real one, polluting every domain-based stat, category, and report.
+_HOST_CHARS_RE = re.compile(r"^[A-Za-z0-9](?:[A-Za-z0-9.\-:_\[\]]*[A-Za-z0-9\]])?$")
+
+
+def _looks_like_host(value: str) -> bool:
+    # Length is deliberately not checked here -- an overlong but otherwise
+    # legitimate hostname is _truncate_opt()'s job downstream, not a reason
+    # to drop the domain outright.
+    return _HOST_CHARS_RE.match(value) is not None
+
+
 def _extract_domain(url: str, method: str) -> str | None:
     if not url or url == _EMPTY:
         return None
     if method == "CONNECT" or "://" not in url:
         # CONNECT / tunneled requests are logged as "host:port", no scheme.
         host = url.rsplit(":", 1)[0] if ":" in url else url
-        return host or None
-    try:
-        return urlsplit(url).hostname
-    except ValueError:
-        # urlsplit() raises on malformed authority components (e.g. an
-        # unbalanced IPv6 bracket) -- Squid logs the client's requested URL
-        # verbatim, so a malformed one is client-controlled input, not
-        # something we can assume is well-formed. Same "never raise" contract
-        # as every other field here: treat it as "no domain", not a crash.
+    else:
+        try:
+            host = urlsplit(url).hostname
+        except ValueError:
+            # urlsplit() raises on malformed authority components (e.g. an
+            # unbalanced IPv6 bracket) -- Squid logs the client's requested
+            # URL verbatim, so a malformed one is client-controlled input,
+            # not something we can assume is well-formed. Same "never raise"
+            # contract as every other field here: treat it as "no domain",
+            # not a crash.
+            host = None
+
+    if not host or not _looks_like_host(host):
         return None
+    return host
 
 
 def _validate_client_ip(raw: str, line: str) -> str | None:

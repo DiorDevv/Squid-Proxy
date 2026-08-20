@@ -102,6 +102,11 @@ function UserRow({ user, isSelf }: { user: UserSummary; isSelf: boolean }) {
   const updateBranch = useUpdateUserBranch()
   const branchesQuery = useBranches()
   const branches = branchesQuery.data?.items ?? []
+  // A branch-scoped viewer can never actually grant "all branches" -- the
+  // API silently substitutes their own branch instead of erroring (see
+  // user_service._enforce_actor_branch), so offering the option here would
+  // just be a control that quietly does something other than what it says.
+  const viewerBranch = useAuthStore((state) => state.branch)
 
   function handleRoleChange(role: Role) {
     updateRole.mutate(
@@ -165,7 +170,9 @@ function UserRow({ user, isSelf }: { user: UserSummary; isSelf: boolean }) {
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value={UNRESTRICTED_BRANCH_VALUE}>{t('userManagement.allBranches')}</SelectItem>
+            {viewerBranch === null && (
+              <SelectItem value={UNRESTRICTED_BRANCH_VALUE}>{t('userManagement.allBranches')}</SelectItem>
+            )}
             {branches.map((branch) => (
               <SelectItem key={branch.slug} value={branch.slug}>
                 {branch.label}
@@ -193,7 +200,13 @@ function AddUserDialog() {
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [role, setRole] = useState<Role>('viewer')
-  const [branch, setBranch] = useState<string>(UNRESTRICTED_BRANCH_VALUE)
+  // A branch-scoped viewer can never actually grant "all branches" -- the
+  // API silently substitutes their own branch instead of erroring (see
+  // user_service._enforce_actor_branch), so default straight to it instead
+  // of a picker option that would quietly do something other than what it
+  // says once submitted.
+  const viewerBranch = useAuthStore((state) => state.branch)
+  const [branch, setBranch] = useState<string>(viewerBranch ?? UNRESTRICTED_BRANCH_VALUE)
   const createUser = useCreateUser()
   const branchesQuery = useBranches()
   const branches = branchesQuery.data?.items ?? []
@@ -209,7 +222,7 @@ function AddUserDialog() {
           setEmail('')
           setPassword('')
           setRole('viewer')
-          setBranch(UNRESTRICTED_BRANCH_VALUE)
+          setBranch(viewerBranch ?? UNRESTRICTED_BRANCH_VALUE)
         },
         onError: (err) => toast.error(errorMessage(err, t('userManagement.toastCreateError'))),
       },
@@ -271,7 +284,9 @@ function AddUserDialog() {
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value={UNRESTRICTED_BRANCH_VALUE}>{t('userManagement.allBranches')}</SelectItem>
+                {viewerBranch === null && (
+                  <SelectItem value={UNRESTRICTED_BRANCH_VALUE}>{t('userManagement.allBranches')}</SelectItem>
+                )}
                 {branches.map((b) => (
                   <SelectItem key={b.slug} value={b.slug}>
                     {b.label}

@@ -238,6 +238,13 @@ export const uz = {
   'settings.userManagement': 'Foydalanuvchilarni boshqarish',
   'settings.auditLog': 'Audit jurnali',
   'settings.domainCategories': 'Domen turkumlari',
+  'settings.categoriesImportExportHint': 'Turkumlarni jadval (Excel) sifatida tahrirlab, qayta yuklang.',
+  'settings.categoriesExport': 'CSV yuklab olish',
+  'settings.categoriesImport': 'CSV yuklash',
+  'settings.categoriesImporting': 'Yuklanmoqda…',
+  'settings.categoriesImportSuccess': '{{count}} ta domen yangilandi.',
+  'settings.categoriesImportPartial': '{{applied}} ta yangilandi, {{errors}} ta qator o‘tkazib yuborildi',
+  'settings.categoriesImportRow': '{{row}}-qator',
 
   'settings.alertSettings': 'Ogohlantirish sozlamalari',
   'settings.sensitiveCategories': 'Sezilarli turkumlar',

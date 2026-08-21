@@ -251,6 +251,13 @@ export const en = {
   'settings.userManagement': 'User management',
   'settings.auditLog': 'Audit log',
   'settings.domainCategories': 'Domain categories',
+  'settings.categoriesImportExportHint': 'Bulk-edit categories as a spreadsheet, then import it back.',
+  'settings.categoriesExport': 'Export CSV',
+  'settings.categoriesImport': 'Import CSV',
+  'settings.categoriesImporting': 'Importing…',
+  'settings.categoriesImportSuccess': '{{count}} domain(s) updated.',
+  'settings.categoriesImportPartial': '{{applied}} updated, {{errors}} row(s) skipped',
+  'settings.categoriesImportRow': 'Row {{row}}',
 
   'settings.alertSettings': 'Alert settings',
   'settings.sensitiveCategories': 'Sensitive categories',

@@ -142,6 +142,111 @@ async def test_usage_by_category_admin_override_wins_over_inference(db_session: 
     assert DomainCategoryLabel.VIDEO_STREAMING not in items
 
 
+async def test_export_to_csv_round_trips_through_import(db_session: AsyncSession):
+    await domain_category_service.set_category(
+        db_session, "social.example", DomainCategoryLabel.SOCIAL_MEDIA, "actor-1"
+    )
+    await domain_category_service.set_category(
+        db_session, "shop.example", DomainCategoryLabel.SHOPPING, "actor-1"
+    )
+
+    rows = await domain_category_service.list_all(db_session)
+    csv_text = domain_category_service.export_to_csv(rows)
+    assert csv_text.splitlines()[0] == "domain,category"
+
+    applied, errors = await domain_category_service.import_from_csv(db_session, csv_text, "actor-2")
+    assert applied == 2
+    assert errors == []
+
+
+async def test_import_from_csv_creates_new_and_updates_existing(db_session: AsyncSession):
+    await domain_category_service.set_category(
+        db_session, "already-tagged.example", DomainCategoryLabel.NEWS, "actor-1"
+    )
+
+    csv_text = "domain,category\nalready-tagged.example,work_tools\nbrand-new.example,gaming\n"
+    applied, errors = await domain_category_service.import_from_csv(db_session, csv_text, "actor-2")
+
+    assert applied == 2
+    assert errors == []
+    rows = {row.domain: row.category for row in await domain_category_service.list_all(db_session)}
+    assert rows["already-tagged.example"] == DomainCategoryLabel.WORK_TOOLS
+    assert rows["brand-new.example"] == DomainCategoryLabel.GAMING
+
+
+async def test_import_from_csv_reports_bad_rows_without_aborting_the_good_ones(db_session: AsyncSession):
+    csv_text = (
+        "domain,category\n"
+        "good.example,shopping\n"
+        ",gaming\n"  # missing domain
+        "bad-category.example,not_a_real_category\n"
+        "also-good.example,news\n"
+    )
+    applied, errors = await domain_category_service.import_from_csv(db_session, csv_text, "actor-1")
+
+    assert applied == 2
+    assert len(errors) == 2
+    rows = {row.domain: row.category for row in await domain_category_service.list_all(db_session)}
+    assert rows["good.example"] == DomainCategoryLabel.SHOPPING
+    assert rows["also-good.example"] == DomainCategoryLabel.NEWS
+    assert "bad-category.example" not in rows
+
+
+async def test_import_from_csv_rejects_missing_header(db_session: AsyncSession):
+    applied, errors = await domain_category_service.import_from_csv(
+        db_session, "not,the,right,header\nfoo,bar,baz,qux\n", "actor-1"
+    )
+    assert applied == 0
+    assert len(errors) == 1
+    assert "header" in errors[0][2].lower()
+
+
+async def test_domain_categories_export_route_returns_csv(
+    app_client: AsyncClient, admin_token, auth_headers
+):
+    await app_client.put(
+        "/api/domain-categories/export-test.example",
+        headers=auth_headers(admin_token),
+        json={"category": "gaming"},
+    )
+
+    response = await app_client.get("/api/domain-categories/export", headers=auth_headers(admin_token))
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("text/csv")
+    assert "export-test.example,gaming" in response.text
+
+
+async def test_domain_categories_import_route_applies_rows(
+    app_client: AsyncClient, admin_token, auth_headers
+):
+    csv_bytes = b"domain,category\nimported.example,music_streaming\n"
+    response = await app_client.post(
+        "/api/domain-categories/import",
+        headers=auth_headers(admin_token),
+        files={"file": ("domains.csv", csv_bytes, "text/csv")},
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert body["applied"] == 1
+    assert body["errors"] == []
+
+    list_response = await app_client.get("/api/domain-categories", headers=auth_headers(admin_token))
+    domains = {row["domain"]: row["category"] for row in list_response.json()}
+    assert domains["imported.example"] == "music_streaming"
+
+
+async def test_domain_categories_import_route_requires_admin(
+    app_client: AsyncClient, viewer_token, auth_headers
+):
+    csv_bytes = b"domain,category\nx.example,news\n"
+    response = await app_client.post(
+        "/api/domain-categories/import",
+        headers=auth_headers(viewer_token),
+        files={"file": ("domains.csv", csv_bytes, "text/csv")},
+    )
+    assert response.status_code == 403
+
+
 async def test_domain_categories_route_requires_admin(app_client: AsyncClient, viewer_token, auth_headers):
     response = await app_client.get("/api/domain-categories", headers=auth_headers(viewer_token))
     assert response.status_code == 403

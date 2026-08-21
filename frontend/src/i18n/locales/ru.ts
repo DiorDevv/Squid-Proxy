@@ -235,6 +235,13 @@ export const ru = {
   'settings.userManagement': 'Управление пользователями',
   'settings.auditLog': 'Журнал аудита',
   'settings.domainCategories': 'Категории доменов',
+  'settings.categoriesImportExportHint': 'Массово отредактируйте категории в таблице и загрузите обратно.',
+  'settings.categoriesExport': 'Экспорт CSV',
+  'settings.categoriesImport': 'Импорт CSV',
+  'settings.categoriesImporting': 'Загрузка…',
+  'settings.categoriesImportSuccess': 'Обновлено доменов: {{count}}.',
+  'settings.categoriesImportPartial': 'Обновлено: {{applied}}, пропущено строк: {{errors}}',
+  'settings.categoriesImportRow': 'Строка {{row}}',
 
   'settings.alertSettings': 'Настройки оповещений',
   'settings.sensitiveCategories': 'Чувствительные категории',

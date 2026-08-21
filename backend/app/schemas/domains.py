@@ -30,6 +30,17 @@ class SetDomainCategoryRequest(BaseModel):
     category: DomainCategoryLabel
 
 
+class DomainCategoryImportError(BaseModel):
+    row: int
+    domain: str | None
+    reason: str
+
+
+class DomainCategoryImportResponse(BaseModel):
+    applied: int
+    errors: list[DomainCategoryImportError]
+
+
 class CategoryStat(BaseModel):
     category: DomainCategoryLabel
     request_count: int

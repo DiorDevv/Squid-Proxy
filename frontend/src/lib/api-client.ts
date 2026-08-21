@@ -2,7 +2,13 @@ import { API_BASE_URL } from '@/lib/constants'
 import { decodeAccessTokenBranch, decodeAccessTokenRole, getAccessToken, useAuthStore } from '@/lib/auth-store'
 import { translate, useLocaleStore } from '@/i18n'
 import type { LoginResponse, RefreshResponse, Role, WsTicketResponse } from '@/types/auth'
-import type { DomainCategoryLabel, ExportJob, ExportShareLink, UserSummary } from '@/types/api'
+import type {
+  DomainCategoryImportResponse,
+  DomainCategoryLabel,
+  ExportJob,
+  ExportShareLink,
+  UserSummary,
+} from '@/types/api'
 
 export class ApiError extends Error {
   status: number
@@ -177,6 +183,56 @@ export const api = {
     apiFetch<ExportShareLink>(`/api/export/jobs/${encodeURIComponent(jobId)}/share`, { method: 'POST' }),
   revokeExportShareLink: (jobId: string) =>
     apiFetch<ExportJob>(`/api/export/jobs/${encodeURIComponent(jobId)}/share/revoke`, { method: 'POST' }),
+}
+
+/** Downloads every current domain-category override as a CSV file --
+ * mirrors downloadExportJob's blob-download approach (an authenticated
+ * binary response can't just be an <a href>). */
+export async function downloadDomainCategoriesExport(): Promise<void> {
+  const token = getAccessToken()
+  const response = await fetch(buildUrl('/api/domain-categories/export'), {
+    credentials: 'include',
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+  })
+  if (!response.ok) {
+    throw new ApiError(response.status, 'Export failed. Check your permissions and try again.')
+  }
+  const blob = await response.blob()
+  const objectUrl = URL.createObjectURL(blob)
+  const link = document.createElement('a')
+  link.href = objectUrl
+  link.download = 'domain_categories.csv'
+  document.body.appendChild(link)
+  link.click()
+  link.remove()
+  URL.revokeObjectURL(objectUrl)
+}
+
+/** Uploads a `domain,category` CSV to bulk-apply category overrides -- a
+ * multipart file upload, so it can't go through apiFetch (which always
+ * JSON-encodes its body). Each row is applied independently server-side;
+ * see the returned response's `errors` for any rows that were skipped. */
+export async function importDomainCategories(file: File): Promise<DomainCategoryImportResponse> {
+  const token = getAccessToken()
+  const formData = new FormData()
+  formData.append('file', file)
+  const response = await fetch(buildUrl('/api/domain-categories/import'), {
+    method: 'POST',
+    credentials: 'include',
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+    body: formData,
+  })
+  if (!response.ok) {
+    let detail = response.statusText
+    try {
+      const errorBody = await response.json()
+      detail = errorBody.detail ?? errorBody.error ?? detail
+    } catch {
+      // response had no JSON body
+    }
+    throw new ApiError(response.status, detail)
+  }
+  return (await response.json()) as DomainCategoryImportResponse
 }
 
 /** Downloads a finished background export job's result file (see

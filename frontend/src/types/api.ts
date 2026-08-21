@@ -65,6 +65,17 @@ export interface DomainCategoryOut {
   updated_at: string
 }
 
+export interface DomainCategoryImportError {
+  row: number
+  domain: string | null
+  reason: string
+}
+
+export interface DomainCategoryImportResponse {
+  applied: number
+  errors: DomainCategoryImportError[]
+}
+
 export interface CategoryStat {
   category: DomainCategoryLabel
   request_count: number

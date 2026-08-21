@@ -164,18 +164,26 @@ async def get_client_summary(
     session: AsyncSession, client_ip: str, since: datetime, until: datetime, branch: str | None = None
 ) -> ClientSummary:
     """Rolls up all `user` values seen for this IP within the range into one
-    summary row -- `user` in the result is just the most recently seen one,
-    for display only. `branch=None` rolls up every branch that IP was seen
-    in (rare in practice, see client_bucket_rows); pass an explicit branch
-    for an unambiguous single-branch view."""
+    summary row -- `user` in the result is the one from the most recently
+    seen row, for display only. `branch=None` rolls up every branch that IP
+    was seen in (rare in practice, see client_bucket_rows); pass an explicit
+    branch for an unambiguous single-branch view."""
     combined = client_bucket_rows(since, until, client_ip=client_ip, branch=branch)
 
     total_requests = func.coalesce(func.sum(combined.c.request_count), 0)
     blocked_requests = func.coalesce(func.sum(combined.c.blocked_count), 0)
     total_bytes = func.coalesce(func.sum(combined.c.total_bytes), 0)
     last_activity = func.max(combined.c.bucket_ts)
-    latest_user = func.max(combined.c.user)
-    latest_branch = func.max(combined.c.branch)
+    # NOT func.max(combined.c.user) -- that returns whichever user string
+    # sorts alphabetically greatest, not whoever was actually seen most
+    # recently (e.g. a shared/NAT'd IP used by "adam" then "zoe" would
+    # report "zoe" correctly, but "zoe" then "adam" would wrongly report
+    # "zoe" too, since 'z' > 'a'). This scalar subquery instead picks the
+    # user/branch off the single row with the latest bucket_ts.
+    latest_user = select(combined.c.user).order_by(combined.c.bucket_ts.desc()).limit(1).scalar_subquery()
+    latest_branch = (
+        select(combined.c.branch).order_by(combined.c.bucket_ts.desc()).limit(1).scalar_subquery()
+    )
 
     row = (
         await session.execute(

@@ -374,6 +374,45 @@ async def test_client_summary_route_requires_auth(app_client: AsyncClient):
     assert response.status_code == 401
 
 
+async def test_client_summary_route_reports_the_most_recently_seen_user(
+    app_client: AsyncClient, db_session: AsyncSession, admin_token, auth_headers
+):
+    # Regression test: get_client_summary used to pick the displayed `user`
+    # via func.max(user), which returns whichever username sorts
+    # alphabetically greatest, not whoever was actually seen most recently.
+    # "zoe" earlier, "adam" later must report "adam" -- the old bug would
+    # have wrongly reported "zoe" since 'z' > 'a'.
+    now = datetime.now(UTC).replace(second=0, microsecond=0)
+    earlier = now - timedelta(minutes=2)
+    db_session.add_all(
+        [
+            ClientMinuteAggregate(
+                bucket_ts=earlier,
+                client_ip="10.0.0.11",
+                user="zoe",
+                request_count=5,
+                blocked_count=0,
+                total_bytes=500,
+            ),
+            ClientMinuteAggregate(
+                bucket_ts=now,
+                client_ip="10.0.0.11",
+                user="adam",
+                request_count=5,
+                blocked_count=0,
+                total_bytes=500,
+            ),
+        ]
+    )
+    await db_session.commit()
+
+    response = await app_client.get(
+        "/api/clients/10.0.0.11/summary?range=1h", headers=auth_headers(admin_token)
+    )
+    assert response.status_code == 200
+    assert response.json()["user"] == "adam"
+
+
 async def test_client_summary_route_combines_minute_and_hourly_aggregates(
     app_client: AsyncClient, db_session: AsyncSession, admin_token, auth_headers
 ):

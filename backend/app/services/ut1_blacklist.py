@@ -30,6 +30,7 @@ about this feature is a security control, just a categorization label.
 import array
 import bisect
 import logging
+import os
 import tarfile
 from collections.abc import Iterable
 from pathlib import Path
@@ -150,6 +151,24 @@ class Ut1Blacklist:
         return {label.value: len(s) for label, s in self._sets_by_label.items()}
 
 
+def _write_category_file_atomically(path: Path, data: bytes) -> None:
+    """Write-then-rename, not a direct write to `path`: a crash or
+    disk-full mid-write used to truncate a category's previously-good file
+    in place, and build_from_dir() would then silently load that truncated
+    file next refresh -- quietly shrinking blacklist coverage instead of
+    keeping the last-good version. os.replace is atomic on POSIX, same
+    pattern archive_service.py and log_tailer.py's state file already use.
+    """
+    tmp_path = path.with_suffix(path.suffix + ".tmp")
+    try:
+        with open(tmp_path, "wb") as out:
+            out.write(data)
+        os.replace(tmp_path, path)
+    except OSError:
+        tmp_path.unlink(missing_ok=True)
+        raise
+
+
 def download_and_extract(dest_dir: Path, mirror_url: str, timeout_seconds: float = 120.0) -> None:
     """Downloads the UT1 tarball and extracts only the `domains` file of
     each category in _UT1_CATEGORY_MAP into dest_dir/<category>/domains --
@@ -177,8 +196,7 @@ def download_and_extract(dest_dir: Path, mirror_url: str, timeout_seconds: float
                 continue
             category_dir = dest_dir / category
             category_dir.mkdir(parents=True, exist_ok=True)
-            with open(category_dir / "domains", "wb") as out:
-                out.write(extracted.read())
+            _write_category_file_atomically(category_dir / "domains", extracted.read())
 
     tmp_path.unlink(missing_ok=True)
 

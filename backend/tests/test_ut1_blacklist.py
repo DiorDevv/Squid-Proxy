@@ -7,8 +7,56 @@ from app.services.ut1_blacklist import (
     CompactDomainSet,
     Ut1Blacklist,
     _domain_and_ancestors,
+    _write_category_file_atomically,
     build_from_dir,
 )
+
+
+def test_write_category_file_atomically_writes_content_and_leaves_no_tmp_file(tmp_path: Path):
+    out_path = tmp_path / "domains"
+    _write_category_file_atomically(out_path, b"example.com\nanother.com\n")
+
+    assert out_path.read_bytes() == b"example.com\nanother.com\n"
+    assert list(tmp_path.glob("*.tmp")) == []
+
+
+def test_write_category_file_atomically_never_truncates_the_existing_file_on_failure(
+    tmp_path: Path, monkeypatch
+):
+    """Regression test: a direct write to the live path used to truncate a
+    previously-good category file in place if the write failed partway
+    through (disk full, crash) -- build_from_dir() would then silently load
+    the truncated remainder next refresh. Write-then-rename means a failed
+    write never touches the real file at all."""
+    out_path = tmp_path / "domains"
+    out_path.write_bytes(b"previously-good-content.com\n")
+
+    class _FailingWriter:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc_info):
+            return False
+
+        def write(self, data):
+            raise OSError("simulated disk full")
+
+    # Only the *.tmp path's open() fails, matching a disk-full-mid-write
+    # scenario -- the module's own `open` name is patched (not the builtin
+    # io.BufferedWriter type, which is a C-level immutable type pytest can't
+    # monkeypatch methods onto).
+    def fake_open(path, mode="r", *args, **kwargs):
+        if str(path).endswith(".tmp"):
+            return _FailingWriter()
+        return open(path, mode, *args, **kwargs)
+
+    monkeypatch.setattr("app.services.ut1_blacklist.open", fake_open, raising=False)
+
+    with pytest.raises(OSError):
+        _write_category_file_atomically(out_path, b"new-content-that-never-lands.com\n")
+
+    assert out_path.read_bytes() == b"previously-good-content.com\n"
+    assert list(tmp_path.glob("*.tmp")) == []
 
 
 def test_compact_domain_set_contains_added_domains():

@@ -250,6 +250,31 @@ async def test_flush_with_no_new_events_is_a_noop(db_engine, monkeypatch):
     assert result.events_flushed == 0
 
 
+async def test_flush_calls_on_flush_committed_only_after_a_successful_commit(db_engine, monkeypatch):
+    """on_flush_committed is how a LogTailer knows it's finally safe to
+    persist its read position to disk (see log_tailer.py's checkpoint()) --
+    it must fire once real events are durably committed, and never fire for
+    a no-op flush (nothing was committed, so there's nothing new to
+    checkpoint)."""
+    session_factory = async_sessionmaker(db_engine, expire_on_commit=False, class_=AsyncSession)
+    import app.services.aggregator as aggregator_module
+
+    monkeypatch.setattr(aggregator_module, "AsyncSessionLocal", session_factory)
+
+    calls = []
+    ring_buffer = RingBuffer(max_events=100)
+    aggregator = Aggregator(
+        ring_buffer=ring_buffer, interval_seconds=60, on_flush_committed=lambda: calls.append(True)
+    )
+
+    await aggregator.flush()
+    assert calls == []  # no events -- nothing committed, callback must not fire
+
+    ring_buffer.append(parse_line(squid_line("example.com")))
+    await aggregator.flush()
+    assert len(calls) == 1
+
+
 class _StubAnomalyProvider(InsightsProvider):
     """Always reports one canned anomaly, regardless of the window --
     isolates the flush -> persist -> alert wiring from real detection logic

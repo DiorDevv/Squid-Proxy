@@ -13,6 +13,7 @@ Every AGGREGATION_INTERVAL_SECONDS (default 60s):
 import asyncio
 import logging
 from collections import defaultdict
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import datetime
 
@@ -78,9 +79,25 @@ class Aggregator:
     # warning about before that actually happens.
     BACKLOG_WARNING_RATIO = 0.8
 
-    def __init__(self, ring_buffer: RingBuffer, interval_seconds: int = 60) -> None:
+    def __init__(
+        self,
+        ring_buffer: RingBuffer,
+        interval_seconds: int = 60,
+        on_flush_committed: Callable[[], None] | None = None,
+    ) -> None:
         self.ring_buffer = ring_buffer
         self.interval_seconds = interval_seconds
+        # Called synchronously right after a flush's commit() succeeds --
+        # see LogTailer.checkpoint()/main.py's wiring. This is the only
+        # point at which every event dispatched to on_event so far is
+        # actually guaranteed durable, so it's the only safe moment for a
+        # log tailer to persist how far it's read to disk (persisting
+        # eagerly on every poll, the old behavior, could mark bytes as
+        # "consumed" on disk before the events they produced ever reached
+        # the database -- a crash in between silently lost them for good,
+        # since a resumed tailer never re-reads bytes it already believes
+        # it processed).
+        self.on_flush_committed = on_flush_committed
         self._last_flushed_id = 0
         self._task: asyncio.Task | None = None
         self._stop_event = asyncio.Event()
@@ -217,6 +234,8 @@ class Aggregator:
         # them as flushed, silently skipping them forever on the next
         # attempt despite nothing having actually been persisted.
         self._last_flushed_id = events[-1].id
+        if self.on_flush_committed is not None:
+            self.on_flush_committed()
 
         logger.info(
             "Aggregator flush complete",

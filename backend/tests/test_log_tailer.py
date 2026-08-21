@@ -246,12 +246,14 @@ async def test_resumes_from_persisted_position_after_restart(tmp_path):
     log_path.write_text("")
 
     first_tailer, first_events = make_tailer(log_path, state_dir=state_dir)
-    await first_tailer.poll_once()  # opens at EOF of empty file, persists position
+    await first_tailer.poll_once()  # opens at EOF of empty file
+    first_tailer.checkpoint()  # simulates the position becoming safe to persist, e.g. after a flush
 
     with log_path.open("a") as f:
         f.write(squid_line("seen-before-restart.com"))
     await first_tailer.poll_once()
     assert [e.domain for e in first_events] == ["seen-before-restart.com"]
+    first_tailer.checkpoint()
 
     # "Restart": more data is appended while nothing is tailing, then a
     # brand-new LogTailer instance (fresh in-memory state, same state_dir)
@@ -280,6 +282,7 @@ async def test_restart_mid_line_recovers_the_full_line_via_persisted_partial(tmp
 
     first_tailer, first_events = make_tailer(log_path, state_dir=state_dir)
     await first_tailer.poll_once()  # opens at EOF of empty file
+    first_tailer.checkpoint()
 
     full_line = squid_line("mid-write.com")
     split_point = full_line.index("TCP_MISS") + 4  # partway through a field
@@ -287,6 +290,7 @@ async def test_restart_mid_line_recovers_the_full_line_via_persisted_partial(tmp
         f.write(full_line[:split_point])  # no trailing "\n" -- an in-flight write
     await first_tailer.poll_once()
     assert first_events == []  # nothing complete yet, but the partial bytes are consumed
+    first_tailer.checkpoint()
 
     # "Restart": a brand-new LogTailer takes over with only the persisted
     # state, then Squid finishes writing the rest of the same line.
@@ -313,9 +317,11 @@ async def test_rotation_while_down_starts_new_file_from_beginning(tmp_path):
 
     first_tailer, _first_events = make_tailer(log_path, state_dir=state_dir)
     await first_tailer.poll_once()
+    first_tailer.checkpoint()
     with log_path.open("a") as f:
         f.write(squid_line("before-rotation-and-restart.com"))
     await first_tailer.poll_once()
+    first_tailer.checkpoint()
 
     # Rotate (new inode) while "down", with fresh content already written
     # to the new file before the tailer comes back.
@@ -342,27 +348,31 @@ async def test_no_persisted_state_opens_at_end_even_with_state_dir_configured(tm
     assert events == []
 
 
-async def test_idle_poll_does_not_rewrite_the_state_file(tmp_path):
-    """An idle log (no new data, no rotation) shouldn't touch disk on every
-    single poll -- only when the read position actually changes."""
+async def test_checkpoint_does_not_rewrite_the_state_file_when_nothing_new_was_read(tmp_path):
+    """checkpoint() is the only thing that ever touches disk now (poll_once()
+    alone never persists -- see LogTailer's module docstring), and repeated
+    checkpoint() calls with no new data read in between shouldn't rewrite the
+    file every time either."""
     log_path = tmp_path / "access.log"
     state_dir = tmp_path / "state"
     log_path.write_text("")
 
     tailer, _events = make_tailer(log_path, state_dir=state_dir)
-    await tailer.poll_once()  # opens at EOF, position changes from "no file" -> persisted
+    await tailer.poll_once()  # opens at EOF
 
     with log_path.open("a") as f:
         f.write(squid_line("real-traffic.com"))
     await tailer.poll_once()
+    tailer.checkpoint()
 
     state_path = state_dir / "default.json"
     mtime_after_data = state_path.stat().st_mtime_ns
 
-    # Several idle polls in a row -- nothing new written to the log.
+    # Several idle polls + checkpoints in a row -- nothing new written to the log.
     for _ in range(5):
         was_missing = await tailer.poll_once()
         assert was_missing is False
+        tailer.checkpoint()
 
     assert state_path.stat().st_mtime_ns == mtime_after_data
 
@@ -402,3 +412,34 @@ async def test_large_backlog_does_not_block_the_event_loop(tmp_path):
     # throughout, so plenty of ticks should land during a multi-hundred-ms
     # poll.
     assert heartbeat_ticks > 5, f"only {heartbeat_ticks} heartbeat ticks during a {elapsed:.3f}s poll"
+
+
+async def test_crash_before_checkpoint_re_reads_instead_of_losing_events(tmp_path):
+    """Regression test for the data-loss bug this design replaced: reading a
+    line used to persist its offset to disk immediately, before the
+    Aggregator ever got a chance to durably flush the resulting event -- a
+    crash in that window meant a resumed tailer skipped straight past bytes
+    it had only ever held in memory, losing them for good. Now nothing is
+    written to disk until checkpoint() is called (see module docstring), so
+    a "crash" (no checkpoint()) before a restart must re-read the same line
+    rather than skip it -- a duplicate on restart, never a silent loss."""
+    log_path = tmp_path / "access.log"
+    state_dir = tmp_path / "state"
+    log_path.write_text("")
+
+    first_tailer, first_events = make_tailer(log_path, state_dir=state_dir)
+    await first_tailer.poll_once()  # opens at EOF of empty file
+    first_tailer.checkpoint()  # only real checkpoint before the "crash"
+
+    with log_path.open("a") as f:
+        f.write(squid_line("read-but-never-flushed.com"))
+    await first_tailer.poll_once()
+    assert [e.domain for e in first_events] == ["read-but-never-flushed.com"]
+    # Deliberately no checkpoint() here -- simulates a crash before the
+    # Aggregator's next flush ever confirmed this event was durable.
+
+    second_tailer, second_events = make_tailer(log_path, state_dir=state_dir)
+    was_missing = await second_tailer.poll_once()
+
+    assert was_missing is False
+    assert [e.domain for e in second_events] == ["read-but-never-flushed.com"]

@@ -20,17 +20,36 @@ WebSocketManager.broadcast_nowait) is dispatched back on the event-loop
 thread, since asyncio primitives aren't safe to touch from a worker thread.
 
 Read position (inode + byte offset), plus any not-yet-terminated trailing
-line already read into memory, is persisted to `state_dir` (if set) after
-every poll, so a routine restart (deploy, crash, systemd Restart=on-failure)
-resumes exactly where it left off instead of silently skipping whatever was
-written while the process was down -- previously every fresh LogTailer
-always opened at the file's current end, regardless of whether this was
-truly the first run or just a restart. The in-flight partial line is
-persisted too, not just the byte offset: without it, a restart landing
-exactly while Squid had flushed only part of a line would still resume
-reading *after* those already-consumed bytes (the file position moved past
-them the moment they were read), silently losing that one record instead of
-ever reassembling it once Squid finishes writing the rest.
+line already read into memory, is persisted to `state_dir` (if set), so a
+routine restart (deploy, crash, systemd Restart=on-failure) resumes exactly
+where it left off instead of silently skipping whatever was written while
+the process was down -- previously every fresh LogTailer always opened at
+the file's current end, regardless of whether this was truly the first run
+or just a restart. The in-flight partial line is persisted too, not just
+the byte offset: without it, a restart landing exactly while Squid had
+flushed only part of a line would still resume reading *after* those
+already-consumed bytes (the file position moved past them the moment they
+were read), silently losing that one record instead of ever reassembling
+it once Squid finishes writing the rest.
+
+Persisting to disk deliberately does NOT happen right after every poll,
+even though the read position itself (self._fh's position, and
+self._last_read_state's in-memory snapshot of it) advances immediately.
+Events read from the file are only durable once the Aggregator has
+flushed them into the database -- up to AGGREGATION_INTERVAL_SECONDS
+(default 60s) later -- so writing the *disk-persisted* offset any earlier
+would tell a restarted tailer "these bytes are already accounted for"
+before that was actually true: a crash in that window used to silently
+lose up to a flush interval's worth of events for good, since a resumed
+tailer never re-reads bytes it believes it already processed. `checkpoint()`
+is the only thing that writes to disk, and it's only ever called once a
+flush's commit() has actually succeeded (see Aggregator's
+on_flush_committed, wired in main.py) or on a graceful stop() (safe there
+because main.py's shutdown sequence runs a final Aggregator flush right
+after every tailer stops, draining whatever was already read). The
+in-memory read position is never rolled back, so nothing is lost either
+way -- worst case after an unclean crash is a few seconds of events read
+again and double-counted on restart, not silently dropped.
 """
 
 import asyncio
@@ -107,6 +126,16 @@ class LogTailer:
         self._fh: TextIO | None = None
         self._inode: int | None = None
         self._partial = ""
+        # Snapshot of (inode, offset, partial) taken right after events read
+        # this poll were handed to on_event -- checkpoint() persists this to
+        # disk, never self._fh directly (see module docstring and
+        # checkpoint()'s own docstring for why). A single attribute
+        # rebind/read is safe even though _poll_once_sync() runs in a
+        # worker thread while checkpoint() is called from the event loop:
+        # this is only ever written here, on the event-loop thread, after
+        # asyncio.to_thread's call has already fully returned.
+        self._last_read_state: tuple[int, int, str] | None = None
+        self._last_persisted_state: tuple[int, int, str] | None = None
         self._alive = False
         self._backoff = INITIAL_BACKOFF_SECONDS
         self._task: asyncio.Task | None = None
@@ -145,6 +174,12 @@ class LogTailer:
                 await asyncio.wait_for(self._task, timeout=5)
             except TimeoutError:
                 self._task.cancel()
+        # Safe here specifically because main.py's shutdown sequence stops
+        # every tailer *before* stopping the Aggregator, and Aggregator.stop()
+        # always runs one final flush -- so whatever this checkpoint persists
+        # is guaranteed to be durably flushed moments later, same as the
+        # on_flush_committed path. See module docstring.
+        self.checkpoint()
         self._close()
 
     async def _run_forever(self) -> None:
@@ -193,8 +228,7 @@ class LogTailer:
             for event in events:
                 self.on_event(event)
         except Exception:
-            # The file position (and, if state_dir is set, the persisted
-            # position) already reflects everything read this poll,
+            # The file position already reflects everything read this poll,
             # regardless of whether every event was successfully delivered
             # here -- so this deliberately does NOT close/reopen the file.
             # Doing so would just skip ahead to the current EOF and lose
@@ -204,6 +238,14 @@ class LogTailer:
             logger.exception(
                 "Error dispatching parsed event(s) to on_event", extra={"path": self.path}
             )
+
+        # Snapshot the read position now that this poll's events have been
+        # handed to on_event -- back on the event-loop thread, so this is
+        # race-free even though _poll_once_sync() (which advanced self._fh/
+        # self._partial to get here) ran in a worker thread. Not persisted
+        # to disk yet; see checkpoint().
+        if self._fh is not None:
+            self._last_read_state = (self._inode, self._fh.tell(), self._partial)
         return False
 
     def _poll_once_sync(self) -> tuple[bool, list[ParsedEvent]]:
@@ -237,23 +279,12 @@ class LogTailer:
             return True, []
 
         events: list[ParsedEvent] = []
-        position_changed = False
         if st.st_ino != self._inode:
             events += self._handle_create_rotation()
-            position_changed = True
         elif self._fh is not None and st.st_size < self._fh.tell():
             self._handle_truncate_rotation()
-            position_changed = True
 
-        new_events, bytes_read = self._read_available()
-        events += new_events
-
-        # Only touch disk when the position actually moved -- an idle log
-        # (no new traffic) would otherwise mean one small write+atomic-rename
-        # every poll_interval forever (e.g. ~115k/day per branch at the
-        # 0.75s default), for a position that never changed.
-        if position_changed or bytes_read:
-            self._persist_state()
+        events += self._read_available()
         return False, events
 
     def _open_initial(self) -> None:
@@ -329,13 +360,13 @@ class LogTailer:
         self._fh.seek(0)
         self._partial = ""
 
-    def _read_available(self) -> tuple[list[ParsedEvent], int]:
+    def _read_available(self) -> list[ParsedEvent]:
         assert self._fh is not None
         chunk = self._fh.read()
         if not chunk:
-            return [], 0
+            return []
         self._partial += chunk
-        return self._flush_complete_lines(), len(chunk)
+        return self._flush_complete_lines()
 
     _SUMMARY_CHECK_INTERVAL = 1000
     _SUMMARY_FAILURE_THRESHOLD = 0.5
@@ -382,13 +413,26 @@ class LogTailer:
             return None
         return _load_persisted_state(self.state_dir, self.branch)
 
-    def _persist_state(self) -> None:
-        if self.state_dir is None or self._fh is None or self._inode is None:
+    def checkpoint(self) -> None:
+        """Persists the most recently read-and-dispatched position
+        (self._last_read_state) to disk. Must only be called once whatever
+        was read up to that point is known to be durably stored downstream
+        -- see the module docstring. Reads self._last_read_state rather
+        than self._fh/self._inode/self._partial directly: this method runs
+        on the event-loop thread, while _poll_once_sync() (which mutates
+        those three) runs in a worker thread, and only self._last_read_state
+        is ever written from the event-loop thread (see poll_once()), so
+        it's the one attribute safe to read from here without a race.
+        """
+        if self.state_dir is None:
             return
+        state = self._last_read_state
+        if state is None or state == self._last_persisted_state:
+            return
+        inode, offset, partial = state
         try:
-            _save_persisted_state(
-                self.state_dir, self.branch, self._inode, self._fh.tell(), self._partial
-            )
+            _save_persisted_state(self.state_dir, self.branch, inode, offset, partial)
+            self._last_persisted_state = state
         except OSError:
             logger.warning("Failed to persist log tailer position", extra={"path": self.path})
 

@@ -70,7 +70,21 @@ async def lifespan(app: FastAPI):
 
     from app.services.aggregator import Aggregator
 
-    aggregator = Aggregator(ring_buffer=ring_buffer, interval_seconds=settings.AGGREGATION_INTERVAL_SECONDS)
+    def _checkpoint_tailers() -> None:
+        # Called by Aggregator right after a flush's commit() succeeds --
+        # only then are the events already read by these tailers durably
+        # in the database, and only then is it safe for each tailer to
+        # persist how far it's read to disk (see LogTailer's module
+        # docstring and checkpoint() for why persisting any earlier could
+        # silently lose events across a crash).
+        for tailer in log_tailers.values():
+            tailer.checkpoint()
+
+    aggregator = Aggregator(
+        ring_buffer=ring_buffer,
+        interval_seconds=settings.AGGREGATION_INTERVAL_SECONDS,
+        on_flush_committed=_checkpoint_tailers,
+    )
     app.state.aggregator = aggregator
     aggregator.start()
 

@@ -14,7 +14,7 @@ from app.models.domain_category import DomainCategoryLabel
 from app.models.minute_aggregate import MinuteAggregate
 from app.schemas.common import Granularity, RangeParam
 from app.schemas.domains import CategoryStat, DomainStat
-from app.schemas.summary import SummaryResponse
+from app.schemas.summary import CacheEfficiencyResponse, SummaryResponse
 from app.schemas.timeseries import TimeseriesPoint, TimeseriesResponse
 from app.services.category_inference import effective_category
 from app.services.client_service import client_bucket_rows
@@ -68,6 +68,36 @@ async def get_summary(
         allowed_requests=allowed_requests,
         active_client_count=active_clients,
         active_user_count=active_users,
+    )
+
+
+async def get_cache_efficiency(
+    session: AsyncSession, since: datetime, until: datetime, branch: str | None = None
+) -> CacheEfficiencyResponse:
+    """How much of this window's traffic Squid served from cache vs. fetched
+    fresh -- see MinuteAggregate.hit_requests/miss_requests and
+    aggregator._is_cache_hit/_is_cache_miss for how each request is
+    classified. Reads MinuteAggregate directly (not client_bucket_rows'
+    minute+hourly union): unlike per-client aggregates, this table is never
+    rolled up into an hourly table (see retention.py), so it's already at
+    minute granularity for its whole retention window."""
+    conditions = [MinuteAggregate.bucket_ts >= since, MinuteAggregate.bucket_ts <= until]
+    if branch is not None:
+        conditions.append(MinuteAggregate.branch == branch)
+
+    hit_requests, miss_requests = (
+        await session.execute(
+            select(
+                func.coalesce(func.sum(MinuteAggregate.hit_requests), 0),
+                func.coalesce(func.sum(MinuteAggregate.miss_requests), 0),
+            ).where(*conditions)
+        )
+    ).one()
+
+    cacheable = hit_requests + miss_requests
+    hit_ratio = (hit_requests / cacheable) if cacheable > 0 else None
+    return CacheEfficiencyResponse(
+        hit_requests=hit_requests, miss_requests=miss_requests, hit_ratio=hit_ratio
     )
 
 

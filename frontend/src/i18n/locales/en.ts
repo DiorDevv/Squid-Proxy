@@ -104,6 +104,7 @@ export const en = {
   'dashboard.blocked': 'Blocked',
   'dashboard.allowed': 'Allowed',
   'dashboard.activeClients': 'Active clients',
+  'dashboard.cacheHitRate': 'Cache hit rate',
   'dashboard.trafficOverTime': 'Traffic over time',
   'dashboard.topBlockedDomains': 'Top blocked domains',
   'dashboard.liveEvents': 'Live events',

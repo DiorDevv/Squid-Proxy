@@ -44,6 +44,8 @@ class _MinuteTotals:
     blocked: int = 0
     allowed: int = 0
     bytes_: int = 0
+    hit: int = 0
+    miss: int = 0
 
 
 @dataclass
@@ -70,6 +72,26 @@ class _CategoryTotals:
 class FlushResult:
     events_flushed: int = 0
     buckets_touched: set[tuple[datetime, str]] = field(default_factory=set)
+
+
+def _is_cache_hit(action: str) -> bool:
+    """Squid's %Ss result tag (RawEvent.action) -- "HIT" appears in every
+    tag meaning the response was served from cache without going to the
+    origin/peer (TCP_HIT, TCP_MEM_HIT, TCP_IMS_HIT, TCP_CF_HIT, ...). This
+    substring check is the same convention Squid's own log analyzers
+    (sarg, calamaris) use, rather than an exhaustive tag list that would
+    silently miss a variant this project's author hadn't seen yet."""
+    return "HIT" in action.upper()
+
+
+def _is_cache_miss(action: str) -> bool:
+    """The complement of _is_cache_hit for tags where the cache *could* have
+    helped but didn't (TCP_MISS, TCP_REFRESH_MODIFIED, ...) -- deliberately
+    excludes TCP_DENIED (blocked, never reached the cache layer) and
+    TCP_TUNNEL (a CONNECT tunnel, cache doesn't apply) so
+    stats_service.get_cache_efficiency's hit/(hit+miss) ratio reflects
+    actual cacheable traffic, not every request regardless of type."""
+    return "MISS" in action.upper()
 
 
 class Aggregator:
@@ -277,6 +299,10 @@ class Aggregator:
                 mb.blocked += 1
             else:
                 mb.allowed += 1
+            if _is_cache_hit(ev.action):
+                mb.hit += 1
+            elif _is_cache_miss(ev.action):
+                mb.miss += 1
 
             if ev.domain:
                 db = domain_buckets[(bucket, ev.domain, ev.branch)]
@@ -352,6 +378,8 @@ class Aggregator:
                 "blocked_requests": totals.blocked,
                 "allowed_requests": totals.allowed,
                 "total_bytes": totals.bytes_,
+                "hit_requests": totals.hit,
+                "miss_requests": totals.miss,
             }
             for (bucket, branch), totals in minute_buckets.items()
         ]
@@ -360,7 +388,14 @@ class Aggregator:
             MinuteAggregate.__table__,
             rows,
             index_elements=[MinuteAggregate.bucket_ts, MinuteAggregate.branch],
-            sum_columns=["total_requests", "blocked_requests", "allowed_requests", "total_bytes"],
+            sum_columns=[
+                "total_requests",
+                "blocked_requests",
+                "allowed_requests",
+                "total_bytes",
+                "hit_requests",
+                "miss_requests",
+            ],
         )
 
     async def _bulk_upsert_domain(

@@ -8,7 +8,7 @@ from app.models.domain_category import DomainCategoryLabel
 from app.models.minute_aggregate import MinuteAggregate
 from app.schemas.common import Granularity, RangeParam
 from app.services import domain_category_service
-from app.services.stats_service import get_timeseries, get_top_domains
+from app.services.stats_service import get_cache_efficiency, get_timeseries, get_top_domains
 
 
 async def test_get_top_domains_orders_by_request_count(db_session: AsyncSession):
@@ -299,3 +299,69 @@ async def test_domain_search_route_returns_matching_domains(
 async def test_domain_search_route_rejects_empty_query(app_client: AsyncClient, admin_token, auth_headers):
     response = await app_client.get("/api/domains/search?q=", headers=auth_headers(admin_token))
     assert response.status_code == 422
+
+
+async def test_get_cache_efficiency_computes_hit_ratio(db_session: AsyncSession):
+    bucket = datetime.now(UTC).replace(second=0, microsecond=0)
+    db_session.add(
+        MinuteAggregate(
+            bucket_ts=bucket,
+            total_requests=10,
+            blocked_requests=0,
+            allowed_requests=10,
+            hit_requests=3,
+            miss_requests=7,
+        )
+    )
+    await db_session.commit()
+
+    result = await get_cache_efficiency(db_session, RangeParam.ONE_HOUR.since(), datetime.now(UTC))
+    assert result.hit_requests == 3
+    assert result.miss_requests == 7
+    assert result.hit_ratio == 0.3
+
+
+async def test_get_cache_efficiency_ratio_is_none_when_nothing_cacheable(db_session: AsyncSession):
+    """A window where every request was blocked or tunneled (hit + miss ==
+    0) must report hit_ratio=None, not a misleading 0%."""
+    bucket = datetime.now(UTC).replace(second=0, microsecond=0)
+    db_session.add(
+        MinuteAggregate(
+            bucket_ts=bucket, total_requests=5, blocked_requests=5, allowed_requests=0, hit_requests=0, miss_requests=0
+        )
+    )
+    await db_session.commit()
+
+    result = await get_cache_efficiency(db_session, RangeParam.ONE_HOUR.since(), datetime.now(UTC))
+    assert result.hit_ratio is None
+
+
+async def test_cache_efficiency_route_returns_hit_ratio(
+    app_client: AsyncClient, db_session: AsyncSession, admin_token, auth_headers
+):
+    bucket = datetime.now(UTC).replace(second=0, microsecond=0)
+    db_session.add(
+        MinuteAggregate(
+            bucket_ts=bucket,
+            total_requests=4,
+            blocked_requests=0,
+            allowed_requests=4,
+            hit_requests=1,
+            miss_requests=3,
+        )
+    )
+    await db_session.commit()
+
+    response = await app_client.get(
+        "/api/cache-efficiency?range=1h", headers=auth_headers(admin_token)
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert body["hit_requests"] == 1
+    assert body["miss_requests"] == 3
+    assert body["hit_ratio"] == 0.25
+
+
+async def test_cache_efficiency_route_requires_auth(app_client: AsyncClient):
+    response = await app_client.get("/api/cache-efficiency?range=1h")
+    assert response.status_code == 401

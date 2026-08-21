@@ -23,8 +23,15 @@ from app.services.event_store import RingBuffer
 from app.services.log_parser import ParsedEvent, parse_line
 
 
-def squid_line(domain: str, client_ip: str = "10.0.0.5", blocked: bool = False) -> str:
-    action_status = "TCP_DENIED/403" if blocked else "TCP_MISS/200"
+def squid_line(
+    domain: str, client_ip: str = "10.0.0.5", blocked: bool = False, action: str | None = None
+) -> str:
+    if action is not None:
+        action_status = f"{action}/200"
+    elif blocked:
+        action_status = "TCP_DENIED/403"
+    else:
+        action_status = "TCP_MISS/200"
     return (
         f"1737100800.123 45 {client_ip} {action_status} 1024 GET "
         f"http://{domain}/ alice HIER_DIRECT/93.184.216.34 text/html"
@@ -63,6 +70,29 @@ async def test_flush_writes_minute_domain_and_client_aggregates(db_engine, monke
 
         raw_count = len((await session.execute(select(RawEvent))).scalars().all())
         assert raw_count == 3
+
+
+async def test_flush_tracks_cache_hit_and_miss_counts_on_minute_aggregate(db_engine, monkeypatch):
+    session_factory = async_sessionmaker(db_engine, expire_on_commit=False, class_=AsyncSession)
+    import app.services.aggregator as aggregator_module
+
+    monkeypatch.setattr(aggregator_module, "AsyncSessionLocal", session_factory)
+
+    ring_buffer = RingBuffer(max_events=100)
+    ring_buffer.append(parse_line(squid_line("example.com", action="TCP_HIT")))
+    ring_buffer.append(parse_line(squid_line("example.com", action="TCP_MEM_HIT")))
+    ring_buffer.append(parse_line(squid_line("example.com", action="TCP_MISS")))
+    ring_buffer.append(parse_line(squid_line("example.com", action="TCP_TUNNEL")))  # neither hit nor miss
+    ring_buffer.append(parse_line(squid_line("blocked.com", blocked=True)))  # TCP_DENIED -- neither either
+
+    aggregator = Aggregator(ring_buffer=ring_buffer, interval_seconds=60)
+    await aggregator.flush()
+
+    async with session_factory() as session:
+        minute_row = (await session.execute(select(MinuteAggregate))).scalar_one()
+        assert minute_row.total_requests == 5
+        assert minute_row.hit_requests == 2
+        assert minute_row.miss_requests == 1
 
 
 async def test_flush_chunks_a_large_raw_events_insert_without_dropping_or_duplicating_rows(

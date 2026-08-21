@@ -97,6 +97,7 @@ export const uz = {
   'dashboard.blocked': 'Bloklangan',
   'dashboard.allowed': 'Ruxsat berilgan',
   'dashboard.activeClients': 'Faol mijozlar',
+  'dashboard.cacheHitRate': 'Kesh samaradorligi',
   'dashboard.trafficOverTime': 'Vaqt boʻyicha trafik',
   'dashboard.topBlockedDomains': 'Eng koʻp bloklangan domenlar',
   'dashboard.liveEvents': 'Jonli hodisalar',

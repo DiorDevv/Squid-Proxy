@@ -26,3 +26,13 @@ class MinuteAggregate(Base):
     blocked_requests: Mapped[int] = mapped_column(Integer, default=0)
     allowed_requests: Mapped[int] = mapped_column(Integer, default=0)
     total_bytes: Mapped[int] = mapped_column(BigInteger, default=0)
+    # Squid's %Ss result tag (RawEvent.action) contains "HIT" for anything
+    # served from cache (TCP_HIT, TCP_MEM_HIT, TCP_IMS_HIT, ...) and "MISS"
+    # for anything fetched fresh (TCP_MISS, TCP_REFRESH_MODIFIED, ...) --
+    # see app/services/aggregator.py's _is_cache_hit/_is_cache_miss. Denied/
+    # tunneled/other requests count toward neither, since "did the cache
+    # help" isn't a meaningful question for those -- see
+    # stats_service.get_cache_efficiency, which divides hit_requests by
+    # (hit_requests + miss_requests), not by total_requests.
+    hit_requests: Mapped[int] = mapped_column(Integer, default=0)
+    miss_requests: Mapped[int] = mapped_column(Integer, default=0)

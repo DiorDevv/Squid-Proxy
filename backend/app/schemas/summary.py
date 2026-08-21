@@ -17,3 +17,12 @@ class SummaryResponse(BaseModel):
     allowed_requests: int
     active_client_count: int
     active_user_count: int
+
+
+class CacheEfficiencyResponse(BaseModel):
+    hit_requests: int
+    miss_requests: int
+    # None when hit_requests + miss_requests == 0 -- no cacheable traffic in
+    # this window (e.g. every request was blocked or tunneled), not a real
+    # 0% hit rate. See stats_service.get_cache_efficiency.
+    hit_ratio: float | None

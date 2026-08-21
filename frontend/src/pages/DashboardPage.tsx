@@ -1,6 +1,6 @@
 import { useMemo, useRef, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import { Activity, ChevronRight, Info, ShieldCheck, ShieldX, Users } from 'lucide-react'
+import { Activity, ChevronRight, Gauge, Info, ShieldCheck, ShieldX, Users } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { SummaryCard } from '@/components/dashboard/SummaryCard'
 import { TrafficChart } from '@/components/dashboard/TrafficChart'
@@ -15,7 +15,7 @@ import { BranchSelector } from '@/components/common/BranchSelector'
 import { SavedFiltersMenu } from '@/components/common/SavedFiltersMenu'
 import { useFiltersStore, useRangeSearchParams } from '@/lib/filters-store'
 import { getPercentChange, getPreviousPeriodParams } from '@/lib/compare-period'
-import { useSummary } from '@/hooks/useSummary'
+import { useCacheEfficiency, useSummary } from '@/hooks/useSummary'
 import { useTimeseries } from '@/hooks/useTimeseries'
 import { useTopBlocked } from '@/hooks/useTopDomains'
 import { useRecentInsights } from '@/hooks/useInsights'
@@ -75,6 +75,7 @@ export default function DashboardPage() {
   const granularity = granularityForRange(filterMode, filterRange, customFrom, customTo)
 
   const summaryQuery = useSummary(rangeParams, live)
+  const cacheEfficiencyQuery = useCacheEfficiency(rangeParams, live)
   const timeseriesQuery = useTimeseries(rangeParams, granularity, live)
   const topBlockedQuery = useTopBlocked(rangeParams, 5, live)
   // Same query InsightsPanel makes (identical queryKey) -- sharing its cache
@@ -147,7 +148,7 @@ export default function DashboardPage() {
         </div>
       )}
 
-      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+      <div className="grid grid-cols-2 gap-3 lg:grid-cols-5">
         <SummaryCard
           label={t('dashboard.totalRequests')}
           value={summary?.total_requests ?? 0}
@@ -198,6 +199,15 @@ export default function DashboardPage() {
             summary?.active_client_count ?? 0,
             previousSummary?.active_client_count,
           )}
+        />
+        <SummaryCard
+          label={t('dashboard.cacheHitRate')}
+          value={Math.round((cacheEfficiencyQuery.data?.hit_ratio ?? 0) * 100)}
+          icon={Gauge}
+          tone="default"
+          loading={cacheEfficiencyQuery.isLoading}
+          updating={cacheEfficiencyQuery.isFetching && !cacheEfficiencyQuery.isLoading}
+          formatValue={(v) => `${v}%`}
         />
       </div>
 

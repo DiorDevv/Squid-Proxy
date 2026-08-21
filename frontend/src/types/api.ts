@@ -22,6 +22,14 @@ export interface SummaryResponse {
   active_user_count: number
 }
 
+export interface CacheEfficiencyResponse {
+  hit_requests: number
+  miss_requests: number
+  // null when hit_requests + miss_requests === 0 -- no cacheable traffic in
+  // this window, not a real 0% hit rate.
+  hit_ratio: number | null
+}
+
 export interface TimeseriesPoint {
   bucket_ts: string
   total_requests: number

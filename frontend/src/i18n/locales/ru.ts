@@ -94,6 +94,7 @@ export const ru = {
   'dashboard.blocked': 'Заблокировано',
   'dashboard.allowed': 'Разрешено',
   'dashboard.activeClients': 'Активные клиенты',
+  'dashboard.cacheHitRate': 'Эффективность кэша',
   'dashboard.trafficOverTime': 'Трафик по времени',
   'dashboard.topBlockedDomains': 'Самые блокируемые домены',
   'dashboard.liveEvents': 'События в реальном времени',

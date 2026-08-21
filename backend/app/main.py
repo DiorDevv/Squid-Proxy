@@ -38,7 +38,7 @@ async def lifespan(app: FastAPI):
 
     await bootstrap_admin_user()
 
-    from app.core.security import WsTicketStore
+    from app.core.security import MfaChallengeStore, WsTicketStore
     from app.services.event_store import RingBuffer
     from app.services.log_tailer import LogTailer
     from app.services.ws_manager import WebSocketManager
@@ -46,9 +46,11 @@ async def lifespan(app: FastAPI):
     ring_buffer = RingBuffer(max_events=settings.RING_BUFFER_MAX_EVENTS)
     ws_manager = WebSocketManager()
     ws_ticket_store = WsTicketStore(ttl_seconds=settings.WS_TICKET_EXPIRE_SECONDS)
+    mfa_challenge_store = MfaChallengeStore()
     app.state.ring_buffer = ring_buffer
     app.state.ws_manager = ws_manager
     app.state.ws_ticket_store = ws_ticket_store
+    app.state.mfa_challenge_store = mfa_challenge_store
 
     # One LogTailer per configured branch/log source (see
     # Settings.effective_log_sources) -- all feed the same, single, shared

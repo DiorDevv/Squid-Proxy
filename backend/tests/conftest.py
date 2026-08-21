@@ -22,6 +22,7 @@ from app.models import (  # noqa: F401
     minute_aggregate,
     raw_event,
     refresh_token,
+    totp_recovery_code,
     user,
 )
 from app.models.db import Base, _ensure_aggregate_unique_indexes
@@ -85,7 +86,7 @@ async def test_app(db_engine, monkeypatch):
     # boots without touching a real log file or spawning a real tailer.
     from contextlib import asynccontextmanager
 
-    from app.core.security import WsTicketStore
+    from app.core.security import MfaChallengeStore, WsTicketStore
     from app.services.event_store import RingBuffer
     from app.services.ws_manager import WebSocketManager
 
@@ -96,6 +97,7 @@ async def test_app(db_engine, monkeypatch):
         _app.state.ring_buffer = RingBuffer(max_events=1000)
         _app.state.ws_manager = WebSocketManager()
         _app.state.ws_ticket_store = WsTicketStore(ttl_seconds=30)
+        _app.state.mfa_challenge_store = MfaChallengeStore(ttl_seconds=30)
         _app.state.log_tailers = {"default": _NullTailer()}
         yield
 

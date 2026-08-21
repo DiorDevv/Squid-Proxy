@@ -9,6 +9,7 @@ from app.api.deps import CurrentUser, get_current_user, get_db
 from app.core.config import get_settings
 from app.core.rate_limit import limiter
 from app.core.security import (
+    MfaChallengeStore,
     create_access_token,
     decode_refresh_cookie_value,
     encode_refresh_cookie_value,
@@ -18,7 +19,19 @@ from app.core.security import (
 )
 from app.models.refresh_token import RefreshToken
 from app.models.user import User
-from app.schemas.auth import LoginRequest, LoginResponse, RefreshResponse, WsTicketResponse
+from app.schemas.auth import (
+    LoginRequest,
+    LoginResponse,
+    RefreshResponse,
+    TotpConfirmRequest,
+    TotpConfirmResponse,
+    TotpDisableRequest,
+    TotpSetupResponse,
+    TotpStatusResponse,
+    VerifyMfaRequest,
+    WsTicketResponse,
+)
+from app.services import totp_service
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/auth", tags=["auth"])
@@ -67,6 +80,48 @@ async def login(
     if user is None or not password_ok:
         raise INVALID_CREDENTIALS
 
+    if user.totp_enabled:
+        # Password alone isn't enough -- hand back a short-lived, single-use
+        # challenge instead of real tokens; the frontend prompts for a code
+        # and completes login via POST /login/verify-mfa. No refresh cookie
+        # is set yet, so an intercepted challenge_token alone (without the
+        # code too) grants nothing.
+        store: MfaChallengeStore = request.app.state.mfa_challenge_store
+        challenge_token = store.issue(user.id)
+        return LoginResponse(mfa_required=True, challenge_token=challenge_token)
+
+    access_token = create_access_token(user_id=user.id, role=user.role.value, branch=user.branch)
+    await _issue_refresh_cookie(response, db, user.id)
+
+    return LoginResponse(
+        access_token=access_token,
+        expires_in_seconds=settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60,
+        role=user.role.value,
+        email=user.email,
+        branch=user.branch,
+    )
+
+
+@router.post("/login/verify-mfa", response_model=LoginResponse)
+@limiter.limit(get_settings().SENSITIVE_ACTION_RATE_LIMIT)
+async def verify_mfa(
+    request: Request, response: Response, body: VerifyMfaRequest, db: AsyncSession = Depends(get_db)
+) -> LoginResponse:
+    settings = get_settings()
+    store: MfaChallengeStore = request.app.state.mfa_challenge_store
+    user_id = store.peek(body.challenge_token)
+    if user_id is None:
+        raise INVALID_CREDENTIALS
+
+    user = (await db.execute(select(User).where(User.id == user_id))).scalar_one_or_none()
+    if user is None or not user.totp_enabled:
+        raise INVALID_CREDENTIALS
+
+    if not await totp_service.verify_login_code(db, user, body.code):
+        store.record_failure(body.challenge_token)
+        raise INVALID_CREDENTIALS
+
+    store.consume(body.challenge_token)
     access_token = create_access_token(user_id=user.id, role=user.role.value, branch=user.branch)
     await _issue_refresh_cookie(response, db, user.id)
 
@@ -170,3 +225,56 @@ async def issue_ws_ticket(
     store = request.app.state.ws_ticket_store
     ticket = store.issue(user_id=current_user.user_id, role=current_user.role, branch=current_user.branch)
     return WsTicketResponse(ticket=ticket, expires_in_seconds=int(store.ttl_seconds))
+
+
+async def _load_current_user(db: AsyncSession, current_user: CurrentUser) -> User:
+    user = (await db.execute(select(User).where(User.id == current_user.user_id))).scalar_one_or_none()
+    if user is None:
+        raise INVALID_CREDENTIALS
+    return user
+
+
+@router.get("/totp/status", response_model=TotpStatusResponse)
+async def get_totp_status(
+    db: AsyncSession = Depends(get_db), current_user: CurrentUser = Depends(get_current_user)
+) -> TotpStatusResponse:
+    user = await _load_current_user(db, current_user)
+    return TotpStatusResponse(enabled=user.totp_enabled)
+
+
+@router.post("/totp/setup", response_model=TotpSetupResponse)
+@limiter.limit(get_settings().SENSITIVE_ACTION_RATE_LIMIT)
+async def setup_totp(
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    current_user: CurrentUser = Depends(get_current_user),
+) -> TotpSetupResponse:
+    user = await _load_current_user(db, current_user)
+    secret, otpauth_uri = totp_service.begin_setup(user)
+    await db.commit()
+    return TotpSetupResponse(secret=secret, otpauth_uri=otpauth_uri)
+
+
+@router.post("/totp/confirm", response_model=TotpConfirmResponse)
+@limiter.limit(get_settings().SENSITIVE_ACTION_RATE_LIMIT)
+async def confirm_totp(
+    request: Request,
+    body: TotpConfirmRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: CurrentUser = Depends(get_current_user),
+) -> TotpConfirmResponse:
+    user = await _load_current_user(db, current_user)
+    codes = await totp_service.confirm_setup(db, user, body.code, current_user.user_id)
+    return TotpConfirmResponse(recovery_codes=codes)
+
+
+@router.post("/totp/disable", status_code=status.HTTP_204_NO_CONTENT)
+@limiter.limit(get_settings().SENSITIVE_ACTION_RATE_LIMIT)
+async def disable_totp(
+    request: Request,
+    body: TotpDisableRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: CurrentUser = Depends(get_current_user),
+) -> None:
+    user = await _load_current_user(db, current_user)
+    await totp_service.disable(db, user, body.password, current_user.user_id)

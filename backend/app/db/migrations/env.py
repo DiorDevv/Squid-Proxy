@@ -23,6 +23,7 @@ from app.models import (  # noqa: F401,E402
     raw_event,
     refresh_token,
     report_schedule_state,
+    totp_recovery_code,
     user,
 )
 from app.models.db import Base

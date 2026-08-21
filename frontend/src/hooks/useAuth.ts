@@ -2,20 +2,40 @@ import { useCallback } from 'react'
 import { api } from '@/lib/api-client'
 import { decodeAccessTokenBranch, decodeAccessTokenRole, useAuthStore } from '@/lib/auth-store'
 import { queryClient } from '@/lib/queryClient'
+import type { Role } from '@/types/auth'
 
 export function useAuth() {
   const { accessToken, role, email, branch, status, setAuth, clearAuth, setChecking } = useAuthStore()
 
-  const login = useCallback(
-    async (loginEmail: string, password: string) => {
-      const response = await api.login(loginEmail, password)
-      // Discard any cached data fetched under a previous identity (e.g. a stale
-      // branch list from an earlier admin session) before adopting the new one.
+  // Returns the challenge_token when the account has TOTP enabled (password
+  // was right, but a code is still needed -- see completeMfaLogin) instead
+  // of completing auth itself; returns null when login finished normally
+  // (no 2FA on this account), matching every caller's pre-2FA behavior.
+  const login = useCallback(async (loginEmail: string, password: string): Promise<string | null> => {
+    const response = await api.login(loginEmail, password)
+    if (response.mfa_required) {
+      return response.challenge_token
+    }
+    // Discard any cached data fetched under a previous identity (e.g. a stale
+    // branch list from an earlier admin session) before adopting the new one.
+    queryClient.clear()
+    setAuth({
+      accessToken: response.access_token as string,
+      role: response.role as Role,
+      email: response.email as string,
+      branch: response.branch,
+    })
+    return null
+  }, [setAuth])
+
+  const completeMfaLogin = useCallback(
+    async (challengeToken: string, code: string) => {
+      const response = await api.verifyMfa(challengeToken, code)
       queryClient.clear()
       setAuth({
-        accessToken: response.access_token,
-        role: response.role,
-        email: response.email,
+        accessToken: response.access_token as string,
+        role: response.role as Role,
+        email: response.email as string,
         branch: response.branch,
       })
     },
@@ -55,5 +75,5 @@ export function useAuth() {
     }
   }, [clearAuth, setChecking])
 
-  return { accessToken, role, email, branch, status, login, logout, bootstrap }
+  return { accessToken, role, email, branch, status, login, completeMfaLogin, logout, bootstrap }
 }

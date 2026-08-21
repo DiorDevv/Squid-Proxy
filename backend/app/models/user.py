@@ -2,7 +2,7 @@ import enum
 import uuid
 from datetime import UTC, datetime
 
-from sqlalchemy import Enum, String
+from sqlalchemy import Boolean, Enum, String
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.models.db import Base
@@ -28,3 +28,10 @@ class User(Base):
     # other branches' traffic, not a privilege level like role above.
     branch: Mapped[str | None] = mapped_column(String(64), nullable=True)
     created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=lambda: datetime.now(UTC))
+    # Set as soon as TOTP setup begins (app/services/totp_service.py.
+    # begin_setup), but not trusted for login until totp_enabled is True --
+    # a setup flow abandoned partway through (scanned the QR, never entered
+    # a code) must not leave the account silently protected by a secret the
+    # admin never actually confirmed working.
+    totp_secret: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    totp_enabled: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)

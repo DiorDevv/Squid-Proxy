@@ -1,7 +1,17 @@
 import { useEffect, useRef, useState } from 'react'
 import type { KeyboardEvent } from 'react'
 import { Navigate, useNavigate } from 'react-router-dom'
-import { Activity, BellRing, Eye, EyeOff, Loader2, Radar, ShieldCheck, TriangleAlert } from 'lucide-react'
+import {
+  Activity,
+  BellRing,
+  Eye,
+  EyeOff,
+  KeyRound,
+  Loader2,
+  Radar,
+  ShieldCheck,
+  TriangleAlert,
+} from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -24,7 +34,7 @@ const RATE_LIMIT_COOLDOWN_SECONDS = 30
 
 export default function LoginPage() {
   const { t } = useTranslation()
-  const { login } = useAuth()
+  const { login, completeMfaLogin } = useAuth()
   const status = useAuthStore((state) => state.status)
   const navigate = useNavigate()
 
@@ -37,6 +47,11 @@ export default function LoginPage() {
   const [retryIn, setRetryIn] = useState(0)
   const [submitting, setSubmitting] = useState(false)
   const formRef = useRef<HTMLFormElement>(null)
+  // Set once login() reports the account has 2FA on -- switches the form
+  // to the code-entry step instead of navigating straight in. Null means
+  // "still on the email/password step".
+  const [mfaChallengeToken, setMfaChallengeToken] = useState<string | null>(null)
+  const [mfaCode, setMfaCode] = useState('')
 
   useEffect(() => {
     if (retryIn <= 0) return
@@ -67,7 +82,11 @@ export default function LoginPage() {
     setError(null)
     setSubmitting(true)
     try {
-      await login(email.trim(), password)
+      const challengeToken = await login(email.trim(), password)
+      if (challengeToken) {
+        setMfaChallengeToken(challengeToken)
+        return
+      }
       navigate('/', { replace: true })
     } catch (err) {
       if (err instanceof ApiError && err.status === 429) {
@@ -83,6 +102,29 @@ export default function LoginPage() {
     } finally {
       setSubmitting(false)
     }
+  }
+
+  async function handleMfaSubmit(e: React.FormEvent) {
+    e.preventDefault()
+    if (!mfaChallengeToken) return
+    setError(null)
+    setSubmitting(true)
+    try {
+      await completeMfaLogin(mfaChallengeToken, mfaCode.trim())
+      navigate('/', { replace: true })
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : t('login.genericError'))
+      setErrorKey((prev) => prev + 1)
+      setMfaCode('')
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  function handleBackToPassword() {
+    setMfaChallengeToken(null)
+    setMfaCode('')
+    setError(null)
   }
 
   function trackCapsLock(e: KeyboardEvent<HTMLInputElement>) {
@@ -151,86 +193,143 @@ export default function LoginPage() {
             <p className="text-sm text-muted-foreground">{t('login.tagline')}</p>
           </div>
 
-          <form
-            ref={formRef}
-            onSubmit={handleSubmit}
-            className="flex flex-col gap-4 rounded-xl border border-border bg-card p-6 shadow-xl"
-          >
-            <div className="flex flex-col gap-1.5">
-              <Label htmlFor="email">{t('login.email')}</Label>
-              <Input
-                id="email"
-                type="email"
-                autoComplete="username"
-                autoFocus
-                required
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                disabled={submitting}
-                aria-invalid={Boolean(error)}
-              />
-            </div>
-            <div className="flex flex-col gap-1.5">
-              <div className="flex items-center justify-between">
-                <Label htmlFor="password">{t('login.password')}</Label>
-                {capsLockOn && (
-                  <span className="flex items-center gap-1 text-xs text-warning">
-                    <TriangleAlert className="h-3 w-3" aria-hidden="true" />
-                    {t('login.capsLockOn')}
-                  </span>
-                )}
+          {mfaChallengeToken ? (
+            <form
+              ref={formRef}
+              onSubmit={handleMfaSubmit}
+              className="flex flex-col gap-4 rounded-xl border border-border bg-card p-6 shadow-xl"
+            >
+              <div className="flex flex-col gap-1.5">
+                <div className="flex items-center gap-2 text-foreground">
+                  <KeyRound className="h-4 w-4 shrink-0" aria-hidden="true" />
+                  <h2 className="text-sm font-semibold">{t('login.mfaTitle')}</h2>
+                </div>
+                <p className="text-xs text-muted-foreground">{t('login.mfaHint')}</p>
               </div>
-              <div className="relative">
+              <div className="flex flex-col gap-1.5">
+                <Label htmlFor="mfa-code">{t('login.mfaCodeLabel')}</Label>
                 <Input
-                  id="password"
-                  type={showPassword ? 'text' : 'password'}
-                  autoComplete="current-password"
+                  id="mfa-code"
+                  type="text"
+                  inputMode="text"
+                  autoComplete="one-time-code"
+                  autoFocus
                   required
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  onKeyDown={trackCapsLock}
-                  onKeyUp={trackCapsLock}
+                  value={mfaCode}
+                  onChange={(e) => setMfaCode(e.target.value)}
                   disabled={submitting}
                   aria-invalid={Boolean(error)}
-                  className="pr-9"
+                  className="font-data text-center tracking-[0.3em]"
+                  placeholder="000000"
                 />
-                <button
-                  type="button"
-                  onClick={() => setShowPassword((prev) => !prev)}
-                  tabIndex={-1}
-                  className="absolute inset-y-0 right-0 flex w-9 items-center justify-center text-muted-foreground transition-colors hover:text-foreground"
-                  aria-label={showPassword ? t('login.hidePassword') : t('login.showPassword')}
+              </div>
+
+              {error && (
+                <div
+                  role="alert"
+                  className="flex animate-in items-start gap-2 rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive fade-in slide-in-from-top-1 duration-200"
                 >
-                  {showPassword ? (
-                    <EyeOff className="h-4 w-4" aria-hidden="true" />
-                  ) : (
-                    <Eye className="h-4 w-4" aria-hidden="true" />
-                  )}
-                </button>
-              </div>
-            </div>
+                  <TriangleAlert className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
+                  <span>{error}</span>
+                </div>
+              )}
 
-            {error && (
-              <div
-                role="alert"
-                className="flex animate-in items-start gap-2 rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive fade-in slide-in-from-top-1 duration-200"
+              <Button type="submit" disabled={submitting} className="mt-2 gap-2">
+                {submitting && <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />}
+                {submitting ? t('login.signingIn') : t('login.mfaVerify')}
+              </Button>
+
+              <button
+                type="button"
+                onClick={handleBackToPassword}
+                disabled={submitting}
+                className="text-center text-xs text-muted-foreground underline-offset-2 hover:text-foreground hover:underline"
               >
-                <TriangleAlert className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
-                <span>{error}</span>
+                {t('login.mfaBack')}
+              </button>
+            </form>
+          ) : (
+            <form
+              ref={formRef}
+              onSubmit={handleSubmit}
+              className="flex flex-col gap-4 rounded-xl border border-border bg-card p-6 shadow-xl"
+            >
+              <div className="flex flex-col gap-1.5">
+                <Label htmlFor="email">{t('login.email')}</Label>
+                <Input
+                  id="email"
+                  type="email"
+                  autoComplete="username"
+                  autoFocus
+                  required
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  disabled={submitting}
+                  aria-invalid={Boolean(error)}
+                />
               </div>
-            )}
+              <div className="flex flex-col gap-1.5">
+                <div className="flex items-center justify-between">
+                  <Label htmlFor="password">{t('login.password')}</Label>
+                  {capsLockOn && (
+                    <span className="flex items-center gap-1 text-xs text-warning">
+                      <TriangleAlert className="h-3 w-3" aria-hidden="true" />
+                      {t('login.capsLockOn')}
+                    </span>
+                  )}
+                </div>
+                <div className="relative">
+                  <Input
+                    id="password"
+                    type={showPassword ? 'text' : 'password'}
+                    autoComplete="current-password"
+                    required
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    onKeyDown={trackCapsLock}
+                    onKeyUp={trackCapsLock}
+                    disabled={submitting}
+                    aria-invalid={Boolean(error)}
+                    className="pr-9"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword((prev) => !prev)}
+                    tabIndex={-1}
+                    className="absolute inset-y-0 right-0 flex w-9 items-center justify-center text-muted-foreground transition-colors hover:text-foreground"
+                    aria-label={showPassword ? t('login.hidePassword') : t('login.showPassword')}
+                  >
+                    {showPassword ? (
+                      <EyeOff className="h-4 w-4" aria-hidden="true" />
+                    ) : (
+                      <Eye className="h-4 w-4" aria-hidden="true" />
+                    )}
+                  </button>
+                </div>
+              </div>
 
-            <Button type="submit" disabled={submitting || retryIn > 0} className="mt-2 gap-2">
-              {submitting && <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />}
-              {submitting
-                ? t('login.signingIn')
-                : retryIn > 0
-                  ? t('login.tryAgainIn', { seconds: retryIn })
-                  : t('login.signIn')}
-            </Button>
+              {error && (
+                <div
+                  role="alert"
+                  className="flex animate-in items-start gap-2 rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive fade-in slide-in-from-top-1 duration-200"
+                >
+                  <TriangleAlert className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
+                  <span>{error}</span>
+                </div>
+              )}
 
-            <p className="text-center text-xs text-muted-foreground">{t('login.noAccountNote')}</p>
-          </form>
+              <Button type="submit" disabled={submitting || retryIn > 0} className="mt-2 gap-2">
+                {submitting && <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />}
+                {submitting
+                  ? t('login.signingIn')
+                  : retryIn > 0
+                    ? t('login.tryAgainIn', { seconds: retryIn })
+                    : t('login.signIn')}
+              </Button>
+
+              <p className="text-center text-xs text-muted-foreground">{t('login.noAccountNote')}</p>
+            </form>
+          )}
 
           <div className="mt-6 flex items-center justify-center gap-1.5 text-xs text-muted-foreground">
             <ShieldCheck className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />

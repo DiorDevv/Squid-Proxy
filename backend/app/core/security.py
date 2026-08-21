@@ -144,3 +144,76 @@ class WsTicketStore:
         expired = [key for key, (_, _, _, expires_at) in self._tickets.items() if now > expires_at]
         for key in expired:
             del self._tickets[key]
+
+
+class MfaChallengeStore:
+    """In-memory single-use challenges bridging login's two steps for a
+    TOTP-enabled account: password verified but the code not yet entered.
+    Deliberately not a JWT -- unlike an access/refresh token this must be
+    revocable server-side after a fixed number of wrong-code guesses
+    (a 6-digit TOTP code is brute-forceable given enough attempts, so the
+    challenge itself -- not just the login route's own rate limit -- needs
+    to die after a handful of failures rather than staying guessable for
+    its whole TTL). Same single-process, in-memory scope as WsTicketStore.
+    """
+
+    MAX_ATTEMPTS = 5
+
+    def __init__(self, ttl_seconds: float = 300.0, sweep_every: int = 100) -> None:
+        self.ttl_seconds = ttl_seconds
+        self._sweep_every = sweep_every
+        self._issued_since_sweep = 0
+        # token -> (user_id, expires_at, attempts_so_far)
+        self._challenges: dict[str, tuple[str, float, int]] = {}
+
+    def issue(self, user_id: str) -> str:
+        self._issued_since_sweep += 1
+        if self._issued_since_sweep >= self._sweep_every:
+            self._sweep_expired()
+        token = secrets.token_urlsafe(24)
+        self._challenges[token] = (user_id, time.monotonic() + self.ttl_seconds, 0)
+        return token
+
+    def peek(self, token: str) -> str | None:
+        """The challenge's user_id without consuming it or counting an
+        attempt -- callers must still call either consume() (on a correct
+        code) or record_failure() (on a wrong one) to move the challenge
+        forward."""
+        entry = self._challenges.get(token)
+        if entry is None:
+            return None
+        user_id, expires_at, _attempts = entry
+        if time.monotonic() > expires_at:
+            del self._challenges[token]
+            return None
+        return user_id
+
+    def record_failure(self, token: str) -> None:
+        """Counts one wrong-code attempt; invalidates the whole challenge
+        once MAX_ATTEMPTS is reached, forcing a fresh login+password rather
+        than leaving a guessable challenge alive for its full TTL."""
+        entry = self._challenges.get(token)
+        if entry is None:
+            return
+        user_id, expires_at, attempts = entry
+        attempts += 1
+        if attempts >= self.MAX_ATTEMPTS:
+            del self._challenges[token]
+        else:
+            self._challenges[token] = (user_id, expires_at, attempts)
+
+    def consume(self, token: str) -> str | None:
+        """Call only once the code has been verified correct -- single-use,
+        same as WsTicketStore.consume."""
+        user_id = self.peek(token)
+        if user_id is None:
+            return None
+        del self._challenges[token]
+        return user_id
+
+    def _sweep_expired(self) -> None:
+        self._issued_since_sweep = 0
+        now = time.monotonic()
+        expired = [key for key, (_, expires_at, _) in self._challenges.items() if now > expires_at]
+        for key in expired:
+            del self._challenges[key]

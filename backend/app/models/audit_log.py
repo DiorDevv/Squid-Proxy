@@ -28,6 +28,9 @@ class AuditAction(str, enum.Enum):
     EXPORT_SHARE_REVOKED = "export_share_revoked"
     REPORT_SENT_NOW = "report_sent_now"
     USER_BRANCH_CHANGED = "user_branch_changed"
+    TOTP_ENABLED = "totp_enabled"
+    TOTP_DISABLED = "totp_disabled"
+    TOTP_RECOVERY_CODE_USED = "totp_recovery_code_used"
 
 
 class AuditLogEntry(Base):

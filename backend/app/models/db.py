@@ -82,6 +82,7 @@ async def init_db() -> None:
         minute_aggregate,
         raw_event,
         refresh_token,
+        totp_recovery_code,
         user,
     )
 

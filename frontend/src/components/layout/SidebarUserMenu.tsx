@@ -1,4 +1,5 @@
-import { LogOut, MoreVertical } from 'lucide-react'
+import { useState } from 'react'
+import { KeyRound, LogOut, MoreVertical } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { toast } from 'sonner'
 import {
@@ -11,6 +12,7 @@ import {
 } from '@/components/ui/dropdown-menu'
 import { ThemeSwitcher } from '@/components/layout/ThemeSwitcher'
 import { LanguageSwitcher } from '@/components/layout/LanguageSwitcher'
+import { TwoFactorDialog } from '@/components/account/TwoFactorDialog'
 import { useAuth } from '@/hooks/useAuth'
 import { useAuthStore } from '@/lib/auth-store'
 import { useTranslation } from '@/i18n'
@@ -27,6 +29,7 @@ export function SidebarUserMenu() {
   const navigate = useNavigate()
   const email = useAuthStore((state) => state.email)
   const role = useAuthStore((state) => state.role)
+  const [totpDialogOpen, setTotpDialogOpen] = useState(false)
 
   const label = email ?? (role ? `${role} account` : t('account.signedIn'))
   const initials = (email ?? role ?? '?').charAt(0).toUpperCase()
@@ -77,12 +80,27 @@ export function SidebarUserMenu() {
             <LanguageSwitcher />
           </div>
           <DropdownMenuSeparator />
+          <DropdownMenuItem
+            onSelect={(e) => {
+              // Keep the dropdown's own closing from also stealing focus
+              // away from the dialog that's about to open (a known Radix
+              // gotcha when a Dialog is triggered from inside a
+              // DropdownMenu item rather than a plain DialogTrigger).
+              e.preventDefault()
+              setTotpDialogOpen(true)
+            }}
+          >
+            <KeyRound className="h-4 w-4" aria-hidden="true" />
+            {t('account.totpMenuItem')}
+          </DropdownMenuItem>
+          <DropdownMenuSeparator />
           <DropdownMenuItem onSelect={handleLogout} variant="destructive">
             <LogOut className="h-4 w-4" aria-hidden="true" />
             {t('account.signOut')}
           </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
+      <TwoFactorDialog open={totpDialogOpen} onOpenChange={setTotpDialogOpen} />
     </div>
   )
 }

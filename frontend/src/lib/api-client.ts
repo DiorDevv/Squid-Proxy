@@ -1,7 +1,15 @@
 import { API_BASE_URL } from '@/lib/constants'
 import { decodeAccessTokenBranch, decodeAccessTokenRole, getAccessToken, useAuthStore } from '@/lib/auth-store'
 import { translate, useLocaleStore } from '@/i18n'
-import type { LoginResponse, RefreshResponse, Role, WsTicketResponse } from '@/types/auth'
+import type {
+  LoginResponse,
+  RefreshResponse,
+  Role,
+  TotpConfirmResponse,
+  TotpSetupResponse,
+  TotpStatusResponse,
+  WsTicketResponse,
+} from '@/types/auth'
 import type {
   DomainCategoryImportResponse,
   DomainCategoryLabel,
@@ -122,6 +130,18 @@ export const api = {
   refresh: () => apiFetch<RefreshResponse>('/api/auth/refresh', { method: 'POST', skipAuthRetry: true }),
   logout: () => apiFetch<void>('/api/auth/logout', { method: 'POST', skipAuthRetry: true }),
   wsTicket: () => apiFetch<WsTicketResponse>('/api/auth/ws-ticket', { method: 'POST' }),
+  verifyMfa: (challengeToken: string, code: string) =>
+    apiFetch<LoginResponse>('/api/auth/login/verify-mfa', {
+      method: 'POST',
+      body: { challenge_token: challengeToken, code },
+      skipAuthRetry: true,
+    }),
+  totpStatus: () => apiFetch<TotpStatusResponse>('/api/auth/totp/status'),
+  totpSetup: () => apiFetch<TotpSetupResponse>('/api/auth/totp/setup', { method: 'POST' }),
+  totpConfirm: (code: string) =>
+    apiFetch<TotpConfirmResponse>('/api/auth/totp/confirm', { method: 'POST', body: { code } }),
+  totpDisable: (password: string) =>
+    apiFetch<void>('/api/auth/totp/disable', { method: 'POST', body: { password } }),
   listUsers: () => apiFetch<UserSummary[]>('/api/users'),
   createUser: (data: { email: string; password: string; role: Role; branch: string | null }) =>
     apiFetch<UserSummary>('/api/users', { method: 'POST', body: data }),

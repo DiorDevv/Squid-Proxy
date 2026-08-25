@@ -7,9 +7,14 @@ import { Sparkline } from '@/components/common/Sparkline'
 
 interface SummaryCardProps {
   label: string
-  value: number
+  /** null means "no meaningful value for this range" (e.g. cache hit rate
+   * with zero cacheable traffic) -- distinct from 0, which is a real
+   * measured value. Renders as a dash instead of a misleading "0". */
+  value: number | null
   icon: LucideIcon
   tone?: 'default' | 'warning' | 'success' | 'info' | 'purple'
+  /** Shown as the dash's title/tooltip when value is null. */
+  noDataLabel?: string
   loading?: boolean
   /** True while a background refetch (e.g. a new range) is in flight but a
    * previous value is still on screen -- dims the number instead of
@@ -75,15 +80,17 @@ export function SummaryCard({
   value,
   icon: Icon,
   tone = 'default',
+  noDataLabel,
   loading,
   updating,
   formatValue = formatNumber,
   deltaPercent,
   sparkline,
 }: SummaryCardProps) {
-  const animated = useCountUp(value)
+  const hasValue = value !== null
+  const animated = useCountUp(value ?? 0)
   const styles = TONE_STYLES[tone]
-  const delta = !loading && typeof deltaPercent === 'number' ? deltaPercent : null
+  const delta = !loading && hasValue && typeof deltaPercent === 'number' ? deltaPercent : null
 
   return (
     <div className="group relative flex flex-col gap-3 overflow-hidden rounded-xl border border-border bg-card p-4 transition-all duration-200 hover:border-border/60 hover:shadow-lg">
@@ -117,10 +124,12 @@ export function SummaryCard({
           <span
             className={cn(
               'font-data text-3xl font-semibold tracking-tight text-foreground transition-opacity duration-200',
+              !hasValue && 'text-muted-foreground',
               updating && 'opacity-50',
             )}
+            title={!hasValue ? noDataLabel : undefined}
           >
-            {formatValue(animated)}
+            {hasValue ? formatValue(animated) : '—'}
           </span>
           {delta !== null && (
             <span

@@ -202,7 +202,12 @@ export default function DashboardPage() {
         />
         <SummaryCard
           label={t('dashboard.cacheHitRate')}
-          value={Math.round((cacheEfficiencyQuery.data?.hit_ratio ?? 0) * 100)}
+          value={
+            cacheEfficiencyQuery.data?.hit_ratio != null
+              ? Math.round(cacheEfficiencyQuery.data.hit_ratio * 100)
+              : null
+          }
+          noDataLabel={t('dashboard.cacheHitRateNoData')}
           icon={Gauge}
           tone="default"
           loading={cacheEfficiencyQuery.isLoading}

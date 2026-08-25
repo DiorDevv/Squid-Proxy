@@ -129,6 +129,7 @@ export const ru = {
   'dashboard.allowed': 'Разрешено',
   'dashboard.activeClients': 'Активные клиенты',
   'dashboard.cacheHitRate': 'Эффективность кэша',
+  'dashboard.cacheHitRateNoData': 'Нет кэшируемого трафика за этот период',
   'dashboard.trafficOverTime': 'Трафик по времени',
   'dashboard.topBlockedDomains': 'Самые блокируемые домены',
   'dashboard.liveEvents': 'События в реальном времени',

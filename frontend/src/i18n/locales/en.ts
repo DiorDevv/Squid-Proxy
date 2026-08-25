@@ -139,6 +139,7 @@ export const en = {
   'dashboard.allowed': 'Allowed',
   'dashboard.activeClients': 'Active clients',
   'dashboard.cacheHitRate': 'Cache hit rate',
+  'dashboard.cacheHitRateNoData': 'No cacheable traffic in this range',
   'dashboard.trafficOverTime': 'Traffic over time',
   'dashboard.topBlockedDomains': 'Top blocked domains',
   'dashboard.liveEvents': 'Live events',

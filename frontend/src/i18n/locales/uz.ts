@@ -132,6 +132,7 @@ export const uz = {
   'dashboard.allowed': 'Ruxsat berilgan',
   'dashboard.activeClients': 'Faol mijozlar',
   'dashboard.cacheHitRate': 'Kesh samaradorligi',
+  'dashboard.cacheHitRateNoData': 'Bu oraliqda keshlanadigan trafik yoʻq',
   'dashboard.trafficOverTime': 'Vaqt boʻyicha trafik',
   'dashboard.topBlockedDomains': 'Eng koʻp bloklangan domenlar',
   'dashboard.liveEvents': 'Jonli hodisalar',

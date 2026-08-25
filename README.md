@@ -399,6 +399,13 @@ webhook URL and it renders correctly (a `"text"` field is included alongside the
 non-Slack consumer). See `OPS_ALERT_WEBHOOK_URL` (below, "Operator failure notifications") for the
 separate infra-failure channel.
 
+`TELEGRAM_BOT_TOKEN`/`TELEGRAM_SUPER_ADMIN_CHAT_ID` (optional; off by default, see
+`backend/.env.example`) add Telegram as a second delivery channel for the same anomalies, gated by
+the same `ALERT_MIN_SEVERITY`. One bot serves every chat: `TELEGRAM_SUPER_ADMIN_CHAT_ID` always
+gets every branch's alerts; each branch's own chat is set independently by that branch's admin at
+**Settings → Alert settings** (with a "Send test message" button to verify the chat ID before
+saving it) and only receives that branch's alerts.
+
 Scheduled email reports (a periodic summary + CSV attachment) are configured via
 `REPORT_SCHEDULE` (`disabled` | `daily` | `weekly`), `REPORT_RECIPIENTS`, and `SMTP_*` — see
 `backend/.env.example`. These *are* environment variables (SMTP credentials are infrastructure

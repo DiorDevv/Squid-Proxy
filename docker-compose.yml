@@ -49,6 +49,10 @@ x-backend-common: &backend-common
     ALERT_WEBHOOK_URL: ${ALERT_WEBHOOK_URL:-}
     ALERT_MIN_SEVERITY: ${ALERT_MIN_SEVERITY:-high}
     OPS_ALERT_WEBHOOK_URL: ${OPS_ALERT_WEBHOOK_URL:-}
+    # Optional -- Telegram alerting, alongside ALERT_WEBHOOK_URL above (see
+    # "Category/quota alerting" in README.md). Empty/unset stays inert.
+    TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-}
+    TELEGRAM_SUPER_ADMIN_CHAT_ID: ${TELEGRAM_SUPER_ADMIN_CHAT_ID:-}
     # Optional -- see "UT1 bulk domain blacklist" in backend/.env.example.
     # Off unless UT1_ENABLED=true is set in .env.
     UT1_ENABLED: ${UT1_ENABLED:-false}

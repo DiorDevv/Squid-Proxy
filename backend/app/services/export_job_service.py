@@ -411,17 +411,25 @@ async def run_job(job_id: str) -> None:
                 result_path = raw_path
             else:
                 raw_path = _jobs_dir() / f"{job_id}.{job.format}"
-                stream_kwargs = {
-                    "client_ip": job.client_ip,
-                    "domain": job.domain,
-                    "domain_in": domain_in,
-                    "columns": resolved_columns,
-                }
-                stream_args = (session, job.since, job.until, job.blocked_only, job.branch, row_counter)
-                stream = (
-                    stream_csv(*stream_args, **stream_kwargs)
-                    if job.format == "csv"
-                    else stream_json(*stream_args, **stream_kwargs)
+                # Explicit named args rather than a shared dict spread across
+                # both branches -- stream_csv/stream_json's parameters have
+                # different types from each other (str | None, set[str] |
+                # None, list[str] | None, ...), so a single **kwargs dict
+                # covering all of them can't be statically checked against
+                # either signature. stream_fn's type unifies cleanly instead,
+                # since both functions share an identical signature.
+                stream_fn = stream_csv if job.format == "csv" else stream_json
+                stream = stream_fn(
+                    session,
+                    job.since,
+                    job.until,
+                    job.blocked_only,
+                    job.branch,
+                    row_counter,
+                    client_ip=job.client_ip,
+                    domain=job.domain,
+                    domain_in=domain_in,
+                    columns=resolved_columns,
                 )
                 with raw_path.open("w", encoding="utf-8", newline="") as f:
                     async for chunk in stream:

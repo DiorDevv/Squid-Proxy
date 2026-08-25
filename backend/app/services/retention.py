@@ -10,8 +10,9 @@ is comparatively expensive to retain.
 import logging
 from collections import defaultdict
 from datetime import UTC, datetime, timedelta
+from typing import cast
 
-from sqlalchemy import delete, func, literal_column, select
+from sqlalchemy import CursorResult, delete, func, literal_column, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import Settings, get_settings
@@ -24,7 +25,7 @@ from app.models.domain_aggregate import DomainMinuteAggregate
 from app.models.minute_aggregate import MinuteAggregate
 from app.models.raw_event import RawEvent
 from app.models.refresh_token import RefreshToken
-from app.services.db_upsert import bulk_upsert_sum
+from app.services.db_upsert import bulk_upsert_sum, declared_table
 from app.services.export_job_service import purge_old_jobs
 from app.services.interval_job import IntervalJob
 from app.services.report_service import send_unarchived_purge_warning
@@ -160,7 +161,11 @@ class RetentionJob(IntervalJob):
                 )
                 result = await session.execute(delete(RawEvent).where(RawEvent.id.in_(batch_ids)))
                 await session.commit()
-                deleted = result.rowcount
+                # A Core DELETE always executes through the DBAPI cursor, so
+                # this is really a CursorResult at runtime -- AsyncSession
+                # .execute()'s stub return type is the more general Result,
+                # which doesn't declare .rowcount (only CursorResult does).
+                deleted = cast(CursorResult, result).rowcount
             total_deleted += deleted
             if deleted < _RAW_EVENTS_DELETE_BATCH_SIZE:
                 return total_deleted
@@ -221,7 +226,7 @@ class RetentionJob(IntervalJob):
         ]
         await bulk_upsert_sum(
             session,
-            ClientHourlyAggregate.__table__,
+            declared_table(ClientHourlyAggregate),
             hourly_rows,
             index_elements=[
                 ClientHourlyAggregate.bucket_ts,

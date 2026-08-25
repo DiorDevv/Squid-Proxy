@@ -10,11 +10,23 @@ the same "add to existing row, or create it" work in one statement.
 """
 
 from collections.abc import Iterator, Mapping, Sequence
-from typing import Any
+from typing import Any, cast
 
-from sqlalchemy import ColumnElement, Table
+from sqlalchemy import Table
 from sqlalchemy.dialects import postgresql, sqlite
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.sql.roles import DDLConstraintColumnRole
+
+
+def declared_table(model: type[Any]) -> Table:
+    """`model.__table__` narrowed to `Table`. SQLAlchemy's own stubs type a
+    declarative class's `.__table__` as the more general `FromClause`
+    (correct in the abstract -- a mapped class could in principle map to a
+    join or subquery), but every model in this codebase maps directly to a
+    `Table` via `__tablename__`, so this is a single, deliberate narrowing
+    rather than a `# type: ignore` (or a `cast()`) repeated at every one of
+    this module's callers."""
+    return cast(Table, model.__table__)
 
 # A single INSERT's VALUES list binds len(row) * len(rows) parameters --
 # SQLite's SQLITE_MAX_VARIABLE_NUMBER defaults to 999 on many still-common
@@ -78,7 +90,7 @@ async def bulk_upsert_sum(
     session: AsyncSession,
     table: Table,
     rows: Sequence[Mapping[str, Any]],
-    index_elements: Sequence[ColumnElement | str],
+    index_elements: Sequence[DDLConstraintColumnRole | str],
     sum_columns: Sequence[str],
 ) -> None:
     """Insert every row in `rows`; for any that collide with an existing row
@@ -87,11 +99,14 @@ async def bulk_upsert_sum(
     key (the aggregator's per-flush dict keys guarantee this) -- a multi-row
     VALUES list with two rows sharing a key is undefined per most dialects.
 
-    `index_elements` may be plain columns/names for a normal unique index,
-    or SQLAlchemy expressions (e.g. `func.coalesce(table.c.user, "")`) to
-    match an expression-based unique index exactly, as
-    client_minute_aggregates' (bucket_ts, client_ip, coalesce(user, '')))
-    index requires.
+    `table` should be built via `declared_table()` above, not
+    `Model.__table__` directly (see that function's docstring for why).
+
+    `index_elements` may be plain columns (an `InstrumentedAttribute`, e.g.
+    `Model.some_column`) or names for a normal unique index, or SQLAlchemy
+    expressions (e.g. `func.coalesce(table.c.user, "")`) to match an
+    expression-based unique index exactly, as client_minute_aggregates'
+    (bucket_ts, client_ip, coalesce(user, '')) index requires.
 
     A big flush window's rows are split across as many statements as needed
     to stay under _MAX_VARIABLES_PER_STATEMENT -- all still inside the

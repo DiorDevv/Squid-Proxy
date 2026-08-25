@@ -51,6 +51,7 @@ dev = [
     "pytest-asyncio>=1.4,<2",
     "ruff>=0.7,<0.8",
     "aiosqlite>=0.20,<0.21",
+    "mypy>=2.3,<3",
 ]
 
 [tool.ruff]
@@ -64,6 +65,22 @@ ignore = ["B008"]
 
 [tool.ruff.lint.per-file-ignores]
 "tests/*" = ["E501"]
+
+[tool.mypy]
+python_version = "3.11"
+# app/db/migrations/versions/* is generated/templated by `alembic revision`
+# and each file only needs to type-check in isolation, not as a coherent
+# whole -- excluded for the same reason ruff excludes it above.
+exclude = ["app/db/migrations/versions"]
+# Third-party stubs aren't available/complete for every dependency here
+# (e.g. slowapi, openpyxl in places) -- ignore missing imports rather than
+# either vendoring stubs for libraries that don't ship them or disabling
+# type-checking for whole modules that use them.
+ignore_missing_imports = true
+disallow_untyped_defs = true
+check_untyped_defs = true
+warn_redundant_casts = true
+warn_unused_ignores = true
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"

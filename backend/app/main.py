@@ -1,8 +1,9 @@
 import logging
 import uuid
+from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
@@ -12,12 +13,13 @@ from app.core.config import get_settings
 from app.core.exceptions import register_exception_handlers
 from app.core.logging import configure_logging, request_id_var
 from app.core.rate_limit import limiter
+from app.services.log_parser import ParsedEvent
 
 logger = logging.getLogger(__name__)
 
 
 @asynccontextmanager
-async def lifespan(app: FastAPI):
+async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     settings = get_settings()
     configure_logging(settings.LOG_LEVEL)
     logger.info("Starting Squid Dashboard backend", extra={"environment": settings.ENVIRONMENT})
@@ -164,7 +166,7 @@ async def lifespan(app: FastAPI):
         await undownloaded_export_monitor.stop()
 
 
-def _handle_new_event(app: FastAPI, event) -> None:
+def _handle_new_event(app: FastAPI, event: ParsedEvent) -> None:
     stored = app.state.ring_buffer.append(event)
     app.state.ws_manager.broadcast_nowait(stored)
 
@@ -190,7 +192,13 @@ def create_app() -> FastAPI:
     )
 
     app.state.limiter = limiter
-    app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+    # slowapi's own handler is typed narrowly for RateLimitExceeded, while
+    # Starlette's registry wants a handler typed for the general Exception
+    # (it dispatches by the registered exception *class* passed as the first
+    # argument here, not by the handler's own annotation) -- a structural
+    # mismatch between the two libraries' stubs, not a real bug; this is
+    # exactly how slowapi's own docs wire it up.
+    app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)  # type: ignore[arg-type]
 
     app.add_middleware(
         CORSMiddleware,
@@ -201,7 +209,9 @@ def create_app() -> FastAPI:
     )
 
     @app.middleware("http")
-    async def add_request_id(request: Request, call_next):
+    async def add_request_id(
+        request: Request, call_next: Callable[[Request], Awaitable[Response]]
+    ) -> Response:
         request_id = request.headers.get("X-Request-ID") or str(uuid.uuid4())
         token = request_id_var.set(request_id)
         try:

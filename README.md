@@ -252,6 +252,7 @@ Open **http://localhost:5173**.
 cd backend && source .venv/bin/activate
 pytest              # unit + integration tests
 ruff check .         # lint
+mypy app             # static type checking
 
 # Frontend
 cd frontend

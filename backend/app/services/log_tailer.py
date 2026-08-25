@@ -244,7 +244,12 @@ class LogTailer:
         # race-free even though _poll_once_sync() (which advanced self._fh/
         # self._partial to get here) ran in a worker thread. Not persisted
         # to disk yet; see checkpoint().
-        if self._fh is not None:
+        # self._inode is always set alongside self._fh by _open_initial()/
+        # _reopen() -- the extra None-check (rather than trusting that
+        # invariant blindly) means a violation of it skips this snapshot
+        # instead of persisting a checkpoint with a None inode that
+        # checkpoint()/_save_persisted_state() aren't prepared to handle.
+        if self._fh is not None and self._inode is not None:
             self._last_read_state = (self._inode, self._fh.tell(), self._partial)
         return False
 

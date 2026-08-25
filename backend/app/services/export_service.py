@@ -3,7 +3,7 @@
 import csv
 import io
 import json
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Sequence
 from datetime import datetime
 from typing import Any
 
@@ -101,7 +101,7 @@ def _escape_csv_formula(value: object) -> object:
 
 async def _fetch_rows(
     session: AsyncSession, since: datetime, until: datetime, blocked_only: bool, branch: str | None = None
-) -> list[RawEvent]:
+) -> Sequence[RawEvent]:
     conditions = build_event_conditions(since, until, blocked_only=blocked_only, branch=branch)
 
     query = (
@@ -179,7 +179,7 @@ async def _iter_batches(
     client_ip: str | None = None,
     domain: str | None = None,
     domain_in: set[str] | None = None,
-) -> AsyncIterator[list[RawEvent]]:
+) -> AsyncIterator[Sequence[RawEvent]]:
     conditions = build_event_conditions(
         since,
         until,
@@ -368,7 +368,7 @@ def _sanitize_xlsx_value(value: object) -> object:
 
 
 async def write_xlsx_rows(
-    worksheet,
+    worksheet: Any,  # openpyxl.worksheet._write_only.WriteOnlyWorksheet -- see new_xlsx_workbook's own Any
     session: AsyncSession,
     since: datetime,
     until: datetime,

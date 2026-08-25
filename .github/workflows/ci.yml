@@ -28,6 +28,7 @@ jobs:
       - run: pip install -e ".[dev]"
       - run: pytest -q
       - run: ruff check .
+      - run: mypy app
 
   frontend:
     runs-on: ubuntu-latest

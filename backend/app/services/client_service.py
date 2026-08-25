@@ -9,9 +9,11 @@ to-the-second timestamps.
 """
 
 from datetime import datetime, timedelta
+from typing import Any
 
 from sqlalchemy import func, or_, select, union_all
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.sql.selectable import Select, Subquery
 
 from app.models.client_aggregate import ClientMinuteAggregate
 from app.models.client_hourly_aggregate import ClientHourlyAggregate
@@ -28,7 +30,7 @@ def client_bucket_rows(
     client_ip: str | None = None,
     search: str | None = None,
     branch: str | None = None,
-):
+) -> Subquery:
     """A client_ip/user/branch/bucket_ts/counts subquery unioning
     client_minute_aggregates and client_hourly_aggregates over the same
     [since, until] range. Safe to just UNION both unconditionally rather
@@ -44,7 +46,7 @@ def client_bucket_rows(
     """
     needle = f"%{search.strip()}%" if search and search.strip() else None
 
-    def _source(model):
+    def _source(model: type[ClientMinuteAggregate] | type[ClientHourlyAggregate]) -> Select[Any]:
         if model is ClientHourlyAggregate:
             # Hourly rows are truncated to the top of the hour and each one
             # represents the whole [bucket_ts, bucket_ts + 1h) window. A

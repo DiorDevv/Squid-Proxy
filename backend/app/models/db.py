@@ -9,12 +9,13 @@ import logging
 from collections.abc import AsyncGenerator
 
 from sqlalchemy import event, text
+from sqlalchemy.engine.interfaces import DBAPIConnection
 from sqlalchemy.exc import DBAPIError
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.orm import DeclarativeBase
 from sqlalchemy.pool import ConnectionPoolEntry
 
-from app.core.config import get_settings
+from app.core.config import Settings, get_settings
 
 logger = logging.getLogger(__name__)
 
@@ -26,7 +27,7 @@ class Base(DeclarativeBase):
 _settings = get_settings()
 
 
-def _build_engine_kwargs(settings) -> dict:
+def _build_engine_kwargs(settings: Settings) -> dict:
     """kwargs for create_async_engine, split out as a pure function so pool
     sizing can be unit-tested without opening a real connection (see
     tests/test_db.py). pool_size/max_overflow are only meaningful for a
@@ -57,7 +58,9 @@ engine = create_async_engine(_settings.DATABASE_URL, **_build_engine_kwargs(_set
 if _settings.DATABASE_URL.startswith("sqlite"):
 
     @event.listens_for(engine.sync_engine, "connect")
-    def _set_sqlite_pragmas(dbapi_connection, connection_record: ConnectionPoolEntry) -> None:
+    def _set_sqlite_pragmas(
+        dbapi_connection: DBAPIConnection, connection_record: ConnectionPoolEntry
+    ) -> None:
         cursor = dbapi_connection.cursor()
         cursor.execute("PRAGMA journal_mode=WAL")
         cursor.execute("PRAGMA foreign_keys=ON")
@@ -96,7 +99,7 @@ async def init_db() -> None:
     await _ensure_aggregate_unique_indexes(engine)
 
 
-async def _ensure_aggregate_unique_indexes(bind_engine=None) -> None:
+async def _ensure_aggregate_unique_indexes(bind_engine: AsyncEngine | None = None) -> None:
     """Idempotently add the aggregate-table unique indexes for installs that
     only ever run `create_all` (never Alembic) -- see migration
     466aaa85c9f3_aggregate_unique_constraints for the full rationale.

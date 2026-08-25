@@ -1,8 +1,9 @@
 import logging
 from datetime import UTC, datetime
+from typing import cast
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
-from sqlalchemy import select, update
+from sqlalchemy import CursorResult, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import CurrentUser, get_current_user, get_db
@@ -184,7 +185,11 @@ async def refresh(
         .where(RefreshToken.jti == jti, RefreshToken.revoked.is_(False))
         .values(revoked=True)
     )
-    if result.rowcount == 0:
+    # A Core UPDATE always executes through the DBAPI cursor, so this is
+    # really a CursorResult at runtime -- AsyncSession.execute()'s stub
+    # return type is the more general Result, which doesn't declare
+    # .rowcount (only CursorResult does).
+    if cast(CursorResult, result).rowcount == 0:
         await db.rollback()
         response.delete_cookie(REFRESH_COOKIE_NAME, path=REFRESH_COOKIE_PATH)
         raise INVALID_REFRESH

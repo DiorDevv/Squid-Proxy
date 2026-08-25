@@ -111,6 +111,7 @@ def _looks_like_host(value: str) -> bool:
 def _extract_domain(url: str, method: str) -> str | None:
     if not url or url == _EMPTY:
         return None
+    host: str | None
     if method == "CONNECT" or "://" not in url:
         # CONNECT / tunneled requests are logged as "host:port", no scheme.
         host = url.rsplit(":", 1)[0] if ":" in url else url
@@ -225,6 +226,8 @@ def parse_line(line: str, branch: str = DEFAULT_BRANCH) -> ParsedEvent | None:
 
     user = None if raw_user == _EMPTY else raw_user
 
+    hierarchy: str | None
+    peer: str | None
     if "/" in raw_hierarchy_from:
         hierarchy, peer = raw_hierarchy_from.split("/", 1)
     else:

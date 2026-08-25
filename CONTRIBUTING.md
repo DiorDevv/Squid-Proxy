@@ -40,6 +40,7 @@ mergeable:
 cd backend && source .venv/bin/activate
 pytest
 ruff check .
+mypy app
 
 # Frontend
 cd frontend

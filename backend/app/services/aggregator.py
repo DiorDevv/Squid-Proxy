@@ -31,7 +31,7 @@ from app.models.raw_event import RawEvent
 from app.services import insights_service
 from app.services.alerting import maybe_alert
 from app.services.category_inference import effective_category
-from app.services.db_upsert import bulk_upsert_sum, chunk_rows, max_variables_for
+from app.services.db_upsert import bulk_upsert_sum, chunk_rows, declared_table, max_variables_for
 from app.services.domain_category_service import get_overrides_map
 from app.services.event_store import RingBuffer, StoredEvent
 
@@ -247,7 +247,7 @@ class Aggregator:
                 columns_per_row=len(raw_rows[0]) if raw_rows else 1,
                 max_variables=max_variables_for(session),
             ):
-                await session.execute(insert(RawEvent.__table__), batch)
+                await session.execute(insert(declared_table(RawEvent)), batch)
             await session.commit()
 
         # Only advance past these events once they're durably committed --
@@ -385,7 +385,7 @@ class Aggregator:
         ]
         await bulk_upsert_sum(
             session,
-            MinuteAggregate.__table__,
+            declared_table(MinuteAggregate),
             rows,
             index_elements=[MinuteAggregate.bucket_ts, MinuteAggregate.branch],
             sum_columns=[
@@ -418,7 +418,7 @@ class Aggregator:
         ]
         await bulk_upsert_sum(
             session,
-            DomainMinuteAggregate.__table__,
+            declared_table(DomainMinuteAggregate),
             rows,
             index_elements=[
                 DomainMinuteAggregate.bucket_ts,
@@ -450,7 +450,7 @@ class Aggregator:
         ]
         await bulk_upsert_sum(
             session,
-            ClientCategoryMinuteAggregate.__table__,
+            declared_table(ClientCategoryMinuteAggregate),
             rows,
             index_elements=[
                 ClientCategoryMinuteAggregate.bucket_ts,
@@ -490,7 +490,7 @@ class Aggregator:
         # expression index when its constant subexpressions are literals too.
         await bulk_upsert_sum(
             session,
-            ClientMinuteAggregate.__table__,
+            declared_table(ClientMinuteAggregate),
             rows,
             index_elements=[
                 ClientMinuteAggregate.bucket_ts,

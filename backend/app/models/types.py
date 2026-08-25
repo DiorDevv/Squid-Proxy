@@ -14,6 +14,7 @@ remember to re-attach `tzinfo=UTC` by hand.
 from datetime import UTC, datetime
 
 from sqlalchemy import DateTime
+from sqlalchemy.engine.interfaces import Dialect
 from sqlalchemy.types import TypeDecorator
 
 
@@ -21,7 +22,7 @@ class UTCDateTime(TypeDecorator):
     impl = DateTime(timezone=True)
     cache_ok = True
 
-    def process_result_value(self, value: datetime | None, dialect) -> datetime | None:
+    def process_result_value(self, value: datetime | None, dialect: Dialect) -> datetime | None:
         if value is not None and value.tzinfo is None:
             return value.replace(tzinfo=UTC)
         return value

@@ -19,7 +19,7 @@ import httpx
 from app.core.config import get_settings
 from app.models.anomaly_event import AnomalyEvent, AnomalySeverity
 from app.models.db import AsyncSessionLocal
-from app.services import alert_settings_service
+from app.services import alert_settings_service, telegram_global_settings_service
 
 logger = logging.getLogger(__name__)
 
@@ -40,13 +40,23 @@ def _format_message(event: AnomalyEvent) -> str:
 async def _recipients(event: AnomalyEvent) -> set[str]:
     settings = get_settings()
     chat_ids: set[str] = set()
-    if settings.TELEGRAM_SUPER_ADMIN_CHAT_ID:
-        chat_ids.add(settings.TELEGRAM_SUPER_ADMIN_CHAT_ID)
-    if event.branch:
-        async with AsyncSessionLocal() as session:
+
+    async with AsyncSessionLocal() as session:
+        global_row = await telegram_global_settings_service.get_settings_row(session)
+        # DB value (set via a pairing code, see telegram_link_service.py)
+        # wins; TELEGRAM_SUPER_ADMIN_CHAT_ID is only the bootstrap fallback
+        # for a deployment that configured it before this row existed --
+        # same "DB wins, env is the fallback" shape OPS_ALERT_WEBHOOK_URL
+        # already uses against ALERT_WEBHOOK_URL.
+        super_admin_chat_id = global_row.super_admin_chat_id or settings.TELEGRAM_SUPER_ADMIN_CHAT_ID
+        if super_admin_chat_id:
+            chat_ids.add(super_admin_chat_id)
+
+        if event.branch:
             row = await alert_settings_service.get_settings_row(session, event.branch)
-        if row.telegram_chat_id:
-            chat_ids.add(row.telegram_chat_id)
+            if row.telegram_chat_id:
+                chat_ids.add(row.telegram_chat_id)
+
     return chat_ids
 
 

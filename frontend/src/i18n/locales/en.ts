@@ -284,6 +284,7 @@ export const en = {
   'settings.nav.users': 'Users & audit',
   'settings.nav.categories': 'Categories & alerts',
   'settings.nav.export': 'Export',
+  'settings.nav.telegram': 'Telegram',
   'settings.userManagement': 'User management',
   'settings.auditLog': 'Audit log',
   'settings.domainCategories': 'Domain categories',
@@ -311,13 +312,29 @@ export const en = {
   'settings.uncategorizedDomainThresholdDescription':
     'Flag a domain that had this many requests in the last 24h but still has no category assigned. Leave blank to disable.',
   'settings.alertSettingsSaved': 'Alert settings saved.',
-  'settings.telegramChatId': 'Telegram chat ID',
-  'settings.telegramChatIdPlaceholder': 'e.g. -1001234567890',
+  'settings.telegramChatId': 'Telegram',
   'settings.telegramChatIdDescription':
-    "This branch's alerts are sent to this chat, in addition to the super-admin chat (if configured). Add the bot to the chat first, then paste its chat ID here.",
+    "This branch's alerts are sent to this chat, in addition to the super-admin chat (if configured).",
   'settings.telegramTestSend': 'Send test message',
   'settings.telegramTestSent': 'Test message sent.',
   'settings.telegramTestFailed': 'Failed to send the test message.',
+  'settings.telegramLink.connected': 'Connected',
+  'settings.telegramLink.notConnected': 'Not connected',
+  'settings.telegramLink.connect': 'Connect Telegram',
+  'settings.telegramLink.reconnect': 'Reconnect',
+  'settings.telegramLink.dialogTitle': 'Connect Telegram',
+  'settings.telegramLink.dialogInstructions':
+    'Open the bot in Telegram, press Start, and send it the code below.',
+  'settings.telegramLink.expiresIn': 'Expires in {{time}}',
+  'settings.telegramLink.codeExpired': 'This code has expired.',
+  'settings.telegramLink.newCode': 'Get a new code',
+  'settings.telegramLink.close': 'Close',
+  'settings.telegramLink.linkedSuccess': 'Telegram connected successfully.',
+
+  'settings.superAdminTelegram.title': 'Super-admin Telegram',
+  'settings.superAdminTelegram.description':
+    'This chat receives every branch’s alerts, in addition to each branch’s own chat.',
+  'settings.superAdminTelegram.notAuthorized': 'Only an unrestricted admin can manage this.',
 
   'settings.reports': 'Scheduled reports',
   'settings.reportSchedule': 'Schedule',

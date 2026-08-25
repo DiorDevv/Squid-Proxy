@@ -227,3 +227,112 @@ async def test_branch_admin_cannot_overwrite_other_branch_alert_settings(
         "/api/alert-settings", params={"branch": "branch-b"}, headers=auth_headers(admin_token)
     )
     assert get_response.json()["sensitive_categories"] == []
+
+
+# --- Telegram pairing-code linking (app/services/telegram_link_service.py):
+# replaces manually typing a raw chat id with a short-lived 6-digit code
+# redeemed in Telegram. ---
+
+
+async def test_create_telegram_link_code_scoped_to_own_branch(
+    app_client: AsyncClient, branch_a_admin_token, auth_headers
+):
+    response = await app_client.post(
+        "/api/alert-settings/telegram-link", headers=auth_headers(branch_a_admin_token)
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert len(body["code"]) == 6
+    assert body["code"].isdigit()
+
+
+async def test_branch_admin_cannot_create_super_admin_telegram_link_code(
+    app_client: AsyncClient, branch_a_admin_token, auth_headers
+):
+    response = await app_client.post(
+        "/api/alert-settings/telegram-link/super-admin", headers=auth_headers(branch_a_admin_token)
+    )
+    assert response.status_code == 403
+
+
+async def test_unrestricted_admin_can_create_super_admin_telegram_link_code(
+    app_client: AsyncClient, admin_token, auth_headers
+):
+    response = await app_client.post(
+        "/api/alert-settings/telegram-link/super-admin", headers=auth_headers(admin_token)
+    )
+    assert response.status_code == 200
+    assert response.json()["code"].isdigit()
+
+
+async def test_branch_admin_cannot_view_super_admin_telegram_chat(
+    app_client: AsyncClient, branch_a_admin_token, auth_headers
+):
+    response = await app_client.get(
+        "/api/alert-settings/telegram-super-admin", headers=auth_headers(branch_a_admin_token)
+    )
+    assert response.status_code == 403
+
+
+async def test_unrestricted_admin_can_view_super_admin_telegram_chat(
+    app_client: AsyncClient, admin_token, auth_headers
+):
+    response = await app_client.get(
+        "/api/alert-settings/telegram-super-admin", headers=auth_headers(admin_token)
+    )
+    assert response.status_code == 200
+    assert response.json() == {"chat_id": None}
+
+
+async def test_telegram_link_status_reports_pending_code(
+    app_client: AsyncClient, branch_a_admin_token, auth_headers
+):
+    create_response = await app_client.post(
+        "/api/alert-settings/telegram-link", headers=auth_headers(branch_a_admin_token)
+    )
+    code = create_response.json()["code"]
+
+    status_response = await app_client.get(
+        f"/api/alert-settings/telegram-link/{code}/status", headers=auth_headers(branch_a_admin_token)
+    )
+    assert status_response.status_code == 200
+    assert status_response.json() == {"consumed": False, "expired": False, "chat_id": None}
+
+
+async def test_telegram_link_status_unknown_code_is_404(
+    app_client: AsyncClient, admin_token, auth_headers
+):
+    response = await app_client.get(
+        "/api/alert-settings/telegram-link/000000/status", headers=auth_headers(admin_token)
+    )
+    assert response.status_code == 404
+
+
+async def test_branch_admin_cannot_check_another_branchs_telegram_link_status(
+    app_client: AsyncClient, branch_a_admin_token, admin_token, auth_headers
+):
+    create_response = await app_client.post(
+        "/api/alert-settings/telegram-link",
+        params={"branch": "branch-b"},
+        headers=auth_headers(admin_token),
+    )
+    code = create_response.json()["code"]
+
+    response = await app_client.get(
+        f"/api/alert-settings/telegram-link/{code}/status", headers=auth_headers(branch_a_admin_token)
+    )
+    assert response.status_code == 403
+
+
+async def test_branch_admin_cannot_check_super_admin_telegram_link_status(
+    app_client: AsyncClient, branch_a_admin_token, admin_token, auth_headers
+):
+    create_response = await app_client.post(
+        "/api/alert-settings/telegram-link/super-admin", headers=auth_headers(admin_token)
+    )
+    code = create_response.json()["code"]
+
+    response = await app_client.get(
+        f"/api/alert-settings/telegram-link/{code}/status", headers=auth_headers(branch_a_admin_token)
+    )
+    assert response.status_code == 403

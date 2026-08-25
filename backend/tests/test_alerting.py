@@ -54,6 +54,19 @@ def _reset_recorded_calls():
     yield
 
 
+@pytest.fixture(autouse=True)
+def _disable_telegram_channel(monkeypatch):
+    """maybe_alert() fans out to telegram_alerting.notify() alongside the
+    webhook this file tests -- without this, whether these tests hit a real
+    DB/Telegram API depends on whatever TELEGRAM_BOT_TOKEN happens to be set
+    in the environment (e.g. a real .env for local manual testing), which
+    has nothing to do with what this file is testing. Forcing it unset here
+    keeps these webhook-only tests hermetic regardless."""
+    monkeypatch.setattr(
+        alerting.telegram_alerting, "get_settings", lambda: Settings(TELEGRAM_BOT_TOKEN=None)
+    )
+
+
 async def test_maybe_alert_is_noop_without_webhook_url(monkeypatch):
     monkeypatch.setattr(alerting, "get_settings", lambda: Settings(ALERT_WEBHOOK_URL=None))
     monkeypatch.setattr(alerting.httpx, "AsyncClient", _RecordingAsyncClient)

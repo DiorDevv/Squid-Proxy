@@ -268,6 +268,7 @@ export const ru = {
   'settings.nav.users': 'Пользователи и аудит',
   'settings.nav.categories': 'Категории и оповещения',
   'settings.nav.export': 'Экспорт',
+  'settings.nav.telegram': 'Telegram',
   'settings.userManagement': 'Управление пользователями',
   'settings.auditLog': 'Журнал аудита',
   'settings.domainCategories': 'Категории доменов',
@@ -295,13 +296,29 @@ export const ru = {
   'settings.uncategorizedDomainThresholdDescription':
     'Оповещать о домене без категории, если у него за последние 24ч было больше этого числа запросов. Оставьте пустым, чтобы отключить.',
   'settings.alertSettingsSaved': 'Настройки оповещений сохранены.',
-  'settings.telegramChatId': 'ID чата Telegram',
-  'settings.telegramChatIdPlaceholder': 'напр. -1001234567890',
+  'settings.telegramChatId': 'Telegram',
   'settings.telegramChatIdDescription':
-    'Оповещения этого филиала отправляются в этот чат, в дополнение к чату главного администратора (если он настроен). Сначала добавьте бота в чат, затем вставьте сюда его ID.',
+    'Оповещения этого филиала отправляются в этот чат, в дополнение к чату главного администратора (если он настроен).',
   'settings.telegramTestSend': 'Отправить тестовое сообщение',
   'settings.telegramTestSent': 'Тестовое сообщение отправлено.',
   'settings.telegramTestFailed': 'Не удалось отправить тестовое сообщение.',
+  'settings.telegramLink.connected': 'Подключено',
+  'settings.telegramLink.notConnected': 'Не подключено',
+  'settings.telegramLink.connect': 'Подключить Telegram',
+  'settings.telegramLink.reconnect': 'Переподключить',
+  'settings.telegramLink.dialogTitle': 'Подключить Telegram',
+  'settings.telegramLink.dialogInstructions':
+    'Откройте бота в Telegram, нажмите Start и отправьте ему код ниже.',
+  'settings.telegramLink.expiresIn': 'Истекает через {{time}}',
+  'settings.telegramLink.codeExpired': 'Срок действия этого кода истёк.',
+  'settings.telegramLink.newCode': 'Получить новый код',
+  'settings.telegramLink.close': 'Закрыть',
+  'settings.telegramLink.linkedSuccess': 'Telegram успешно подключён.',
+
+  'settings.superAdminTelegram.title': 'Telegram главного администратора',
+  'settings.superAdminTelegram.description':
+    'Этот чат получает оповещения всех филиалов, в дополнение к собственному чату каждого филиала.',
+  'settings.superAdminTelegram.notAuthorized': 'Управлять этим может только неограниченный администратор.',
 
   'settings.reports': 'Периодические отчёты',
   'settings.reportSchedule': 'Расписание',

@@ -36,6 +36,10 @@ class AuditAction(str, enum.Enum):
     TOTP_ENABLED = "totp_enabled"
     TOTP_DISABLED = "totp_disabled"
     TOTP_RECOVERY_CODE_USED = "totp_recovery_code_used"
+    # A branch's or the super-admin's Telegram chat linked via a pairing
+    # code -- see app/services/telegram_link_service.py. Distinct from
+    # ALERT_SETTINGS_UPDATED (a manual PUT /api/alert-settings save).
+    TELEGRAM_LINKED = "telegram_linked"
 
 
 class AuditLogEntry(Base):

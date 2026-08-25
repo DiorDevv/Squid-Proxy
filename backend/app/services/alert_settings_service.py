@@ -90,3 +90,31 @@ async def update_settings(
     await session.commit()
     await session.refresh(row)
     return row
+
+
+async def set_telegram_chat_id(
+    session: AsyncSession, branch: str, chat_id: str, actor_user_id: str
+) -> AlertSettings:
+    """Sets only telegram_chat_id, unlike update_settings above -- used by
+    telegram_link_service.consume_code, which must not require (and
+    therefore risk silently resetting) the other threshold fields just to
+    record a pairing-code link. Does not commit -- the caller commits once
+    alongside its own TelegramLinkCode row update, so a code is never
+    marked consumed without the chat id it resolved to actually being
+    saved, or vice versa."""
+    row = (
+        await session.execute(select(AlertSettings).where(AlertSettings.branch == branch))
+    ).scalar_one_or_none()
+    if row is None:
+        row = AlertSettings(branch=branch)
+        session.add(row)
+
+    row.telegram_chat_id = chat_id
+    await audit_service.record(
+        session,
+        action=AuditAction.TELEGRAM_LINKED,
+        actor_user_id=actor_user_id,
+        branch=branch,
+        detail=f"branch={branch} Telegram chat linked via pairing code",
+    )
+    return row

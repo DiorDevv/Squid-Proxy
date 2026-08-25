@@ -7,8 +7,15 @@ import { Label } from '@/components/ui/label'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { ErrorState } from '@/components/common/ErrorState'
+import { TelegramLinkDialog } from '@/components/settings/TelegramLinkDialog'
 import { useAlertSettings, useTestTelegramAlert, useUpdateAlertSettings } from '@/hooks/useAlertSettings'
 import { useBranches } from '@/hooks/useBranches'
+import {
+  useCreateTelegramLinkCode,
+  useInvalidateTelegramLinkTarget,
+  useTelegramLinkFlow,
+  useTelegramLinkStatus,
+} from '@/hooks/useTelegramLink'
 import { ApiError } from '@/lib/api-client'
 import { CATEGORY_LABEL_KEYS, CATEGORY_OPTIONS } from '@/lib/categories'
 import { useTranslation } from '@/i18n'
@@ -98,6 +105,9 @@ function AlertSettingsForm({ branch, data }: { branch: string; data: AlertSettin
   const { t } = useTranslation()
   const updateSettings = useUpdateAlertSettings(branch)
   const testTelegramAlert = useTestTelegramAlert(branch)
+  const createTelegramLinkCode = useCreateTelegramLinkCode(branch)
+  const { invalidateBranch } = useInvalidateTelegramLinkTarget()
+  const telegramLink = useTelegramLinkFlow(() => createTelegramLinkCode.mutateAsync())
 
   const [sensitiveCategories, setSensitiveCategories] = useState<Set<DomainCategoryLabel>>(
     () => new Set(data.sensitive_categories),
@@ -109,7 +119,6 @@ function AlertSettingsForm({ branch, data }: { branch: string; data: AlertSettin
   const [uncategorizedThreshold, setUncategorizedThreshold] = useState(() =>
     data.uncategorized_domain_request_threshold != null ? String(data.uncategorized_domain_request_threshold) : '',
   )
-  const [telegramChatId, setTelegramChatId] = useState(() => data.telegram_chat_id ?? '')
 
   function setCategoryChecked(category: DomainCategoryLabel, checked: boolean) {
     setSensitiveCategories((prev) => {
@@ -140,7 +149,10 @@ function AlertSettingsForm({ branch, data }: { branch: string; data: AlertSettin
         non_work_minutes_threshold: minutes,
         client_daily_byte_quota_bytes: quota,
         uncategorized_domain_request_threshold: uncategorizedValue,
-        telegram_chat_id: telegramChatId.trim() || null,
+        // Not editable from this form any more (see the Telegram section
+        // below) -- passed through unchanged so a manual save here never
+        // resets a chat linked via a pairing code.
+        telegram_chat_id: data.telegram_chat_id,
       },
       {
         onSuccess: () => toast.success(t('settings.alertSettingsSaved')),
@@ -150,9 +162,8 @@ function AlertSettingsForm({ branch, data }: { branch: string; data: AlertSettin
   }
 
   function handleTestTelegram() {
-    const chatId = telegramChatId.trim()
-    if (!chatId) return
-    testTelegramAlert.mutate(chatId, {
+    if (!data.telegram_chat_id) return
+    testTelegramAlert.mutate(data.telegram_chat_id, {
       onSuccess: () => toast.success(t('settings.telegramTestSent')),
       onError: (err) => toast.error(err instanceof ApiError ? err.message : t('settings.telegramTestFailed')),
     })
@@ -219,26 +230,39 @@ function AlertSettingsForm({ branch, data }: { branch: string; data: AlertSettin
       </div>
 
       <div className="flex flex-col gap-1.5">
-        <Label htmlFor="telegram-chat-id">{t('settings.telegramChatId')}</Label>
-        <div className="flex gap-2">
-          <Input
-            id="telegram-chat-id"
-            placeholder={t('settings.telegramChatIdPlaceholder')}
-            value={telegramChatId}
-            onChange={(e) => setTelegramChatId(e.target.value)}
-            className="max-w-xs"
-          />
-          <Button
-            type="button"
-            variant="outline"
-            onClick={handleTestTelegram}
-            disabled={!telegramChatId.trim() || testTelegramAlert.isPending}
-          >
-            {t('settings.telegramTestSend')}
+        <Label>{t('settings.telegramChatId')}</Label>
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="text-sm text-muted-foreground">
+            {data.telegram_chat_id ? `✅ ${t('settings.telegramLink.connected')}` : `❌ ${t('settings.telegramLink.notConnected')}`}
+          </span>
+          <Button type="button" variant="outline" size="sm" onClick={telegramLink.connect}>
+            {data.telegram_chat_id ? t('settings.telegramLink.reconnect') : t('settings.telegramLink.connect')}
           </Button>
+          {data.telegram_chat_id && (
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={handleTestTelegram}
+              disabled={testTelegramAlert.isPending}
+            >
+              {t('settings.telegramTestSend')}
+            </Button>
+          )}
         </div>
         <p className="text-xs text-muted-foreground">{t('settings.telegramChatIdDescription')}</p>
       </div>
+
+      <TelegramLinkDialog
+        open={telegramLink.open}
+        onOpenChange={telegramLink.handleOpenChange}
+        title={t('settings.telegramLink.dialogTitle')}
+        instructions={t('settings.telegramLink.dialogInstructions')}
+        code={telegramLink.code}
+        onRequestNewCode={telegramLink.requestNewCode}
+        useStatus={useTelegramLinkStatus}
+        onLinked={() => invalidateBranch(branch)}
+      />
 
       <Button onClick={handleSave} disabled={updateSettings.isPending} className="w-fit">
         {t('common.save')}

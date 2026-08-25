@@ -21,3 +21,18 @@ class UpdateAlertSettingsRequest(BaseModel):
     client_daily_byte_quota_bytes: int | None = None
     uncategorized_domain_request_threshold: int | None = None
     telegram_chat_id: str | None = None
+
+
+class TelegramLinkCodeOut(BaseModel):
+    code: str
+    expires_at: datetime
+
+
+class TelegramLinkStatusOut(BaseModel):
+    consumed: bool
+    expired: bool
+    chat_id: str | None
+
+
+class TelegramSuperAdminOut(BaseModel):
+    chat_id: str | None

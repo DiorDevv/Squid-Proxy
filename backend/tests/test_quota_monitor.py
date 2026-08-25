@@ -3,15 +3,28 @@
 
 from datetime import UTC, datetime, timedelta
 
+import pytest
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import Settings
 from app.models.anomaly_event import AnomalyEvent, AnomalySeverity
 from app.models.client_aggregate import ClientMinuteAggregate
-from app.services import alert_settings_service
+from app.services import alert_settings_service, telegram_alerting
 from app.services.quota_monitor import ANOMALY_TITLE, QuotaMonitorJob
 
 ONE_GB = 1_000_000_000
+
+
+@pytest.fixture(autouse=True)
+def _disable_telegram_channel(monkeypatch):
+    """job.run() below flows into maybe_alert(), which fans out to
+    telegram_alerting.notify() alongside the anomaly persistence this file
+    actually tests -- without this, whether these tests hit a real DB
+    depends on whatever TELEGRAM_BOT_TOKEN happens to be set in the
+    environment (e.g. a real .env for local manual testing), unrelated to
+    what this file is testing."""
+    monkeypatch.setattr(telegram_alerting, "get_settings", lambda: Settings(TELEGRAM_BOT_TOKEN=None))
 
 
 def _patch_session(monkeypatch, db_session: AsyncSession) -> None:

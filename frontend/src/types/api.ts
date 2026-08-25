@@ -114,6 +114,21 @@ export interface AlertSettingsOut {
   updated_at: string
 }
 
+export interface TelegramLinkCodeOut {
+  code: string
+  expires_at: string
+}
+
+export interface TelegramLinkStatusOut {
+  consumed: boolean
+  expired: boolean
+  chat_id: string | null
+}
+
+export interface TelegramSuperAdminOut {
+  chat_id: string | null
+}
+
 export interface ReportStatus {
   schedule: 'disabled' | 'daily' | 'weekly'
   recipients_configured: boolean

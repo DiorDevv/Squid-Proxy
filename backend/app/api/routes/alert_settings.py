@@ -1,3 +1,5 @@
+from datetime import UTC, datetime
+
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -5,8 +7,20 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.deps import CurrentUser, get_current_user, get_db, require_admin
 from app.core.config import DEFAULT_BRANCH, get_settings
 from app.models.alert_settings import AlertSettings
-from app.schemas.alerts import AlertSettingsOut, UpdateAlertSettingsRequest
-from app.services import alert_settings_service, telegram_alerting
+from app.models.telegram_link_code import TelegramLinkCode, TelegramLinkTarget
+from app.schemas.alerts import (
+    AlertSettingsOut,
+    TelegramLinkCodeOut,
+    TelegramLinkStatusOut,
+    TelegramSuperAdminOut,
+    UpdateAlertSettingsRequest,
+)
+from app.services import (
+    alert_settings_service,
+    telegram_alerting,
+    telegram_global_settings_service,
+    telegram_link_service,
+)
 
 router = APIRouter(
     prefix="/api/alert-settings", tags=["alert-settings"], dependencies=[Depends(require_admin)]
@@ -29,6 +43,26 @@ async def _scoped_branch(
             status_code=status.HTTP_403_FORBIDDEN, detail="You do not have access to this branch."
         )
     return current_user.branch or branch
+
+
+async def _require_unrestricted_admin(
+    current_user: CurrentUser = Depends(get_current_user),
+) -> CurrentUser:
+    """The super-admin Telegram chat is global, not scoped to any one
+    branch -- only an unrestricted admin (current_user.branch is None) may
+    view or (re-)link it. A branch-scoped admin has no legitimate reason to
+    reach these endpoints at all, so this rejects outright rather than
+    substituting/redirecting the way _scoped_branch does."""
+    if current_user.branch is not None:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only an unrestricted admin can manage the super-admin Telegram chat.",
+        )
+    return current_user
+
+
+def _link_code_to_out(row: TelegramLinkCode) -> TelegramLinkCodeOut:
+    return TelegramLinkCodeOut(code=row.code, expires_at=row.expires_at)
 
 
 def _to_out(row: AlertSettings) -> AlertSettingsOut:
@@ -102,3 +136,61 @@ async def test_telegram_alert(
             detail="Failed to send the Telegram test message. Check the chat ID and that the bot "
             "has been added to that chat.",
         ) from exc
+
+
+@router.post("/telegram-link", response_model=TelegramLinkCodeOut)
+async def create_telegram_link_code(
+    branch: str = Depends(_scoped_branch),
+    current_user: CurrentUser = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> TelegramLinkCodeOut:
+    """Issues a fresh 6-digit pairing code for `branch` -- see
+    app/services/telegram_link_service.py. Shown in the dashboard; redeemed
+    by sending it to the bot in Telegram (app/services/telegram_link_poller.py)."""
+    row = await telegram_link_service.create_branch_code(db, branch, current_user.user_id)
+    return _link_code_to_out(row)
+
+
+@router.post("/telegram-link/super-admin", response_model=TelegramLinkCodeOut)
+async def create_super_admin_telegram_link_code(
+    current_user: CurrentUser = Depends(_require_unrestricted_admin),
+    db: AsyncSession = Depends(get_db),
+) -> TelegramLinkCodeOut:
+    row = await telegram_link_service.create_super_admin_code(db, current_user.user_id)
+    return _link_code_to_out(row)
+
+
+@router.get("/telegram-link/{code}/status", response_model=TelegramLinkStatusOut)
+async def get_telegram_link_status(
+    code: str,
+    current_user: CurrentUser = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> TelegramLinkStatusOut:
+    """Re-applies the same scoping a code's creation endpoint would have
+    enforced, keyed off the code's own stored target/branch -- a
+    branch-scoped admin can't poll another branch's (or the super-admin's)
+    pending code just by guessing/knowing its 6 digits."""
+    row = await telegram_link_service.get_code(db, code)
+    if row is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Code not found.")
+
+    if row.target == TelegramLinkTarget.SUPER_ADMIN:
+        if current_user.branch is not None:
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized.")
+    elif current_user.branch is not None and row.branch != current_user.branch:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized.")
+
+    return TelegramLinkStatusOut(
+        consumed=row.consumed_at is not None,
+        expired=row.consumed_at is None and row.expires_at < datetime.now(UTC),
+        chat_id=row.consumed_chat_id,
+    )
+
+
+@router.get("/telegram-super-admin", response_model=TelegramSuperAdminOut)
+async def get_super_admin_telegram(
+    current_user: CurrentUser = Depends(_require_unrestricted_admin),
+    db: AsyncSession = Depends(get_db),
+) -> TelegramSuperAdminOut:
+    row = await telegram_global_settings_service.get_settings_row(db)
+    return TelegramSuperAdminOut(chat_id=row.super_admin_chat_id)

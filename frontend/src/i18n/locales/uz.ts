@@ -271,6 +271,7 @@ export const uz = {
   'settings.nav.users': 'Foydalanuvchilar va audit',
   'settings.nav.categories': 'Kategoriya va ogohlantirish',
   'settings.nav.export': 'Eksport',
+  'settings.nav.telegram': 'Telegram',
   'settings.userManagement': 'Foydalanuvchilarni boshqarish',
   'settings.auditLog': 'Audit jurnali',
   'settings.domainCategories': 'Domen turkumlari',
@@ -298,13 +299,29 @@ export const uz = {
   'settings.uncategorizedDomainThresholdDescription':
     'So‘nggi 24 soatda shu miqdordan ko‘p so‘rov qilingan, lekin hali kategoriyaga ega bo‘lmagan domen ogohlantiriladi. Bo‘sh qoldirilsa — o‘chirilgan.',
   'settings.alertSettingsSaved': 'Ogohlantirish sozlamalari saqlandi.',
-  'settings.telegramChatId': 'Telegram chat ID',
-  'settings.telegramChatIdPlaceholder': 'masalan: -1001234567890',
+  'settings.telegramChatId': 'Telegram',
   'settings.telegramChatIdDescription':
-    "Shu filialning bildirishnomalari ushbu chatga yuboriladi, sozlangan bo'lsa bosh admin chatiga qo'shimcha ravishda. Avval botni chatga qo'shing, keyin uning chat ID sini shu yerga joylashtiring.",
+    "Shu filialning bildirishnomalari ushbu chatga yuboriladi, sozlangan bo'lsa bosh admin chatiga qo'shimcha ravishda.",
   'settings.telegramTestSend': 'Test xabar yuborish',
   'settings.telegramTestSent': 'Test xabar yuborildi.',
   'settings.telegramTestFailed': "Test xabarni yuborib bo'lmadi.",
+  'settings.telegramLink.connected': 'Ulangan',
+  'settings.telegramLink.notConnected': 'Ulanmagan',
+  'settings.telegramLink.connect': 'Telegramga ulash',
+  'settings.telegramLink.reconnect': 'Qayta ulash',
+  'settings.telegramLink.dialogTitle': 'Telegramga ulash',
+  'settings.telegramLink.dialogInstructions':
+    "Telegram'da botni oching, Start tugmasini bosing, so'ng quyidagi kodni yuboring.",
+  'settings.telegramLink.expiresIn': '{{time}} dan keyin tugaydi',
+  'settings.telegramLink.codeExpired': "Bu kodning muddati tugagan.",
+  'settings.telegramLink.newCode': "Yangi kod olish",
+  'settings.telegramLink.close': 'Yopish',
+  'settings.telegramLink.linkedSuccess': 'Telegram muvaffaqiyatli ulandi.',
+
+  'settings.superAdminTelegram.title': 'Bosh admin Telegram',
+  'settings.superAdminTelegram.description':
+    "Bu chat barcha filiallarning bildirishnomalarini oladi, har bir filialning o'z chatiga qo'shimcha ravishda.",
+  'settings.superAdminTelegram.notAuthorized': "Buni faqat cheklanmagan admin boshqara oladi.",
 
   'settings.reports': 'Davriy hisobotlar',
   'settings.reportSchedule': 'Jadval',

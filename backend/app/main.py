@@ -143,6 +143,12 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     app.state.report_scheduler = report_scheduler
     report_scheduler.start()
 
+    from app.services.telegram_link_poller import TelegramLinkPollerJob
+
+    telegram_link_poller = TelegramLinkPollerJob()
+    app.state.telegram_link_poller = telegram_link_poller
+    telegram_link_poller.start()
+
     from app.services.ut1_scheduler import Ut1BlacklistScheduler
 
     ut1_scheduler = Ut1BlacklistScheduler(interval_seconds=settings.UT1_REFRESH_INTERVAL_SECONDS)
@@ -164,6 +170,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         await ut1_scheduler.stop()
         await uncategorized_domain_monitor.stop()
         await undownloaded_export_monitor.stop()
+        await telegram_link_poller.stop()
 
 
 def _handle_new_event(app: FastAPI, event: ParsedEvent) -> None:

@@ -252,6 +252,81 @@ async def test_domain_categories_route_requires_admin(app_client: AsyncClient, v
     assert response.status_code == 403
 
 
+async def test_import_from_csv_records_one_audit_entry_not_one_per_row(db_session: AsyncSession):
+    """Regression test for the bulk-import performance fix: import used to
+    call set_category() per row, which recorded one DOMAIN_CATEGORY_SET
+    audit entry per row. A bulk import should record exactly one summary
+    DOMAIN_CATEGORY_IMPORTED entry instead."""
+    csv_text = "domain,category\na.example,news\nb.example,gaming\nc.example,shopping\n"
+    applied, errors = await domain_category_service.import_from_csv(db_session, csv_text, "actor-1")
+    assert applied == 3
+    assert errors == []
+
+    entries = (
+        (await db_session.execute(select(AuditLogEntry).where(AuditLogEntry.action == AuditAction.DOMAIN_CATEGORY_IMPORTED)))
+        .scalars()
+        .all()
+    )
+    assert len(entries) == 1
+    assert entries[0].actor_user_id == "actor-1"
+    assert "3 domain(s)" in entries[0].detail
+    assert "a.example" in entries[0].detail
+
+    set_entries = (
+        (await db_session.execute(select(AuditLogEntry).where(AuditLogEntry.action == AuditAction.DOMAIN_CATEGORY_SET)))
+        .scalars()
+        .all()
+    )
+    assert set_entries == []
+
+
+async def test_import_from_csv_duplicate_domain_last_row_wins(db_session: AsyncSession):
+    csv_text = "domain,category\ndupe.example,news\ndupe.example,gaming\n"
+    applied, errors = await domain_category_service.import_from_csv(db_session, csv_text, "actor-1")
+    assert applied == 2
+    assert errors == []
+
+    rows = {row.domain: row.category for row in await domain_category_service.list_all(db_session)}
+    assert rows["dupe.example"] == DomainCategoryLabel.GAMING
+
+
+async def test_import_from_csv_does_not_record_audit_entry_when_nothing_applied(db_session: AsyncSession):
+    applied, errors = await domain_category_service.import_from_csv(
+        db_session, "domain,category\n,gaming\n", "actor-1"
+    )
+    assert applied == 0
+    assert len(errors) == 1
+
+    entries = (
+        (await db_session.execute(select(AuditLogEntry).where(AuditLogEntry.action == AuditAction.DOMAIN_CATEGORY_IMPORTED)))
+        .scalars()
+        .all()
+    )
+    assert entries == []
+
+
+async def test_export_to_csv_escapes_leading_formula_characters(db_session: AsyncSession):
+    """A domain isn't validated as a real hostname (PUT /{domain} accepts
+    any string) -- if one starts with a spreadsheet formula trigger
+    character, the exported CSV cell must not execute as a formula when
+    opened directly in Excel/Sheets. Round-tripping the export back through
+    import must still recover the exact original domain."""
+    await domain_category_service.set_category(
+        db_session, "=cmd|'/c calc'!a1", DomainCategoryLabel.OTHER, "actor-1"
+    )
+
+    rows = await domain_category_service.list_all(db_session)
+    csv_text = domain_category_service.export_to_csv(rows)
+    data_line = csv_text.splitlines()[1]
+    assert data_line.startswith("'=cmd")
+
+    applied, errors = await domain_category_service.import_from_csv(db_session, csv_text, "actor-2")
+    assert applied == 1
+    assert errors == []
+    imported = {row.domain: row.category for row in await domain_category_service.list_all(db_session)}
+    assert "=cmd|'/c calc'!a1" in imported
+
+
 async def test_set_and_list_domain_category_via_api(app_client: AsyncClient, admin_token, auth_headers):
     put_response = await app_client.put(
         "/api/domain-categories/video.example",

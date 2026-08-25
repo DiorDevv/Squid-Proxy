@@ -23,6 +23,11 @@ class AuditAction(str, enum.Enum):
     EXPORT_SHARED = "export_shared"
     ALERT_SETTINGS_UPDATED = "alert_settings_updated"
     DOMAIN_CATEGORY_SET = "domain_category_set"
+    # One entry per import call, not one per row -- see
+    # domain_category_service.import_from_csv, which batches the writes
+    # themselves for the same reason (a large import shouldn't mean
+    # thousands of near-identical audit rows for what's one admin action).
+    DOMAIN_CATEGORY_IMPORTED = "domain_category_imported"
     EXPORT_SETTINGS_UPDATED = "export_settings_updated"
     EXPORT_CANCELLED = "export_cancelled"
     EXPORT_SHARE_REVOKED = "export_share_revoked"

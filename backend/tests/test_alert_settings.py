@@ -5,9 +5,10 @@ from httpx import AsyncClient
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import Settings
 from app.models.audit_log import AuditAction, AuditLogEntry
 from app.models.domain_category import DomainCategoryLabel
-from app.services import alert_settings_service
+from app.services import alert_settings_service, telegram_alerting
 
 
 async def test_get_settings_row_returns_defaults_when_none_configured(db_session: AsyncSession):
@@ -36,6 +37,20 @@ async def test_update_settings_persists_and_reads_back(db_session: AsyncSession)
     assert row.non_work_minutes_threshold == 90
     assert row.client_daily_byte_quota_bytes == 10_000_000_000
     assert row.uncategorized_domain_request_threshold == 500
+
+
+async def test_update_settings_persists_telegram_chat_id(db_session: AsyncSession):
+    await alert_settings_service.update_settings(
+        db_session,
+        [],
+        non_work_minutes_threshold=90,
+        client_daily_byte_quota_bytes=None,
+        actor_user_id="actor-1",
+        telegram_chat_id="-100123456",
+    )
+
+    row = await alert_settings_service.get_settings_row(db_session)
+    assert row.telegram_chat_id == "-100123456"
 
 
 async def test_update_settings_records_audit_entry(db_session: AsyncSession):
@@ -74,6 +89,7 @@ async def test_alert_settings_get_defaults_via_api(app_client: AsyncClient, admi
     assert body["sensitive_categories"] == []
     assert body["client_daily_byte_quota_bytes"] is None
     assert body["uncategorized_domain_request_threshold"] is None
+    assert body["telegram_chat_id"] is None
 
 
 async def test_alert_settings_put_and_get_via_api(app_client: AsyncClient, admin_token, auth_headers):
@@ -85,6 +101,7 @@ async def test_alert_settings_put_and_get_via_api(app_client: AsyncClient, admin
             "non_work_minutes_threshold": 45,
             "client_daily_byte_quota_bytes": 5_000_000_000,
             "uncategorized_domain_request_threshold": 200,
+            "telegram_chat_id": "-100987654",
         },
     )
     assert put_response.status_code == 200
@@ -93,9 +110,78 @@ async def test_alert_settings_put_and_get_via_api(app_client: AsyncClient, admin
     assert body["non_work_minutes_threshold"] == 45
     assert body["client_daily_byte_quota_bytes"] == 5_000_000_000
     assert body["uncategorized_domain_request_threshold"] == 200
+    assert body["telegram_chat_id"] == "-100987654"
 
     get_response = await app_client.get("/api/alert-settings", headers=auth_headers(admin_token))
     assert set(get_response.json()["sensitive_categories"]) == {"gambling", "video_streaming"}
+    assert get_response.json()["telegram_chat_id"] == "-100987654"
+
+
+# --- Telegram test-message endpoint: sends against whatever chat id is
+# given in the request body, independent of what's saved, so an admin can
+# verify a chat id before persisting it. ---
+
+
+async def test_telegram_test_route_requires_bot_token_configured(
+    app_client: AsyncClient, admin_token, auth_headers, monkeypatch
+):
+    from app.api.routes import alert_settings as alert_settings_route
+
+    monkeypatch.setattr(alert_settings_route, "get_settings", lambda: Settings(TELEGRAM_BOT_TOKEN=None))
+
+    response = await app_client.post(
+        "/api/alert-settings/test-telegram",
+        headers=auth_headers(admin_token),
+        json={"telegram_chat_id": "-100123"},
+    )
+    assert response.status_code == 400
+
+
+async def test_telegram_test_route_sends_message(
+    app_client: AsyncClient, admin_token, auth_headers, monkeypatch
+):
+    from app.api.routes import alert_settings as alert_settings_route
+
+    monkeypatch.setattr(
+        alert_settings_route, "get_settings", lambda: Settings(TELEGRAM_BOT_TOKEN="bot-token")
+    )
+    sent: list[tuple[str, str, str]] = []
+
+    async def _fake_send_message(bot_token: str, chat_id: str, text: str) -> None:
+        sent.append((bot_token, chat_id, text))
+
+    monkeypatch.setattr(telegram_alerting, "send_message", _fake_send_message)
+
+    response = await app_client.post(
+        "/api/alert-settings/test-telegram",
+        headers=auth_headers(admin_token),
+        json={"telegram_chat_id": "-100123"},
+    )
+    assert response.status_code == 204
+    assert len(sent) == 1
+    assert sent[0][1] == "-100123"
+
+
+async def test_telegram_test_route_returns_502_on_delivery_failure(
+    app_client: AsyncClient, admin_token, auth_headers, monkeypatch
+):
+    from app.api.routes import alert_settings as alert_settings_route
+
+    monkeypatch.setattr(
+        alert_settings_route, "get_settings", lambda: Settings(TELEGRAM_BOT_TOKEN="bot-token")
+    )
+
+    async def _failing_send_message(bot_token: str, chat_id: str, text: str) -> None:
+        raise RuntimeError("bad chat id")
+
+    monkeypatch.setattr(telegram_alerting, "send_message", _failing_send_message)
+
+    response = await app_client.post(
+        "/api/alert-settings/test-telegram",
+        headers=auth_headers(admin_token),
+        json={"telegram_chat_id": "-100123"},
+    )
+    assert response.status_code == 502
 
 
 # --- Branch scoping: previously `branch` was a plain unchecked Query param

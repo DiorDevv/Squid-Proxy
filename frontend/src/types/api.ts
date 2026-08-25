@@ -110,6 +110,7 @@ export interface AlertSettingsOut {
   non_work_minutes_threshold: number
   client_daily_byte_quota_bytes: number | null
   uncategorized_domain_request_threshold: number | null
+  telegram_chat_id: string | null
   updated_at: string
 }
 

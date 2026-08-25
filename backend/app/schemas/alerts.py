@@ -11,6 +11,7 @@ class AlertSettingsOut(BaseModel):
     non_work_minutes_threshold: int
     client_daily_byte_quota_bytes: int | None
     uncategorized_domain_request_threshold: int | None
+    telegram_chat_id: str | None
     updated_at: datetime
 
 
@@ -19,3 +20,4 @@ class UpdateAlertSettingsRequest(BaseModel):
     non_work_minutes_threshold: int
     client_daily_byte_quota_bytes: int | None = None
     uncategorized_domain_request_threshold: int | None = None
+    telegram_chat_id: str | None = None

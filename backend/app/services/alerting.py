@@ -1,7 +1,12 @@
-"""Best-effort webhook alerting for high-severity anomalies.
+"""Best-effort alert delivery for high-severity anomalies: a generic
+webhook (this module) and, alongside it, Telegram (app/services/
+telegram_alerting.py). `maybe_alert` is the single chokepoint every
+anomaly-producing call site (aggregator.py and the interval monitor jobs)
+awaits per persisted row, so it fans out to every configured channel
+itself rather than each call site awaiting each channel separately.
 
-Fully optional and off by default: if ALERT_WEBHOOK_URL isn't configured,
-`maybe_alert` is a no-op. A failed webhook delivery is logged and
+Both channels are fully optional and off by default: if a channel isn't
+configured, its delivery is a no-op. A failed delivery is logged and
 swallowed -- alerting must never be able to take down the aggregator's
 flush loop over a flaky endpoint.
 """
@@ -12,6 +17,7 @@ import httpx
 
 from app.core.config import get_settings
 from app.models.anomaly_event import AnomalyEvent, AnomalySeverity
+from app.services import telegram_alerting
 
 logger = logging.getLogger(__name__)
 
@@ -23,13 +29,22 @@ _SEVERITY_RANK = {
 }
 
 
+def meets_min_severity(severity: AnomalySeverity, min_severity: AnomalySeverity) -> bool:
+    return _SEVERITY_RANK[severity] >= _SEVERITY_RANK[min_severity]
+
+
 async def maybe_alert(event: AnomalyEvent) -> None:
+    await _maybe_webhook_alert(event)
+    await telegram_alerting.notify(event)
+
+
+async def _maybe_webhook_alert(event: AnomalyEvent) -> None:
     settings = get_settings()
     if not settings.ALERT_WEBHOOK_URL:
         return
 
     min_severity = AnomalySeverity(settings.ALERT_MIN_SEVERITY)
-    if _SEVERITY_RANK[event.severity] < _SEVERITY_RANK[min_severity]:
+    if not meets_min_severity(event.severity, min_severity):
         return
 
     # "text" makes this deliverable to a real Slack incoming webhook as-is --

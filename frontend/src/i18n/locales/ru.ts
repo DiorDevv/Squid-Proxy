@@ -294,6 +294,13 @@ export const ru = {
   'settings.uncategorizedDomainThresholdDescription':
     'Оповещать о домене без категории, если у него за последние 24ч было больше этого числа запросов. Оставьте пустым, чтобы отключить.',
   'settings.alertSettingsSaved': 'Настройки оповещений сохранены.',
+  'settings.telegramChatId': 'ID чата Telegram',
+  'settings.telegramChatIdPlaceholder': 'напр. -1001234567890',
+  'settings.telegramChatIdDescription':
+    'Оповещения этого филиала отправляются в этот чат, в дополнение к чату главного администратора (если он настроен). Сначала добавьте бота в чат, затем вставьте сюда его ID.',
+  'settings.telegramTestSend': 'Отправить тестовое сообщение',
+  'settings.telegramTestSent': 'Тестовое сообщение отправлено.',
+  'settings.telegramTestFailed': 'Не удалось отправить тестовое сообщение.',
 
   'settings.reports': 'Периодические отчёты',
   'settings.reportSchedule': 'Расписание',

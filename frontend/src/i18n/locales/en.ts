@@ -310,6 +310,13 @@ export const en = {
   'settings.uncategorizedDomainThresholdDescription':
     'Flag a domain that had this many requests in the last 24h but still has no category assigned. Leave blank to disable.',
   'settings.alertSettingsSaved': 'Alert settings saved.',
+  'settings.telegramChatId': 'Telegram chat ID',
+  'settings.telegramChatIdPlaceholder': 'e.g. -1001234567890',
+  'settings.telegramChatIdDescription':
+    "This branch's alerts are sent to this chat, in addition to the super-admin chat (if configured). Add the bot to the chat first, then paste its chat ID here.",
+  'settings.telegramTestSend': 'Send test message',
+  'settings.telegramTestSent': 'Test message sent.',
+  'settings.telegramTestFailed': 'Failed to send the test message.',
 
   'settings.reports': 'Scheduled reports',
   'settings.reportSchedule': 'Schedule',

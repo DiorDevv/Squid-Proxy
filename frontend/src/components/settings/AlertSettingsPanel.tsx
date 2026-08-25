@@ -7,8 +7,9 @@ import { Label } from '@/components/ui/label'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { ErrorState } from '@/components/common/ErrorState'
-import { useAlertSettings, useUpdateAlertSettings } from '@/hooks/useAlertSettings'
+import { useAlertSettings, useTestTelegramAlert, useUpdateAlertSettings } from '@/hooks/useAlertSettings'
 import { useBranches } from '@/hooks/useBranches'
+import { ApiError } from '@/lib/api-client'
 import { CATEGORY_LABEL_KEYS, CATEGORY_OPTIONS } from '@/lib/categories'
 import { useTranslation } from '@/i18n'
 import type { AlertSettingsOut, DomainCategoryLabel } from '@/types/api'
@@ -96,6 +97,7 @@ export function AlertSettingsPanel() {
 function AlertSettingsForm({ branch, data }: { branch: string; data: AlertSettingsOut }) {
   const { t } = useTranslation()
   const updateSettings = useUpdateAlertSettings(branch)
+  const testTelegramAlert = useTestTelegramAlert(branch)
 
   const [sensitiveCategories, setSensitiveCategories] = useState<Set<DomainCategoryLabel>>(
     () => new Set(data.sensitive_categories),
@@ -107,6 +109,7 @@ function AlertSettingsForm({ branch, data }: { branch: string; data: AlertSettin
   const [uncategorizedThreshold, setUncategorizedThreshold] = useState(() =>
     data.uncategorized_domain_request_threshold != null ? String(data.uncategorized_domain_request_threshold) : '',
   )
+  const [telegramChatId, setTelegramChatId] = useState(() => data.telegram_chat_id ?? '')
 
   function setCategoryChecked(category: DomainCategoryLabel, checked: boolean) {
     setSensitiveCategories((prev) => {
@@ -137,12 +140,22 @@ function AlertSettingsForm({ branch, data }: { branch: string; data: AlertSettin
         non_work_minutes_threshold: minutes,
         client_daily_byte_quota_bytes: quota,
         uncategorized_domain_request_threshold: uncategorizedValue,
+        telegram_chat_id: telegramChatId.trim() || null,
       },
       {
         onSuccess: () => toast.success(t('settings.alertSettingsSaved')),
         onError: () => toast.error(t('common.errorDefault')),
       },
     )
+  }
+
+  function handleTestTelegram() {
+    const chatId = telegramChatId.trim()
+    if (!chatId) return
+    testTelegramAlert.mutate(chatId, {
+      onSuccess: () => toast.success(t('settings.telegramTestSent')),
+      onError: (err) => toast.error(err instanceof ApiError ? err.message : t('settings.telegramTestFailed')),
+    })
   }
 
   return (
@@ -203,6 +216,28 @@ function AlertSettingsForm({ branch, data }: { branch: string; data: AlertSettin
           />
           <p className="text-xs text-muted-foreground">{t('settings.uncategorizedDomainThresholdDescription')}</p>
         </div>
+      </div>
+
+      <div className="flex flex-col gap-1.5">
+        <Label htmlFor="telegram-chat-id">{t('settings.telegramChatId')}</Label>
+        <div className="flex gap-2">
+          <Input
+            id="telegram-chat-id"
+            placeholder={t('settings.telegramChatIdPlaceholder')}
+            value={telegramChatId}
+            onChange={(e) => setTelegramChatId(e.target.value)}
+            className="max-w-xs"
+          />
+          <Button
+            type="button"
+            variant="outline"
+            onClick={handleTestTelegram}
+            disabled={!telegramChatId.trim() || testTelegramAlert.isPending}
+          >
+            {t('settings.telegramTestSend')}
+          </Button>
+        </div>
+        <p className="text-xs text-muted-foreground">{t('settings.telegramChatIdDescription')}</p>
       </div>
 
       <Button onClick={handleSave} disabled={updateSettings.isPending} className="w-fit">

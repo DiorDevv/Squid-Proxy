@@ -35,6 +35,10 @@ class AlertSettings(Base):
     uncategorized_domain_request_threshold: Mapped[int | None] = mapped_column(
         Integer, nullable=True, default=None
     )
+    # Telegram chat/group id that this branch's high-severity anomalies are
+    # delivered to, in addition to (not instead of) TELEGRAM_SUPER_ADMIN_CHAT_ID
+    # -- see app/services/telegram_alerting.py.
+    telegram_chat_id: Mapped[str | None] = mapped_column(String(64), nullable=True, default=None)
     updated_at: Mapped[datetime] = mapped_column(
         UTCDateTime, default=lambda: datetime.now(UTC), onupdate=lambda: datetime.now(UTC)
     )

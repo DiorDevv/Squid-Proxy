@@ -182,6 +182,16 @@ class Settings(BaseSettings):
     ALERT_WEBHOOK_URL: str | None = None
     ALERT_MIN_SEVERITY: str = "high"
 
+    # --- Telegram alerting (optional; no-op unless TELEGRAM_BOT_TOKEN is
+    # set) -- a second, independent delivery channel alongside the webhook
+    # above, gated by the same ALERT_MIN_SEVERITY. One bot serves every
+    # chat: TELEGRAM_SUPER_ADMIN_CHAT_ID always gets every branch's alerts,
+    # and each branch's own chat (AlertSettings.telegram_chat_id, set per
+    # branch by that branch's admin) gets only that branch's. See
+    # app/services/telegram_alerting.py.
+    TELEGRAM_BOT_TOKEN: str | None = None
+    TELEGRAM_SUPER_ADMIN_CHAT_ID: str | None = None
+
     # --- Operator-facing infra-failure alerts (see app/services/
     # ops_alerting.py) -- distinct from the traffic-anomaly alerting above.
     # Falls back to ALERT_WEBHOOK_URL if unset, so a single-webhook operator

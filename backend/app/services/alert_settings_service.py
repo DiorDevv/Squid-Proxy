@@ -37,6 +37,7 @@ async def get_settings_row(session: AsyncSession, branch: str = DEFAULT_BRANCH) 
             non_work_minutes_threshold=DEFAULT_NON_WORK_MINUTES_THRESHOLD,
             client_daily_byte_quota_bytes=None,
             uncategorized_domain_request_threshold=None,
+            telegram_chat_id=None,
             updated_at=datetime.now(UTC),
         )
     return row
@@ -64,6 +65,7 @@ async def update_settings(
     client_daily_byte_quota_bytes: int | None,
     actor_user_id: str,
     uncategorized_domain_request_threshold: int | None = None,
+    telegram_chat_id: str | None = None,
     branch: str = DEFAULT_BRANCH,
 ) -> AlertSettings:
     row = (
@@ -77,6 +79,7 @@ async def update_settings(
     row.non_work_minutes_threshold = non_work_minutes_threshold
     row.client_daily_byte_quota_bytes = client_daily_byte_quota_bytes
     row.uncategorized_domain_request_threshold = uncategorized_domain_request_threshold
+    row.telegram_chat_id = telegram_chat_id
     await audit_service.record(
         session,
         action=AuditAction.ALERT_SETTINGS_UPDATED,

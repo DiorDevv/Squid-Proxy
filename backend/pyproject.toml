@@ -49,7 +49,7 @@ dependencies = [
 dev = [
     "pytest>=9.0,<10",
     "pytest-asyncio>=1.4,<2",
-    "ruff>=0.7,<0.8",
+    "ruff>=0.7,<0.17",
     "aiosqlite>=0.20,<0.21",
     "mypy>=2.3,<3",
 ]

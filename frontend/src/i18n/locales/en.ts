@@ -168,6 +168,18 @@ export const en = {
   'insights.anomaly.sensitiveCategoryVisit.title': 'Sensitive category visited',
   'insights.anomaly.sensitiveCategoryVisit.description':
     '{{clientIp}} visited {{domain}} ({{category}}) for the first time.',
+  'insights.anomaly.excessiveNonWorkCategoryTime.title': 'Excessive non-work category time',
+  'insights.anomaly.excessiveNonWorkCategoryTime.description':
+    '{{clientIp}} spent {{minutes}} minutes in non-work categories over the last 24h (threshold: {{threshold}} minutes).',
+  'insights.anomaly.clientQuotaExceeded.title': 'Client exceeded daily data quota',
+  'insights.anomaly.clientQuotaExceeded.description':
+    '{{clientIp}} used {{usedGb}} GB in the last 24h (quota: {{quotaGb}} GB).',
+  'insights.anomaly.uncategorizedDomainHighTraffic.title': 'High-traffic domain uncategorized',
+  'insights.anomaly.uncategorizedDomainHighTraffic.description':
+    '{{domain}} had {{requests}} requests in the last 24h but has no assigned category (threshold: {{threshold}}).',
+  'insights.anomaly.exportNotDownloaded.title': 'Export not downloaded',
+  'insights.anomaly.exportNotDownloaded.description':
+    'Export job {{jobId}} ({{format}}, {{since}} to {{until}}) finished {{ageHours}}h ago and has never been downloaded (threshold: {{thresholdHours}}h).',
 
   'notifications.bellLabel': 'Notifications',
   'notifications.title': 'Recent anomalies',

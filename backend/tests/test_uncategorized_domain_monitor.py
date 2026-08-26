@@ -64,6 +64,8 @@ async def test_check_flags_domain_over_threshold(db_session: AsyncSession, monke
     anomalies = await _anomalies(db_session)
     assert len(anomalies) == 1
     assert anomalies[0].domain == "mystery-site.example"
+    assert anomalies[0].kind == "uncategorized_domain_high_traffic"
+    assert anomalies[0].params == {"domain": "mystery-site.example", "requests": 60, "threshold": 50}
 
 
 async def test_check_does_not_flag_domain_under_threshold(db_session: AsyncSession, monkeypatch):

@@ -66,6 +66,8 @@ async def test_check_flags_client_over_quota(db_session: AsyncSession, monkeypat
     assert len(anomalies) == 1
     assert anomalies[0].client_ip == "10.0.0.40"
     assert anomalies[0].severity == AnomalySeverity.HIGH
+    assert anomalies[0].kind == "client_quota_exceeded"
+    assert anomalies[0].params == {"clientIp": "10.0.0.40", "usedGb": "6.0", "quotaGb": "5.0"}
 
 
 async def test_check_uses_critical_severity_at_double_quota(db_session: AsyncSession, monkeypatch):

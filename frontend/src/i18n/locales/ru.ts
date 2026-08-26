@@ -158,6 +158,18 @@ export const ru = {
   'insights.anomaly.sensitiveCategoryVisit.title': 'Посещение чувствительной категории',
   'insights.anomaly.sensitiveCategoryVisit.description':
     '{{clientIp}} впервые посетил {{domain}} ({{category}}).',
+  'insights.anomaly.excessiveNonWorkCategoryTime.title': 'Избыточное время в нерабочих категориях',
+  'insights.anomaly.excessiveNonWorkCategoryTime.description':
+    '{{clientIp}} провёл {{minutes}} минут в нерабочих категориях за последние 24ч (порог: {{threshold}} мин).',
+  'insights.anomaly.clientQuotaExceeded.title': 'Клиент превысил дневную квоту данных',
+  'insights.anomaly.clientQuotaExceeded.description':
+    '{{clientIp}} использовал {{usedGb}} ГБ за последние 24ч (квота: {{quotaGb}} ГБ).',
+  'insights.anomaly.uncategorizedDomainHighTraffic.title': 'Домен без категории с высоким трафиком',
+  'insights.anomaly.uncategorizedDomainHighTraffic.description':
+    'У {{domain}} было {{requests}} запросов за последние 24ч, но категория не назначена (порог: {{threshold}}).',
+  'insights.anomaly.exportNotDownloaded.title': 'Экспорт не загружен',
+  'insights.anomaly.exportNotDownloaded.description':
+    'Задача экспорта {{jobId}} ({{format}}, {{since}} — {{until}}) завершена {{ageHours}}ч назад и ни разу не была загружена (порог: {{thresholdHours}}ч).',
 
   'notifications.bellLabel': 'Уведомления',
   'notifications.title': 'Последние аномалии',

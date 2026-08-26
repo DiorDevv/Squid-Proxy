@@ -69,6 +69,8 @@ async def test_check_flags_client_over_threshold(db_session: AsyncSession, monke
     )
     assert len(anomalies) == 1
     assert anomalies[0].client_ip == "10.0.0.30"
+    assert anomalies[0].kind == "excessive_non_work_category_time"
+    assert anomalies[0].params == {"clientIp": "10.0.0.30", "minutes": 90, "threshold": 60}
 
 
 async def test_check_does_not_flag_client_under_threshold(db_session: AsyncSession, monkeypatch):

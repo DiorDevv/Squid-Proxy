@@ -81,6 +81,12 @@ class QuotaMonitorJob(IntervalJob):
                         client_ip=client_ip,
                         branch=branch,
                         generated_at=now,
+                        kind="client_quota_exceeded",
+                        params={
+                            "clientIp": client_ip,
+                            "usedGb": f"{total_bytes / 1e9:.1f}",
+                            "quotaGb": f"{quota / 1e9:.1f}",
+                        },
                     )
                 )
 

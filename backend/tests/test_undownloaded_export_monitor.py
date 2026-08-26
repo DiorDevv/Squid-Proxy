@@ -53,12 +53,23 @@ async def test_check_flags_job_over_threshold(db_session: AsyncSession, monkeypa
         db_session, ExportCleanupMode.TIME_BASED, retention_hours=48, warn_undownloaded_after_hours=6, actor_user_id="actor-1"
     )
     now = datetime.now(UTC)
-    db_session.add(_job(created_at=now - timedelta(hours=10)))
+    job = _job(created_at=now - timedelta(hours=10))
+    db_session.add(job)
     await db_session.commit()
 
     await UndownloadedExportMonitorJob().run()
 
-    assert len(await _anomalies(db_session)) == 1
+    anomalies = await _anomalies(db_session)
+    assert len(anomalies) == 1
+    assert anomalies[0].kind == "export_not_downloaded"
+    assert anomalies[0].params == {
+        "jobId": job.id,
+        "format": "csv",
+        "since": job.since.isoformat(),
+        "until": job.until.isoformat(),
+        "ageHours": 10,
+        "thresholdHours": 6,
+    }
 
 
 async def test_check_does_not_flag_job_under_threshold(db_session: AsyncSession, monkeypatch):

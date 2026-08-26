@@ -85,6 +85,15 @@ class UndownloadedExportMonitorJob(IntervalJob):
                         severity=AnomalySeverity.LOW,
                         branch=job.branch,
                         generated_at=now,
+                        kind="export_not_downloaded",
+                        params={
+                            "jobId": job.id,
+                            "format": job.format,
+                            "since": job.since.isoformat(),
+                            "until": job.until.isoformat(),
+                            "ageHours": round(age_hours),
+                            "thresholdHours": warn_after_hours,
+                        },
                     )
                 )
 

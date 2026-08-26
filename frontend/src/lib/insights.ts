@@ -21,6 +21,22 @@ const ANOMALY_KEYS: Record<string, { title: TranslationKey; description: Transla
     title: 'insights.anomaly.sensitiveCategoryVisit.title',
     description: 'insights.anomaly.sensitiveCategoryVisit.description',
   },
+  excessive_non_work_category_time: {
+    title: 'insights.anomaly.excessiveNonWorkCategoryTime.title',
+    description: 'insights.anomaly.excessiveNonWorkCategoryTime.description',
+  },
+  client_quota_exceeded: {
+    title: 'insights.anomaly.clientQuotaExceeded.title',
+    description: 'insights.anomaly.clientQuotaExceeded.description',
+  },
+  uncategorized_domain_high_traffic: {
+    title: 'insights.anomaly.uncategorizedDomainHighTraffic.title',
+    description: 'insights.anomaly.uncategorizedDomainHighTraffic.description',
+  },
+  export_not_downloaded: {
+    title: 'insights.anomaly.exportNotDownloaded.title',
+    description: 'insights.anomaly.exportNotDownloaded.description',
+  },
 }
 
 /** Re-renders an anomaly's title/description in the user's chosen UI

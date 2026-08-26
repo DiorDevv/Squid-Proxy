@@ -108,6 +108,12 @@ class CategoryUsageMonitorJob(IntervalJob):
                         client_ip=client_ip,
                         branch=branch,
                         generated_at=now,
+                        kind="excessive_non_work_category_time",
+                        params={
+                            "clientIp": client_ip,
+                            "minutes": minute_count,
+                            "threshold": threshold_minutes,
+                        },
                     )
                 )
 

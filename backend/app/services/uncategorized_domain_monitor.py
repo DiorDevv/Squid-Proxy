@@ -97,6 +97,12 @@ class UncategorizedDomainMonitorJob(IntervalJob):
                             domain=stat.domain,
                             branch=branch,
                             generated_at=now,
+                            kind="uncategorized_domain_high_traffic",
+                            params={
+                                "domain": stat.domain,
+                                "requests": stat.request_count,
+                                "threshold": threshold,
+                            },
                         )
                     )
 

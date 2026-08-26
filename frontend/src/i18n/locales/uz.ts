@@ -161,6 +161,18 @@ export const uz = {
   'insights.anomaly.sensitiveCategoryVisit.title': 'Nozik toifadagi saytga tashrif',
   'insights.anomaly.sensitiveCategoryVisit.description':
     '{{clientIp}} {{domain}} saytiga ({{category}}) birinchi marta kirdi.',
+  'insights.anomaly.excessiveNonWorkCategoryTime.title': "Ish bilan bog'liq bo'lmagan toifada haddan ortiq vaqt",
+  'insights.anomaly.excessiveNonWorkCategoryTime.description':
+    "{{clientIp}} so'nggi 24 soatda ish bilan bog'liq bo'lmagan toifalarda {{minutes}} daqiqa o'tkazdi (chegara: {{threshold}} daqiqa).",
+  'insights.anomaly.clientQuotaExceeded.title': 'Mijoz kunlik trafik kvotasidan oshib ketdi',
+  'insights.anomaly.clientQuotaExceeded.description':
+    "{{clientIp}} so'nggi 24 soatda {{usedGb}} GB trafik ishlatdi (kvota: {{quotaGb}} GB).",
+  'insights.anomaly.uncategorizedDomainHighTraffic.title': "Kategoriyasiz domen yuqori trafikka ega",
+  'insights.anomaly.uncategorizedDomainHighTraffic.description':
+    "{{domain}} so'nggi 24 soatda {{requests}} ta so'rov oldi, lekin hali kategoriyaga ega emas (chegara: {{threshold}}).",
+  'insights.anomaly.exportNotDownloaded.title': 'Eksport yuklab olinmagan',
+  'insights.anomaly.exportNotDownloaded.description':
+    "{{jobId}} eksport vazifasi ({{format}}, {{since}} — {{until}}) {{ageHours}} soat oldin tugagan va hali yuklab olinmagan (chegara: {{thresholdHours}} soat).",
 
   'notifications.bellLabel': 'Bildirishnomalar',
   'notifications.title': "So'nggi anomaliyalar",

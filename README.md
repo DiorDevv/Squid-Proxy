@@ -8,6 +8,9 @@ A real-time log analytics dashboard for Squid Proxy: tails `access.log`, parses 
 traffic, and serves a live "Network Operations Center" style dashboard for a security/compliance
 team to see who accessed (or tried to access) what, and what got blocked.
 
+The UI ships in Uzbek, Russian, and English (switchable per-user, from the sidebar user menu) —
+including anomaly/insight text, not just static labels.
+
 ```
 Squid Proxy access.log ──tail──> Python backend (FastAPI) ──REST/WS──> React frontend
                                         │
@@ -17,7 +20,8 @@ Squid Proxy access.log ──tail──> Python backend (FastAPI) ──REST/WS�
 
 ![Squid Watch dashboard](docs/screenshots/dashboard.jpg)
 
-See [ARCHITECTURE.md](ARCHITECTURE.md) for the reasoning behind the major design decisions.
+See [ARCHITECTURE.md](ARCHITECTURE.md) for the reasoning behind the major design decisions, and
+[CHANGELOG.md](CHANGELOG.md) for what changed and when.
 
 ## Table of contents
 
@@ -373,6 +377,14 @@ used throughout the dashboard and by the alerting below. Three sources, in order
 Anything none of the three catches is `uncategorized` — the same as if an admin simply hasn't
 gotten to it yet, not an error.
 
+**Bulk edit via CSV**: **Settings → Categories & alerts** has Export/Import CSV buttons
+(`GET /api/domain-categories/export`, `POST /api/domain-categories/import`) — export every
+current admin override as a `domain,category` CSV, edit it in a spreadsheet, and re-import.
+Import validates each row
+independently (a bad domain or an unrecognized category name is skipped and reported, never a
+reason to abort rows that were already fine) and applies every valid row as one batched database
+write plus a single summary audit-log entry, not one round trip per row.
+
 ## Category/quota alerting and scheduled reports
 
 Beyond the built-in traffic-spike/new-blocked-domain/client-blocked-ratio checks
@@ -399,12 +411,21 @@ webhook URL and it renders correctly (a `"text"` field is included alongside the
 non-Slack consumer). See `OPS_ALERT_WEBHOOK_URL` (below, "Operator failure notifications") for the
 separate infra-failure channel.
 
-`TELEGRAM_BOT_TOKEN`/`TELEGRAM_SUPER_ADMIN_CHAT_ID` (optional; off by default, see
-`backend/.env.example`) add Telegram as a second delivery channel for the same anomalies, gated by
-the same `ALERT_MIN_SEVERITY`. One bot serves every chat: `TELEGRAM_SUPER_ADMIN_CHAT_ID` always
-gets every branch's alerts; each branch's own chat is set independently by that branch's admin at
-**Settings → Alert settings** (with a "Send test message" button to verify the chat ID before
-saving it) and only receives that branch's alerts.
+`TELEGRAM_BOT_TOKEN` (optional; off by default, see `backend/.env.example`) adds Telegram as a
+second delivery channel for the same anomalies, gated by the same `ALERT_MIN_SEVERITY`. One bot
+serves every chat: the super-admin chat always gets every branch's alerts; each branch's own chat
+only receives that branch's.
+
+**Connecting a chat is a pairing code, not a raw chat ID.** At **Settings → Categories & alerts →
+Alert settings** (a branch's own chat) or **Settings → Telegram** (the super-admin chat, only
+visible to an unrestricted admin), click "Connect Telegram" — a 6-digit code appears
+(`POST /api/alert-settings/telegram-link` / `.../telegram-link/super-admin`, 10-minute expiry, a
+new code invalidates the previous pending one). Open the bot in Telegram, press **Start**, and send
+it that code; a background poller (`app/services/telegram_link_poller.py`, long-polling Telegram's
+`getUpdates` — no public webhook URL needed) resolves the sender's chat ID and links it
+automatically, replying in Uzbek. The super-admin chat is DB-backed once linked this way;
+`TELEGRAM_SUPER_ADMIN_CHAT_ID` still works as a fallback for a deployment that configured it before
+this existed.
 
 Scheduled email reports (a periodic summary + CSV attachment) are configured via
 `REPORT_SCHEDULE` (`disabled` | `daily` | `weekly`), `REPORT_RECIPIENTS`, and `SMTP_*` — see
@@ -666,6 +687,9 @@ Alembic's bookkeeping table recording it.
 - Access tokens are short-lived (default 20 min) and kept in memory on the frontend only, never
   `localStorage`. Refresh tokens are `httpOnly` cookies, rotated on every use.
 - The login endpoint is rate-limited (`LOGIN_RATE_LIMIT`, default 5/minute per IP).
+- **Optional TOTP two-factor authentication** — any account (admin or viewer) can enable it
+  self-service from the account menu (scan a QR code, confirm a code, save the one-time recovery
+  codes shown). Off by default per account; not an org-wide policy toggle.
 - `viewer` role has full read access; only `admin` can export data or reach `/settings`. Either
   role can additionally be scoped to one branch — see "Restricting a user to one branch" above.
 - Branch-scoping covers REST data-read endpoints, `GET /api/branches`, and the `/ws/live`

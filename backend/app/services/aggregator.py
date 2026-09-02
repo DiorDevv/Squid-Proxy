@@ -80,18 +80,29 @@ def _is_cache_hit(action: str) -> bool:
     origin/peer (TCP_HIT, TCP_MEM_HIT, TCP_IMS_HIT, TCP_CF_HIT, ...). This
     substring check is the same convention Squid's own log analyzers
     (sarg, calamaris) use, rather than an exhaustive tag list that would
-    silently miss a variant this project's author hadn't seen yet."""
-    return "HIT" in action.upper()
+    silently miss a variant this project's author hadn't seen yet.
+
+    TCP_REFRESH_UNMODIFIED is checked explicitly since it has neither
+    substring: a revalidation (conditional GET) confirmed the cached copy
+    was still fresh, so it's a hit despite the round-trip to the origin."""
+    action = action.upper()
+    return "HIT" in action or "REFRESH_UNMODIFIED" in action
 
 
 def _is_cache_miss(action: str) -> bool:
     """The complement of _is_cache_hit for tags where the cache *could* have
-    helped but didn't (TCP_MISS, TCP_REFRESH_MODIFIED, ...) -- deliberately
+    helped but didn't (TCP_MISS, TCP_CLIENT_REFRESH_MISS, ...) -- deliberately
     excludes TCP_DENIED (blocked, never reached the cache layer) and
     TCP_TUNNEL (a CONNECT tunnel, cache doesn't apply) so
     stats_service.get_cache_efficiency's hit/(hit+miss) ratio reflects
-    actual cacheable traffic, not every request regardless of type."""
-    return "MISS" in action.upper()
+    actual cacheable traffic, not every request regardless of type.
+
+    TCP_REFRESH_MODIFIED is checked explicitly since it has neither "MISS"
+    nor "HIT" as a substring: a revalidation found the cached copy stale, so
+    the full response had to be re-fetched -- a miss despite the "REFRESH"
+    tag looking cache-adjacent."""
+    action = action.upper()
+    return "MISS" in action or "REFRESH_MODIFIED" in action
 
 
 class Aggregator:

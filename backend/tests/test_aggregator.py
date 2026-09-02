@@ -84,15 +84,20 @@ async def test_flush_tracks_cache_hit_and_miss_counts_on_minute_aggregate(db_eng
     ring_buffer.append(parse_line(squid_line("example.com", action="TCP_MISS")))
     ring_buffer.append(parse_line(squid_line("example.com", action="TCP_TUNNEL")))  # neither hit nor miss
     ring_buffer.append(parse_line(squid_line("blocked.com", blocked=True)))  # TCP_DENIED -- neither either
+    # Revalidation outcomes -- neither substring matches "HIT" nor "MISS"
+    # directly, so these two must be classified explicitly (see
+    # aggregator._is_cache_hit/_is_cache_miss).
+    ring_buffer.append(parse_line(squid_line("example.com", action="TCP_REFRESH_UNMODIFIED")))
+    ring_buffer.append(parse_line(squid_line("example.com", action="TCP_REFRESH_MODIFIED")))
 
     aggregator = Aggregator(ring_buffer=ring_buffer, interval_seconds=60)
     await aggregator.flush()
 
     async with session_factory() as session:
         minute_row = (await session.execute(select(MinuteAggregate))).scalar_one()
-        assert minute_row.total_requests == 5
-        assert minute_row.hit_requests == 2
-        assert minute_row.miss_requests == 1
+        assert minute_row.total_requests == 7
+        assert minute_row.hit_requests == 3
+        assert minute_row.miss_requests == 2
 
 
 async def test_flush_chunks_a_large_raw_events_insert_without_dropping_or_duplicating_rows(

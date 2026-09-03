@@ -8,6 +8,18 @@ Example:
     1737100800.123  45  10.0.0.5  TCP_MISS/200  1024  GET
     http://example.com/  alice  HIER_DIRECT/93.184.216.34  text/html
 
+One alternate logformat is also recognised and normalised on the way in
+(see _normalize_alt_format): some boxes in this deployment run
+
+    %tl.%03tu  %6tr  %>a  %Ss/%03>Hs  %<st  %rm  %ru  %Sh/%<A  %[un  %mt
+
+which differs in two ways -- an Apache-style local-time clock ("%tl.%03tu",
+e.g. "03/Sep/2026:15:22:46 +0500.112", which contains a space so a plain
+split sees the timestamp as two fields) instead of "%ts.%03tu" epoch
+seconds, and the %Sh/%<A (hierarchy/peer) and %[un (user) fields in the
+opposite order. Lines in that shape are rewritten into the native 10-field
+layout before the per-field parsing below, which is otherwise unchanged.
+
 Malformed lines must never raise: unparseable lines are logged at WARNING
 and skipped (return None) so the tailer can keep processing the stream.
 """
@@ -16,7 +28,7 @@ import ipaddress
 import logging
 import re
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta, timezone
 from urllib.parse import urlsplit
 
 from app.core.config import DEFAULT_BRANCH
@@ -154,12 +166,100 @@ def _looks_like_valid_prefix(tokens: list[str]) -> bool:
     return "/" in action_status and ("/" in hierarchy_from or hierarchy_from == _EMPTY)
 
 
+# Month abbreviations as Squid writes them for %tl -- a fixed English table
+# (Squid does not localise these), so parsing stays locale-independent
+# rather than leaning on datetime.strptime("%b"), whose meaning follows
+# LC_TIME.
+_ALT_MONTHS = {
+    "Jan": 1, "Feb": 2, "Mar": 3, "Apr": 4, "May": 5, "Jun": 6,
+    "Jul": 7, "Aug": 8, "Sep": 9, "Oct": 10, "Nov": 11, "Dec": 12,
+}
+
+# Leading "%tl.%03tu" clock of the alternate logformat, e.g.
+# "03/Sep/2026:15:22:46 +0500.112 " (note the space before the zone offset
+# and the ".mmm" glued directly onto it). Anchored, and demands the full
+# "DD/Mon/YYYY:HH:MM:SS +ZZZZ" shape through the zone offset, so a native
+# epoch-first line ("1788430186.871 25189 ...") can't match it.
+_ALT_CLOCK_RE = re.compile(
+    r"^(?P<day>\d{1,2})/(?P<mon>[A-Za-z]{3})/(?P<year>\d{4}):"
+    r"(?P<hour>\d{2}):(?P<minute>\d{2}):(?P<second>\d{2})\s+"
+    r"(?P<sign>[+-])(?P<tz_hours>\d{2})(?P<tz_minutes>\d{2})"
+    r"(?:\.(?P<frac>\d+))?\s+"
+)
+
+# rest-of-line field count after the alt clock is stripped: the native 10
+# minus the timestamp.
+_ALT_REST_FIELD_COUNT = EXPECTED_FIELD_COUNT - 1
+# Index of %Sh/%<A (hierarchy/peer) and %[un (user) within that rest, which
+# the alt format has in the opposite order to native.
+_ALT_HIERARCHY_IDX = 6
+_ALT_USER_IDX = 7
+
+
+def _alt_clock_to_epoch(match: re.Match[str]) -> float | None:
+    month = _ALT_MONTHS.get(match["mon"].title())
+    if month is None:
+        return None
+    offset = timedelta(hours=int(match["tz_hours"]), minutes=int(match["tz_minutes"]))
+    if match["sign"] == "-":
+        offset = -offset
+    try:
+        dt = datetime(
+            int(match["year"]),
+            month,
+            int(match["day"]),
+            int(match["hour"]),
+            int(match["minute"]),
+            int(match["second"]),
+            tzinfo=timezone(offset),
+        )
+    except ValueError:
+        return None
+    epoch = dt.timestamp()
+    frac = match["frac"]
+    if frac:
+        epoch += int(frac) / (10 ** len(frac))
+    return epoch
+
+
+def _normalize_alt_format(stripped: str) -> str:
+    """If `stripped` starts with the alternate logformat's Apache-style
+    clock, return it rewritten into the native 10-field layout (epoch
+    timestamp, native user-then-hierarchy order). Otherwise return it
+    unchanged. Never raises -- anything that doesn't cleanly match the
+    alt shape is handed back for parse_line's normal field handling to
+    accept or reject exactly as before."""
+    match = _ALT_CLOCK_RE.match(stripped)
+    if match is None:
+        return stripped
+    epoch = _alt_clock_to_epoch(match)
+    if epoch is None:
+        return stripped
+
+    rest = stripped[match.end() :]
+    # maxsplit leaves the mime field (which can legitimately contain spaces,
+    # e.g. "text/html; charset=UTF-8") whole in the final element, matching
+    # how the native lenient path below treats it.
+    fields = rest.split(maxsplit=_ALT_REST_FIELD_COUNT - 1)
+    if len(fields) < _ALT_REST_FIELD_COUNT:
+        # Short/odd line -- keep the original spacing so the existing
+        # field-count handling reports it the same way it would have.
+        return f"{epoch:.3f} {rest}"
+
+    fields[_ALT_HIERARCHY_IDX], fields[_ALT_USER_IDX] = (
+        fields[_ALT_USER_IDX],
+        fields[_ALT_HIERARCHY_IDX],
+    )
+    return f"{epoch:.3f} " + " ".join(fields)
+
+
 def parse_line(line: str, branch: str = DEFAULT_BRANCH) -> ParsedEvent | None:
     """Parse a single Squid access.log line. Never raises; returns None on failure."""
     stripped = line.strip()
     if not stripped:
         return None
 
+    stripped = _normalize_alt_format(stripped)
     tokens = stripped.split()
     if len(tokens) != EXPECTED_FIELD_COUNT:
         # Not the expected shape under a plain split. The most common real

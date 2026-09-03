@@ -1,3 +1,5 @@
+from datetime import UTC, datetime
+
 from app.services.log_parser import parse_line
 
 
@@ -163,3 +165,108 @@ def test_oversized_content_type_and_user_are_truncated_to_column_length():
     assert event is not None
     assert event.user is not None and len(event.user) == 255
     assert event.content_type is not None and len(event.content_type) == 128
+
+
+# --- Alternate logformat: "%tl.%03tu ... %ru %Sh/%<A %[un %mt" -------------
+# Some boxes in this deployment log an Apache-style local-time clock (with a
+# space before the zone offset, and ".mmm" glued onto it) instead of epoch
+# seconds, and put hierarchy/peer before user. parse_line() normalises both
+# on the way in -- see log_parser._normalize_alt_format.
+
+
+def test_alt_logformat_forward_request_parses_with_native_field_mapping():
+    line = (
+        "03/Sep/2026:15:22:46 +0500.112  25197 172.25.103.167 TCP_MISS/200 7369 "
+        "POST http://149.154.167.41/api HIER_DIRECT/149.154.167.41 - application/octet-stream"
+    )
+    event = parse_line(line, branch="main")
+
+    assert event is not None
+    assert event.client_ip == "172.25.103.167"
+    assert event.action == "TCP_MISS"
+    assert event.status_code == 200
+    assert event.duration_ms == 25197
+    assert event.bytes == 7369
+    assert event.method == "POST"
+    assert event.domain == "149.154.167.41"
+    assert event.user is None
+    assert event.hierarchy == "HIER_DIRECT"
+    assert event.peer == "149.154.167.41"
+    assert event.content_type == "application/octet-stream"
+    assert event.blocked is False
+    # 03/Sep/2026 15:22:46 +05:00 == 10:22:46Z, plus .112 fractional seconds.
+    assert event.timestamp == datetime(2026, 9, 3, 10, 22, 46, 112000, tzinfo=UTC)
+
+
+def test_alt_logformat_connect_tunnel_extracts_domain_and_null_user():
+    line = (
+        "03/Sep/2026:15:22:46 +0500.233    995 172.25.42.24 TCP_TUNNEL/200 4381 "
+        "CONNECT clientservices.googleapis.com:443 HIER_DIRECT/142.250.120.102 - -"
+    )
+    event = parse_line(line, branch="main")
+
+    assert event is not None
+    assert event.method == "CONNECT"
+    assert event.domain == "clientservices.googleapis.com"
+    assert event.user is None
+    assert event.hierarchy == "HIER_DIRECT"
+    assert event.peer == "142.250.120.102"
+    assert event.content_type is None
+    assert event.blocked is False
+
+
+def test_alt_logformat_denied_line_sets_blocked_and_empty_peer():
+    line = (
+        "03/Sep/2026:15:22:46 +0500.216      0 172.25.42.77 TCP_DENIED/403 422 "
+        "HEAD http://example.com/x HIER_NONE/- - text/html"
+    )
+    event = parse_line(line, branch="main")
+
+    assert event is not None
+    assert event.blocked is True
+    assert event.status_code == 403
+    assert event.hierarchy == "HIER_NONE"
+    assert event.peer is None
+    assert event.user is None
+
+
+def test_alt_logformat_keeps_multiword_content_type_and_real_user():
+    line = (
+        "03/Sep/2026:15:22:46 +0500.100     10 10.0.0.1 TCP_MISS/200 5 GET "
+        "http://example.com/ HIER_DIRECT/1.2.3.4 alice text/html; charset=UTF-8"
+    )
+    event = parse_line(line, branch="main")
+
+    assert event is not None
+    assert event.user == "alice"
+    assert event.hierarchy == "HIER_DIRECT"
+    assert event.peer == "1.2.3.4"
+    assert event.content_type == "text/html; charset=UTF-8"
+
+
+def test_alt_logformat_negative_zone_offset():
+    line = (
+        "03/Sep/2026:05:22:46 -0430.000     10 10.0.0.1 TCP_MISS/200 5 GET "
+        "http://example.com/ HIER_DIRECT/1.2.3.4 - text/plain"
+    )
+    event = parse_line(line, branch="main")
+
+    assert event is not None
+    # 05:22:46 -04:30 == 09:52:46Z
+    assert event.timestamp == datetime(2026, 9, 3, 9, 52, 46, tzinfo=UTC)
+
+
+def test_native_epoch_line_is_untouched_by_alt_normaliser():
+    # The alt-format clock regex must never fire on a native line -- field
+    # order (user before hierarchy) has to stay as-is.
+    line = (
+        "1788430186.871 25189 172.25.55.35 TCP_MISS/200 423 POST "
+        "http://149.154.167.41/api - HIER_DIRECT/149.154.167.41 application/octet-stream"
+    )
+    event = parse_line(line, branch="server")
+
+    assert event is not None
+    assert event.user is None
+    assert event.hierarchy == "HIER_DIRECT"
+    assert event.peer == "149.154.167.41"
+    assert event.timestamp == datetime.fromtimestamp(1788430186.871, tz=UTC)

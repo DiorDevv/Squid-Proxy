@@ -171,6 +171,26 @@ async def test_events_free_text_search_matches_across_fields(
     assert body["items"][0]["domain"] == "findable.com"
 
 
+async def test_events_free_text_search_matches_peer_server_ip(
+    app_client: AsyncClient, db_session: AsyncSession, admin_token, auth_headers
+):
+    event = _make_raw_event(client_ip="10.0.4.3", domain="cdn-a.com", user="erin")
+    event.peer = "203.0.113.9"
+    other = _make_raw_event(client_ip="10.0.4.4", domain="cdn-b.com", user="frank")
+    other.peer = "198.51.100.2"
+    db_session.add_all([event, other])
+    await db_session.commit()
+
+    response = await app_client.get(
+        "/api/events?search=203.0.113.9", headers=auth_headers(admin_token)
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert body["total"] == 1
+    assert body["items"][0]["domain"] == "cdn-a.com"
+    assert body["items"][0]["peer"] == "203.0.113.9"
+
+
 async def test_events_respects_custom_time_range(
     app_client: AsyncClient, db_session: AsyncSession, admin_token, auth_headers
 ):

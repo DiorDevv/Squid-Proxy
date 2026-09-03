@@ -78,7 +78,7 @@ export default function EventsPage() {
             <SearchFilterInput
               value={search}
               onChange={setSearch}
-              placeholder={t('blocked.filterPlaceholder')}
+              placeholder={t('events.filterPlaceholder')}
               ariaLabel={t('events.filterAriaLabel')}
             />
           </div>

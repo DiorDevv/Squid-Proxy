@@ -238,11 +238,12 @@ export const ru = {
   'blocked.detailBytes': 'Байты',
   'blocked.detailDuration': 'Длительность',
   'blocked.detailHierarchy': 'Иерархия',
-  'blocked.detailPeer': 'Пир',
+  'blocked.detailPeer': 'IP сервера',
   'blocked.detailContentType': 'Тип контента',
 
   'events.title': 'События',
   'events.filterAriaLabel': 'Фильтровать события',
+  'events.filterPlaceholder': 'Фильтр по IP, домену, пользователю, IP сервера…',
   'events.noMatch': 'Нет событий по запросу "{{search}}".',
 
   'domains.mostVisited': 'Самые посещаемые домены',

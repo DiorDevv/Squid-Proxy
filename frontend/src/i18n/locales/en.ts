@@ -251,12 +251,13 @@ export const en = {
   'blocked.detailBytes': 'Bytes',
   'blocked.detailDuration': 'Duration',
   'blocked.detailHierarchy': 'Hierarchy',
-  'blocked.detailPeer': 'Peer',
+  'blocked.detailPeer': 'Server IP',
   'blocked.detailContentType': 'Content type',
 
   // --- Events page (all requests, blocked or not, in the selected range) ---
   'events.title': 'Events',
   'events.filterAriaLabel': 'Filter events',
+  'events.filterPlaceholder': 'Filter by IP, domain, user, server IP…',
   'events.noMatch': 'No events match "{{search}}".',
 
   // --- Domains page ---

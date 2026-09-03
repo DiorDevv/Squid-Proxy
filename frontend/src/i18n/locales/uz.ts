@@ -241,11 +241,12 @@ export const uz = {
   'blocked.detailBytes': 'Baytlar',
   'blocked.detailDuration': 'Davomiyligi',
   'blocked.detailHierarchy': 'Ierarxiya',
-  'blocked.detailPeer': 'Peer',
+  'blocked.detailPeer': 'Server IP',
   'blocked.detailContentType': 'Kontent turi',
 
   'events.title': 'Hodisalar',
   'events.filterAriaLabel': 'Hodisalarni filtrlash',
+  'events.filterPlaceholder': 'IP, domen, foydalanuvchi, server IP boʻyicha filtrlash…',
   'events.noMatch': '"{{search}}" boʻyicha hodisa topilmadi.',
 
   'domains.mostVisited': 'Eng koʻp tashrif buyurilgan domenlar',

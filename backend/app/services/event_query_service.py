@@ -47,6 +47,10 @@ def build_event_conditions(
                 RawEvent.domain.ilike(needle),
                 RawEvent.url.ilike(needle),
                 RawEvent.user.ilike(needle),
+                # `peer` is the resolved server (or upstream proxy) address
+                # Squid actually connected to -- lets an admin paste a bare
+                # IP from a firewall/IDS alert and see which users reached it.
+                RawEvent.peer.ilike(needle),
             )
         )
     # Generic "restrict to this exact set of domains" filter -- distinct from

@@ -58,12 +58,14 @@ async def get_domain_clients(
     order: SortOrder = SortOrder.DESC,
     branch: str | None = None,
 ) -> Page[DomainClientStat]:
-    """One row per client that hit this domain in range, with a `user` roll-up
-    the same way get_client_summary rolls up users for one IP -- the most
-    recently seen value, for display only. `branch=None` rolls up every
-    branch (same rare cross-branch IP-collision caveat as client_service's
-    default, not worth a dedicated branch column on this already-narrow,
-    single-domain drill-down view)."""
+    """One row per (client, branch) that hit this domain in range, with a
+    `user` roll-up the same way get_client_summary rolls up users for one IP
+    -- the most recently seen value, for display only. Grouped by branch as
+    well as client_ip, matching client_service.get_client_summaries: the
+    same IP can appear in more than one branch's logs (overlapping private
+    ranges behind different proxies), so `branch=None` lists such a client
+    once per branch it was actually seen in, and the frontend's branch
+    column makes that visible."""
     visit_count = func.count()
     blocked_count = func.coalesce(func.sum(case((RawEvent.blocked, 1), else_=0)), 0)
     total_bytes = func.coalesce(func.sum(RawEvent.bytes), 0)
@@ -77,6 +79,7 @@ async def get_domain_clients(
     base_query = (
         select(
             RawEvent.client_ip,
+            RawEvent.branch.label("branch"),
             latest_user.label("user"),
             visit_count.label("visit_count"),
             blocked_count.label("blocked_count"),
@@ -84,11 +87,12 @@ async def get_domain_clients(
             last_visit.label("last_visit"),
         )
         .where(*conditions)
-        .group_by(RawEvent.client_ip)
+        .group_by(RawEvent.client_ip, RawEvent.branch)
     )
 
     sort_column = {
         "client_ip": RawEvent.client_ip,
+        "branch": RawEvent.branch,
         "visit_count": visit_count,
         "blocked_count": blocked_count,
         "total_bytes": total_bytes,
@@ -100,13 +104,17 @@ async def get_domain_clients(
     rows = (await session.execute(query)).all()
 
     count_query = select(func.count()).select_from(
-        select(RawEvent.client_ip).where(*conditions).group_by(RawEvent.client_ip).subquery()
+        select(RawEvent.client_ip)
+        .where(*conditions)
+        .group_by(RawEvent.client_ip, RawEvent.branch)
+        .subquery()
     )
     total = (await session.execute(count_query)).scalar_one()
 
     items = [
         DomainClientStat(
             client_ip=row.client_ip,
+            branch=row.branch,
             user=row.user,
             visit_count=row.visit_count,
             blocked_count=row.blocked_count,

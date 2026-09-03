@@ -47,6 +47,9 @@ export function LiveEventsTicker() {
           <span className="font-data w-32 shrink-0 truncate text-foreground" title={event.client_ip}>
             {event.client_ip}
           </span>
+          <span className="font-data hidden w-20 shrink-0 truncate text-muted-foreground sm:inline" title={event.branch}>
+            {event.branch}
+          </span>
           <span className="truncate text-foreground" title={event.domain ?? event.url}>
             {event.domain ?? event.url}
           </span>

@@ -176,6 +176,7 @@ export interface DomainSummary {
 
 export interface DomainClientStat {
   client_ip: string
+  branch: string | null
   user: string | null
   visit_count: number
   blocked_count: number

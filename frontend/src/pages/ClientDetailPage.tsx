@@ -83,6 +83,11 @@ export default function ClientDetailPage() {
             </Link>
           </Button>
           <h1 className="font-data text-lg font-semibold text-foreground">{clientIp}</h1>
+          {summary?.branch && (
+            <span className="font-data rounded bg-secondary px-1.5 py-0.5 text-xs text-muted-foreground">
+              {summary.branch}
+            </span>
+          )}
         </div>
         <RangeSelector />
       </div>

@@ -38,6 +38,13 @@ export function DomainClientsTable({
         cell: ({ getValue }) => <span className="font-data text-foreground">{getValue<string>()}</span>,
       },
       {
+        accessorKey: 'branch',
+        header: t('branch.filter'),
+        cell: ({ getValue }) => (
+          <span className="font-data text-muted-foreground">{getValue<string | null>() ?? '—'}</span>
+        ),
+      },
+      {
         accessorKey: 'user',
         header: t('clients.columnUser'),
         cell: ({ getValue }) => (

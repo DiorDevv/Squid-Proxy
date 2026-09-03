@@ -39,6 +39,7 @@ export function EventDetailSheet({ event, onOpenChange }: EventDetailSheetProps)
           <div className="flex flex-col px-4 pb-4">
             <Field label={t('blocked.columnTime')} value={formatDateTime(event.timestamp)} />
             <Field label={t('blocked.columnClientIp')} value={event.client_ip} />
+            <Field label={t('branch.filter')} value={event.branch} />
             <Field label={t('blocked.columnUser')} value={event.user} />
             <Field label={t('blocked.detailUrl')} value={event.url} />
             <Field label={t('blocked.columnDomain')} value={event.domain} />

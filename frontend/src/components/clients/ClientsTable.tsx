@@ -30,11 +30,6 @@ export function ClientsTable({
   const { t } = useTranslation()
   const navigate = useNavigate()
 
-  // Only shown when the current page actually mixes branches -- with a
-  // single branch (the common case) or an explicit branch filter applied,
-  // every row would show the same value, which is noise, not information.
-  const showBranchColumn = useMemo(() => new Set(items.map((item) => item.branch)).size > 1, [items])
-
   const columns = useMemo<ColumnDef<ClientSummary>[]>(
     () => [
       {
@@ -42,17 +37,13 @@ export function ClientsTable({
         header: t('clients.columnClientIp'),
         cell: ({ getValue }) => <span className="font-data text-foreground">{getValue<string>()}</span>,
       },
-      ...(showBranchColumn
-        ? [
-            {
-              accessorKey: 'branch',
-              header: t('branch.filter'),
-              cell: ({ getValue }) => (
-                <span className="font-data text-muted-foreground">{getValue<string | null>() ?? '—'}</span>
-              ),
-            } satisfies ColumnDef<ClientSummary>,
-          ]
-        : []),
+      {
+        accessorKey: 'branch',
+        header: t('branch.filter'),
+        cell: ({ getValue }) => (
+          <span className="font-data text-muted-foreground">{getValue<string | null>() ?? '—'}</span>
+        ),
+      },
       {
         accessorKey: 'user',
         header: t('clients.columnUser'),
@@ -94,7 +85,7 @@ export function ClientsTable({
         ),
       },
     ],
-    [t, showBranchColumn],
+    [t],
   )
 
   return (

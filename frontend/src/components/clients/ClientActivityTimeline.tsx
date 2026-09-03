@@ -47,6 +47,12 @@ export function ClientActivityTimeline({ events, isLoading, onRowClick }: Client
           />
           <span className="font-data w-40 shrink-0 text-muted-foreground">{formatDateTime(event.timestamp)}</span>
           <span className="font-data w-14 shrink-0 text-foreground">{event.method}</span>
+          <span
+            className="font-data w-20 shrink-0 truncate text-muted-foreground"
+            title={event.branch}
+          >
+            {event.branch}
+          </span>
           {event.domain ? (
             <Link
               to={`/domains/${encodeURIComponent(event.domain)}`}

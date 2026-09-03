@@ -30,10 +30,6 @@ export function BlockedEventsTable({
 }: BlockedEventsTableProps) {
   const { t } = useTranslation()
 
-  // Only shown when the current page actually mixes branches -- see
-  // ClientsTable's identical rationale.
-  const showBranchColumn = useMemo(() => new Set(items.map((item) => item.branch)).size > 1, [items])
-
   const columns = useMemo<ColumnDef<LiveEvent>[]>(
     () => [
       {
@@ -48,17 +44,13 @@ export function BlockedEventsTable({
         header: t('blocked.columnClientIp'),
         cell: ({ getValue }) => <span className="font-data text-foreground">{getValue<string>()}</span>,
       },
-      ...(showBranchColumn
-        ? [
-            {
-              accessorKey: 'branch',
-              header: t('branch.filter'),
-              cell: ({ getValue }) => (
-                <span className="font-data text-muted-foreground">{getValue<string>()}</span>
-              ),
-            } satisfies ColumnDef<LiveEvent>,
-          ]
-        : []),
+      {
+        accessorKey: 'branch',
+        header: t('branch.filter'),
+        cell: ({ getValue }) => (
+          <span className="font-data text-muted-foreground">{getValue<string>()}</span>
+        ),
+      },
       {
         accessorKey: 'user',
         header: t('blocked.columnUser'),
@@ -90,7 +82,7 @@ export function BlockedEventsTable({
         cell: ({ row }) => <StatusBadge blocked={row.original.blocked} />,
       },
     ],
-    [t, showBranchColumn],
+    [t],
   )
 
   return (

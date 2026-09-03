@@ -6,7 +6,15 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.raw_event import RawEvent
 
 
-async def _visit(client_ip: str, domain: str, timestamp, user: str | None = None, blocked: bool = False, size: int = 100):
+async def _visit(
+    client_ip: str,
+    domain: str,
+    timestamp,
+    user: str | None = None,
+    blocked: bool = False,
+    size: int = 100,
+    branch: str = "default",
+):
     return RawEvent(
         timestamp=timestamp,
         duration_ms=1,
@@ -22,6 +30,7 @@ async def _visit(client_ip: str, domain: str, timestamp, user: str | None = None
         peer=None,
         content_type=None,
         blocked=blocked,
+        branch=branch,
     )
 
 
@@ -89,6 +98,31 @@ async def test_domain_clients_lists_one_row_per_client_sorted_by_visit_count(
     assert body["items"][0]["user"] == "alice"
     assert body["items"][1]["client_ip"] == "10.0.0.2"
     assert body["items"][1]["visit_count"] == 1
+
+
+async def test_domain_clients_splits_rows_by_branch(
+    app_client: AsyncClient, db_session: AsyncSession, admin_token, auth_headers
+):
+    now = datetime.now(UTC)
+    db_session.add_all(
+        [
+            await _visit("10.0.0.1", "example.com", now, branch="tashkent"),
+            await _visit("10.0.0.1", "example.com", now, branch="tashkent"),
+            await _visit("10.0.0.1", "example.com", now, branch="samarqand"),
+        ]
+    )
+    await db_session.commit()
+
+    response = await app_client.get(
+        "/api/domains/example.com/clients?range=1h&sort_by=visit_count", headers=auth_headers(admin_token)
+    )
+    assert response.status_code == 200
+    body = response.json()
+    # Same IP, two branches -> two rows, not one rolled-up row.
+    assert body["total"] == 2
+    by_branch = {item["branch"]: item for item in body["items"]}
+    assert by_branch["tashkent"]["visit_count"] == 2
+    assert by_branch["samarqand"]["visit_count"] == 1
 
 
 async def test_domain_clients_only_includes_visits_to_that_domain(

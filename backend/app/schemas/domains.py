@@ -63,6 +63,11 @@ class DomainSummary(BaseModel):
 
 class DomainClientStat(BaseModel):
     client_ip: str
+    # Which proxy/branch this client's visits to the domain came through.
+    # The same client_ip can appear under more than one branch (see
+    # domain_service.get_domain_clients), so it's a row-level value here,
+    # not a property of the IP.
+    branch: str | None
     user: str | None
     visit_count: int
     blocked_count: int

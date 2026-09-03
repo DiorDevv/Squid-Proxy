@@ -108,6 +108,31 @@ def test_content_type_with_embedded_space_still_parses():
     assert event.client_ip == "10.0.0.5"
 
 
+def test_oversized_byte_count_is_clamped_not_rejected():
+    # A large download logs a %<st past the old int32 column ceiling. The
+    # line must still parse (every other field is fine) with bytes clamped
+    # to what the BIGINT column can hold, never left as a value that would
+    # fail every aggregator flush batch.
+    huge = 2**63 + 5
+    line = (
+        f"1737100800.123 45 10.0.0.5 TCP_MISS/200 {huge} GET http://example.com/ "
+        "alice HIER_DIRECT/93.184.216.34 application/octet-stream"
+    )
+    event = parse_line(line)
+
+    assert event is not None
+    assert event.bytes == 2**63 - 1
+    assert event.client_ip == "10.0.0.5"
+
+
+def test_negative_duration_is_clamped_to_zero():
+    line = "1737100800.123 -7 10.0.0.5 TCP_MISS/200 1024 GET http://example.com/ alice HIER_DIRECT/93.184.216.34 -"
+    event = parse_line(line)
+
+    assert event is not None
+    assert event.duration_ms == 0
+
+
 def test_blocked_action_sets_blocked_flag():
     line = "1737100800.123 5 10.0.0.9 TCP_DENIED/403 0 GET http://blocked-site.com/ dave HIER_NONE/- -"
     event = parse_line(line)

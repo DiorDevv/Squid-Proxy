@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from sqlalchemy import Boolean, Index, Integer, String, Text
+from sqlalchemy import BigInteger, Boolean, Index, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.config import DEFAULT_BRANCH
@@ -35,12 +35,21 @@ class RawEvent(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     timestamp: Mapped[datetime] = mapped_column(UTCDateTime, index=True)
-    duration_ms: Mapped[int] = mapped_column(Integer)
+    # BigInteger, not Integer: a single large file download (a Windows/Chrome
+    # update, a video) logs a %<st byte count well past the ~2.1B int32
+    # ceiling, and a long-lived CONNECT tunnel's %tr can too. An int32
+    # column turned one such row into an asyncpg DataError that failed the
+    # whole flush batch, and since the aggregator never advances past an
+    # uncommitted flush it retried the same poisoned batch every interval
+    # forever -- backlog growing until the ring buffer overflowed and
+    # events were lost for good. Every aggregate table's total_bytes was
+    # already BigInteger; this column was the one that got missed.
+    duration_ms: Mapped[int] = mapped_column(BigInteger)
     client_ip: Mapped[str] = mapped_column(String(45), index=True)
     branch: Mapped[str] = mapped_column(String(64), default=DEFAULT_BRANCH)
     action: Mapped[str] = mapped_column(String(64))
     status_code: Mapped[int] = mapped_column(Integer)
-    bytes: Mapped[int] = mapped_column(Integer)
+    bytes: Mapped[int] = mapped_column(BigInteger)
     method: Mapped[str] = mapped_column(String(16))
     url: Mapped[str] = mapped_column(Text)
     domain: Mapped[str | None] = mapped_column(String(255), nullable=True, index=True)

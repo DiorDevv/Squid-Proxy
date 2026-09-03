@@ -13,11 +13,12 @@ Every AGGREGATION_INTERVAL_SECONDS (default 60s):
 import asyncio
 import logging
 from collections import defaultdict
-from collections.abc import Callable
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import datetime
 
 from sqlalchemy import func, insert, literal_column
+from sqlalchemy.exc import DataError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.insights import get_insights_provider
@@ -258,7 +259,7 @@ class Aggregator:
                 columns_per_row=len(raw_rows[0]) if raw_rows else 1,
                 max_variables=max_variables_for(session),
             ):
-                await session.execute(insert(declared_table(RawEvent)), batch)
+                await self._insert_raw_events_batch(session, batch)
             await session.commit()
 
         # Only advance past these events once they're durably committed --
@@ -276,6 +277,58 @@ class Aggregator:
         )
         await self._run_insights(events)
         return FlushResult(events_flushed=len(events), buckets_touched=set(minute_buckets))
+
+    async def _insert_raw_events_batch(
+        self, session: AsyncSession, batch: Sequence[Mapping[str, object]]
+    ) -> None:
+        """Insert one chunk of raw_events rows. A DataError here means one or
+        more rows carry a value no amount of retrying will make fit the
+        column (historically a pre-BIGINT `bytes` overflow -- see
+        raw_event.py). Left to propagate it would abort the whole flush
+        transaction, and since flush() never advances _last_flushed_id past
+        an uncommitted window the aggregator would re-run the identical
+        poisoned batch every interval forever, backlog climbing until the
+        ring buffer overflows. So: try the batch in a savepoint, and if it
+        fails on a DataError, re-run its rows one per savepoint, dropping
+        only the individual rows that still fail (loudly) and keeping the
+        rest. The aggregate upserts earlier in this transaction are
+        untouched either way. Any other exception still propagates -- a
+        transient DB fault must remain a retry, not a silent drop."""
+        try:
+            async with session.begin_nested():
+                await session.execute(insert(declared_table(RawEvent)), batch)
+            return
+        except DataError:
+            logger.exception(
+                "raw_events batch insert hit a DataError -- retrying rows individually to "
+                "isolate and drop the un-persistable one(s) instead of wedging every flush",
+                extra={"batch_size": len(batch)},
+            )
+
+        dropped = 0
+        for row in batch:
+            try:
+                async with session.begin_nested():
+                    await session.execute(insert(declared_table(RawEvent)), [row])
+            except DataError:
+                dropped += 1
+                logger.error(
+                    "Dropping un-persistable raw_events row",
+                    extra={
+                        "timestamp": row.get("timestamp"),
+                        "client_ip": row.get("client_ip"),
+                        "branch": row.get("branch"),
+                        "bytes": row.get("bytes"),
+                        "duration_ms": row.get("duration_ms"),
+                        "url": row.get("url"),
+                    },
+                )
+        if dropped:
+            logger.error(
+                "raw_events rows dropped this flush -- detail lost for these events, "
+                "aggregate counts still include them",
+                extra={"dropped": dropped, "batch_size": len(batch)},
+            )
 
     def _build_buckets(
         self, events: list[StoredEvent], overrides: dict[str, DomainCategoryLabel]

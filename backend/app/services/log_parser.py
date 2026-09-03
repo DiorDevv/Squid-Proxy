@@ -91,9 +91,18 @@ class ParsedEvent:
     branch: str
 
 
+# Widest value the integer columns (raw_events.bytes / .duration_ms, both
+# BIGINT) can hold. Real Squid values never approach this, but clamping here
+# -- the same "sanitise at parse time so the INSERT can never fail" contract
+# the string fields above already follow via _truncate -- means even a
+# corrupt/absurd numeric token can't become a row that fails every
+# aggregator flush batch forever (see raw_event.py's column comment).
+_MAX_DB_BIGINT = 2**63 - 1
+
+
 def _parse_int(raw: str, field_name: str, line: str) -> int:
     try:
-        return int(raw)
+        value = int(raw)
     except ValueError:
         logger.warning(
             "Non-numeric %s field, defaulting to 0",
@@ -101,6 +110,15 @@ def _parse_int(raw: str, field_name: str, line: str) -> int:
             extra={"field": field_name, "raw_value": raw, "line": line},
         )
         return 0
+    if value < 0 or value > _MAX_DB_BIGINT:
+        clamped = min(max(value, 0), _MAX_DB_BIGINT)
+        logger.warning(
+            "Out-of-range %s field, clamping",
+            field_name,
+            extra={"field": field_name, "raw_value": raw, "clamped_to": clamped, "line": line},
+        )
+        return clamped
+    return value
 
 
 # A real hostname or IP literal only ever uses these characters (brackets

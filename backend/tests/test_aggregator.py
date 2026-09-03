@@ -138,6 +138,50 @@ async def test_flush_chunks_a_large_raw_events_insert_without_dropping_or_duplic
         assert domains == {f"domain-{i}.example" for i in range(row_count)}
 
 
+async def test_flush_drops_a_poison_raw_row_instead_of_wedging_every_flush(db_engine, monkeypatch):
+    """A raw_events row whose value no retry will make fit its column (the
+    historical int32 `bytes` overflow) must not abort the whole flush: the
+    aggregator isolates and drops it, keeps every other row, and advances
+    past the window instead of re-running the same failing batch forever."""
+    from sqlalchemy.exc import DataError
+
+    session_factory = async_sessionmaker(db_engine, expire_on_commit=False, class_=AsyncSession)
+    import app.services.aggregator as aggregator_module
+
+    monkeypatch.setattr(aggregator_module, "AsyncSessionLocal", session_factory)
+
+    ring_buffer = RingBuffer(max_events=100)
+    ring_buffer.append(parse_line(squid_line("good.com", client_ip="10.0.0.1")))
+    ring_buffer.append(parse_line(squid_line("poison.com", client_ip="10.9.9.9")))
+    ring_buffer.append(parse_line(squid_line("good.com", client_ip="10.0.0.2")))
+
+    original_execute = AsyncSession.execute
+
+    async def execute_rejecting_poison(self, statement, *args, **kwargs):
+        params = args[0] if args else kwargs.get("parameters")
+        rows = params if isinstance(params, list) else []
+        if any(isinstance(r, dict) and r.get("client_ip") == "10.9.9.9" for r in rows):
+            raise DataError("INSERT INTO raw_events", params, Exception("value out of int32 range"))
+        return await original_execute(self, statement, *args, **kwargs)
+
+    monkeypatch.setattr(AsyncSession, "execute", execute_rejecting_poison)
+
+    aggregator = Aggregator(ring_buffer=ring_buffer, interval_seconds=60)
+    result = await aggregator.flush()
+
+    # Window fully accounted for -- not re-queued, not wedged.
+    assert result.events_flushed == 3
+    assert aggregator.backlog_size == 0
+
+    monkeypatch.undo()
+    async with session_factory() as session:
+        ips = {r.client_ip for r in (await session.execute(select(RawEvent))).scalars()}
+        assert ips == {"10.0.0.1", "10.0.0.2"}  # poison row dropped, the rest kept
+
+        minute_row = (await session.execute(select(MinuteAggregate))).scalar_one()
+        assert minute_row.total_requests == 3  # aggregates still counted the dropped event
+
+
 async def test_flush_buckets_requests_by_client_and_category(db_engine, monkeypatch):
     """youtube.com is a known hostname (see category_inference.py) that
     auto-infers to VIDEO_STREAMING with no admin override needed -- this

@@ -296,6 +296,7 @@ Key ones to know:
 | `RING_BUFFER_MAX_EVENTS` / `AGGREGATION_INTERVAL_SECONDS` | In-memory event buffer size and flush interval — see "Capacity planning" below |
 | `DATABASE_POOL_SIZE` / `DATABASE_MAX_OVERFLOW` | Postgres connection pool sizing (ignored for SQLite) — see "Capacity planning" below |
 | `OPS_ALERT_WEBHOOK_URL` | Notified when something breaks operationally (tailer down, backup/retention/archiving failed) — see "Operator failure notifications" below |
+| `RISK_MODEL` | JSON object tuning the Analytics **branch risk score** — signal weights, normalization ceilings, band thresholds. Any key omitted keeps its default; the defaults are a documented starting point, not calibrated. See `backend/app/core/config.py:RiskModelConfig` |
 
 ## Capacity planning for large deployments
 
@@ -615,10 +616,20 @@ at that moment. Off by default, same as `ALERT_WEBHOOK_URL`.
 All endpoints are under `/api`, JWT-protected except `/api/health`. See
 `backend/app/api/routes/` for the full set: `auth`, `summary`, `timeseries`, `domains` (top
 visited/blocked, by-category, per-domain detail), `clients` (+ per-client activity, time-spent by
-domain/category), `alert-settings`, `export-settings`, `reports` (status, send-now), `events`
-(recent, ring-buffer-backed), `export` (admin-only CSV/JSON), plus the `/ws/live` WebSocket for real-time
-push. Interactive docs are available at `/docs` when the backend is running (FastAPI's built-in
-Swagger UI).
+domain/category), `analytics` (see below), `alert-settings`, `export-settings`, `reports` (status,
+send-now), `events` (recent, ring-buffer-backed), `export` (admin-only CSV/JSON), plus the
+`/ws/live` WebSocket for real-time push. Interactive docs are available at `/docs` when the backend
+is running (FastAPI's built-in Swagger UI).
+
+**`GET /api/analytics/*`** backs the Analytics section of the dashboard — `overview`
+(period-over-period comparison of every headline metric + top categories/domains + biggest
+category movers), `category-trend` (stacked traffic-by-category over time; an hourly request over a
+window wider than `CATEGORY_TREND_MAX_BUCKETS` buckets is auto-coarsened to daily and the response
+says so), `branch-breakdown` (per-branch totals), `branch-risk` (a 0–100 composite risk score per
+branch, blended from five weighted signals — see `RISK_MODEL` under configuration), and
+`activity-heatmap` (hour × weekday request volume; pass `tz_offset_minutes` to bucket in a
+timezone other than UTC). All are read-only, computed on the fly from data that already exists (no
+analytics-specific tables), and branch-scoped identically to the rest of the read API.
 
 **`GET /api/audit-log`** (admin-only) is the who-did-what trail for admin actions: user
 management (create/role-change/password-reset/delete), the full export lifecycle

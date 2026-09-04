@@ -225,6 +225,125 @@ export interface AnomalyEvent {
   params: Record<string, string | number> | null
 }
 
+// --- Analytics section (/api/analytics/*) ---
+
+export type TrendGranularity = 'hour' | 'day'
+export type TrendMetric = 'bytes' | 'requests'
+export type RiskBand = 'low' | 'medium' | 'high'
+export type RiskSignalKey =
+  | 'blocked_ratio'
+  | 'sensitive_traffic'
+  | 'anomalies'
+  | 'quota_breaches'
+  | 'uncategorized_domains'
+
+export interface MetricDelta {
+  metric: string
+  current: number
+  previous: number | null
+  pct_change: number | null
+}
+
+export interface CategoryUsage {
+  category: DomainCategoryLabel
+  request_count: number
+  blocked_count: number
+  total_bytes: number
+}
+
+export interface DomainUsage {
+  domain: string
+  request_count: number
+  blocked_count: number
+  total_bytes: number
+  category: DomainCategoryLabel
+}
+
+export interface CategoryMover {
+  category: DomainCategoryLabel
+  current_bytes: number
+  previous_bytes: number
+  pct_change: number | null
+}
+
+export interface AnalyticsOverview {
+  since: string
+  until: string
+  previous_since: string
+  previous_until: string
+  metrics: MetricDelta[]
+  blocked_ratio: number
+  cache_hit_ratio: number | null
+  top_categories: CategoryUsage[]
+  top_domains: DomainUsage[]
+  top_blocked_domains: DomainUsage[]
+  top_movers: CategoryMover[]
+}
+
+export interface CategoryTrendPoint {
+  bucket_ts: string
+  values: Record<string, number>
+}
+
+export interface CategoryTrendResponse {
+  granularity: TrendGranularity
+  metric: TrendMetric
+  categories: DomainCategoryLabel[]
+  points: CategoryTrendPoint[]
+}
+
+export interface BranchBreakdownRow {
+  branch: string
+  total_requests: number
+  blocked_requests: number
+  allowed_requests: number
+  total_bytes: number
+  blocked_ratio: number
+  active_client_count: number
+  requests_pct_change: number | null
+}
+
+export interface BranchBreakdownResponse {
+  rows: BranchBreakdownRow[]
+}
+
+export interface RiskSignal {
+  key: RiskSignalKey
+  raw_value: number
+  score: number
+  weight: number
+}
+
+export interface BranchRiskRow {
+  branch: string
+  score: number
+  band: RiskBand
+  signals: RiskSignal[]
+  total_requests: number
+  blocked_requests: number
+  anomaly_count: number
+}
+
+export interface BranchRiskResponse {
+  since: string
+  until: string
+  rows: BranchRiskRow[]
+}
+
+export interface HeatmapCell {
+  weekday: number
+  hour: number
+  value: number
+}
+
+export interface ActivityHeatmapResponse {
+  blocked_only: boolean
+  /** Minutes east of UTC the weekday/hour split was computed in (0 = UTC). */
+  tz_offset_minutes: number
+  max_value: number
+  cells: HeatmapCell[]
+}
+
 export type ExportJobStatus = 'pending' | 'running' | 'done' | 'failed' | 'cancelled'
 
 export interface ExportJob {

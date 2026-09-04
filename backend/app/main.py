@@ -194,7 +194,7 @@ def create_app() -> FastAPI:
 
     app = FastAPI(
         title="Squid Proxy Log Analytics API",
-        version="0.1.0",
+        version="0.3.0",
         lifespan=lifespan,
     )
 
@@ -235,6 +235,7 @@ def create_app() -> FastAPI:
 
     from app.api.routes import (
         alert_settings,
+        analytics,
         audit,
         auth,
         branches,
@@ -266,6 +267,7 @@ def create_app() -> FastAPI:
     app.include_router(audit.router)
     app.include_router(insights.router)
     app.include_router(alert_settings.router)
+    app.include_router(analytics.router)
     app.include_router(reports.router)
     app.include_router(ws.router)
 

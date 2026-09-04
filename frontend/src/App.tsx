@@ -18,6 +18,11 @@ const BlockedPage = lazy(() => import('@/pages/BlockedPage'))
 const EventsPage = lazy(() => import('@/pages/EventsPage'))
 const DomainsPage = lazy(() => import('@/pages/DomainsPage'))
 const DomainDetailPage = lazy(() => import('@/pages/DomainDetailPage'))
+const AnalyticsLayout = lazy(() => import('@/pages/analytics/AnalyticsLayout'))
+const AnalyticsOverviewPage = lazy(() => import('@/pages/analytics/AnalyticsOverviewPage'))
+const AnalyticsBranchesPage = lazy(() => import('@/pages/analytics/AnalyticsBranchesPage'))
+const AnalyticsCategoriesPage = lazy(() => import('@/pages/analytics/AnalyticsCategoriesPage'))
+const AnalyticsHeatmapPage = lazy(() => import('@/pages/analytics/AnalyticsHeatmapPage'))
 const SettingsLayout = lazy(() => import('@/pages/settings/SettingsLayout'))
 const SettingsGeneralPage = lazy(() => import('@/pages/settings/SettingsGeneralPage'))
 const SettingsUsersPage = lazy(() => import('@/pages/settings/SettingsUsersPage'))
@@ -60,6 +65,13 @@ export default function App() {
             <Route path="events" element={<EventsPage />} />
             <Route path="domains" element={<DomainsPage />} />
             <Route path="domains/:domain" element={<DomainDetailPage />} />
+            <Route path="analytics" element={<AnalyticsLayout />}>
+              <Route index element={<Navigate to="overview" replace />} />
+              <Route path="overview" element={<AnalyticsOverviewPage />} />
+              <Route path="branches" element={<AnalyticsBranchesPage />} />
+              <Route path="categories" element={<AnalyticsCategoriesPage />} />
+              <Route path="heatmap" element={<AnalyticsHeatmapPage />} />
+            </Route>
             <Route element={<ProtectedRoute requiredRole="admin" />}>
               <Route path="settings" element={<SettingsLayout />}>
                 <Route index element={<Navigate to="general" replace />} />

@@ -33,6 +33,36 @@ class LogSource(BaseModel):
     path: str
 
 
+class RiskModelConfig(BaseModel):
+    """Tunable inputs to the per-branch analytics risk score (see
+    app/services/analytics_service.py). The composite is
+    ``clamp(sum(signal_norm * weight) * 100, 0, 100)`` where each signal's
+    ``norm`` is ``min(raw_value / <signal>_ceil, 1)``. Weights are expected
+    to sum to ~1 but nothing enforces it -- a set summing to less just
+    compresses the score range. Override the whole object as one JSON blob
+    in the ``RISK_MODEL`` env var; the shipped defaults are the documented,
+    tested baseline and are a reasonable starting point, not a calibrated
+    truth -- tune them against a real deployment.
+    """
+
+    weight_blocked_ratio: float = 0.30
+    weight_sensitive_traffic: float = 0.25
+    weight_anomalies: float = 0.25
+    weight_quota_breaches: float = 0.10
+    weight_uncategorized_domains: float = 0.10
+
+    # Raw signal value at which that signal's contribution saturates at 1.0.
+    blocked_ratio_ceil: float = 0.40
+    sensitive_share_ceil: float = 0.30
+    anomaly_points_ceil: float = 40.0
+    quota_breach_ceil: float = 5.0
+    uncategorized_domains_ceil: float = 10.0
+
+    # Composite score at/above which a branch is "medium" / "high" risk.
+    band_medium: float = 40.0
+    band_high: float = 70.0
+
+
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 
@@ -177,6 +207,17 @@ class Settings(BaseSettings):
 
     # --- Insights / anomaly detection ---
     INSIGHTS_PROVIDER: str = "noop"
+
+    # --- Analytics: per-branch risk score model (see
+    # app/services/analytics_service.py and RiskModelConfig above). Override
+    # as a JSON object in RISK_MODEL, e.g.
+    # RISK_MODEL='{"weight_blocked_ratio": 0.4, "band_high": 65}'. Any key
+    # omitted keeps its default. ---
+    RISK_MODEL: RiskModelConfig = Field(default_factory=RiskModelConfig)
+    # Above this many time buckets, /api/analytics/category-trend coarsens
+    # an hourly request to daily rather than returning a huge point series
+    # (the response echoes the granularity it actually used).
+    CATEGORY_TREND_MAX_BUCKETS: int = 1500
 
     # --- Alerting (optional; no-op unless ALERT_WEBHOOK_URL is set) ---
     ALERT_WEBHOOK_URL: str | None = None

@@ -114,4 +114,21 @@ test.describe.serial('authenticated', () => {
     await expect(page.getByRole('heading', { name: 'Clients', level: 1 })).toBeVisible()
     await expectPageLoadedWithoutError(page)
   })
+
+  // The Analytics section is four sub-views behind one shared sub-nav (see
+  // pages/analytics/AnalyticsLayout.tsx). Its pages show comparison cards /
+  // charts rather than a <table> or the /no .*(recorded|found)/ empty text
+  // expectPageLoadedWithoutError keys off, so this asserts a loaded state
+  // its own way: the sub-nav is present and no panel fell back to a Retry.
+  test('Analytics section loads every sub-view without error', async () => {
+    await page.getByRole('navigation', { name: 'Primary' }).getByRole('link', { name: 'Analytics' }).click()
+
+    await expect(page.getByRole('heading', { name: 'Analytics', level: 1 })).toBeVisible()
+    const main = page.getByRole('main')
+
+    for (const tab of ['Overview', 'Branches', 'Categories', 'Activity map']) {
+      await main.getByRole('link', { name: tab }).click()
+      await expect(main.getByRole('button', { name: 'Retry' })).not.toBeVisible()
+    }
+  })
 })

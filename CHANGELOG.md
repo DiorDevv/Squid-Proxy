@@ -3,6 +3,35 @@
 All notable changes to this project are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.3.0] - 2026-09-04
+
+### Added
+
+- **Analytics section** (`/analytics`, new top-level nav item, visible to every role) — four
+  sub-views behind one shared range/branch filter:
+  - **Overview** — every headline metric for the selected range next to the equal-length range
+    before it (delta %), top categories/domains/blocked-domains, and the categories that moved the
+    most by volume.
+  - **Branches** — a per-branch **risk score** (0–100, banded low/medium/high) blended from five
+    weighted signals (blocked-traffic share, sensitive-category traffic, detected anomalies,
+    data-quota breaches, high-traffic uncategorized domains), each row expandable to its per-signal
+    breakdown; plus an allowed-vs-blocked bar chart and a full per-branch breakdown table.
+  - **Categories** — a stacked-area traffic-by-category trend (data or requests, hourly or daily)
+    and the biggest movers vs. the previous period.
+  - **Activity map** — an hour × weekday heatmap of request volume, in the viewer's local timezone,
+    with an all-traffic / blocked-only toggle.
+- New read-only endpoints under `/api/analytics/`: `overview`, `category-trend`, `branch-breakdown`,
+  `branch-risk`, `activity-heatmap`. All branch-scoped the same way the rest of the read API is
+  (a branch-restricted account only ever sees its own branch). No new database tables — every
+  number is computed from the existing minute/domain aggregates, `anomaly_events` and
+  `alert_settings`.
+- **`RISK_MODEL`** config (JSON object, env-overridable) — the risk score's weights, normalization
+  ceilings and band thresholds are tunable rather than hardcoded; the shipped defaults are a
+  documented starting point, not a calibrated truth.
+- **`CATEGORY_TREND_MAX_BUCKETS`** config — an hourly category-trend request over a very wide window
+  is automatically coarsened to daily (the response reports the granularity actually used) rather
+  than returning thousands of points.
+
 ## [0.2.0] - 2026-08-26
 
 ### Added

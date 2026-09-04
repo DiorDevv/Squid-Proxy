@@ -63,3 +63,13 @@ export function formatRelativeTime(iso: string | null): string {
   const diffDays = Math.floor(diffHours / 24)
   return `${diffDays}d ago`
 }
+
+/** Response-time latency from the Analytics per-minute histogram. Its top
+ * band is unbounded ("≥10s"), so any percentile that lands at or past
+ * 10000ms is shown as "≥10s" rather than a spuriously precise "10.0s" --
+ * the data genuinely can't distinguish beyond that. */
+export function formatLatencyMs(ms: number): string {
+  if (ms >= 10000) return '≥10s'
+  if (ms >= 1000) return `${(ms / 1000).toFixed(1)}s`
+  return `${Math.round(ms)}ms`
+}

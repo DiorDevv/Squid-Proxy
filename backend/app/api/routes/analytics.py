@@ -3,12 +3,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_db, require_any_role, resolve_branch
 from app.api.routes.health import build_health_snapshot
+from app.core.config import get_settings
 from app.schemas.analytics import (
     ActivityHeatmapResponse,
     AnalyticsOverview,
     BranchBreakdownResponse,
     BranchRiskResponse,
     CategoryTrendResponse,
+    RetentionInfo,
     TrendGranularity,
     TrendMetric,
 )
@@ -170,6 +172,16 @@ async def read_denials(
 ) -> DenialsResponse:
     return await squid_ops_service.get_denials(
         db, effective_range.since, effective_range.until, granularity, branch
+    )
+
+
+@router.get("/retention", response_model=RetentionInfo)
+async def read_retention() -> RetentionInfo:
+    settings = get_settings()
+    return RetentionInfo(
+        raw_event_days=settings.RETENTION_DAYS_RAW_EVENTS,
+        aggregate_days=settings.RETENTION_DAYS_AGGREGATES,
+        ops_aggregate_days=settings.RETENTION_DAYS_OPS_AGGREGATES,
     )
 
 

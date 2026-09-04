@@ -164,6 +164,10 @@ async def test_squid_ops_endpoints_shape(
     body = advisor.json()
     assert body["window_hours"] == 24 and "findings" in body
 
+    retention = await app_client.get("/api/analytics/retention", headers=auth_headers(admin_token))
+    assert retention.status_code == 200
+    assert set(retention.json()) == {"raw_event_days", "aggregate_days", "ops_aggregate_days"}
+
 
 async def test_squid_ops_branch_scoping(
     app_client: AsyncClient, branch_a_admin_token, auth_headers

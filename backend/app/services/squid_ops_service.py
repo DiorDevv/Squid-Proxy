@@ -51,7 +51,7 @@ from app.schemas.squid_ops import (
     TimeBucketCounts,
 )
 from app.services.aggregator import _is_cache_hit, _is_cache_miss
-from app.services.analytics_service import _truncate
+from app.services.analytics_service import _drop_in_progress_bucket, _truncate
 from app.services.category_inference import effective_category
 from app.services.client_service import client_bucket_rows
 from app.services.domain_category_service import get_overrides_map
@@ -169,12 +169,14 @@ async def get_result_codes(
         reverse=True,
     )
     series_labels = [c.label for c in codes[:8]]
+    drop = _drop_in_progress_bucket(list(buckets), granularity)
     series = [
         TimeBucketCounts(
             bucket_ts=bucket,
             values={label: values.get(label, 0) for label in series_labels},
         )
         for bucket, values in sorted(buckets.items())
+        if bucket not in drop
     ]
     cacheable = hit_req + miss_req
     cacheable_bytes = hit_bytes + miss_bytes
@@ -335,6 +337,7 @@ async def get_response_time(
         for i, v in enumerate(bands):
             overall_bands[i] += v
 
+    drop = _drop_in_progress_bucket(list(grouped), granularity)
     for key, acc in grouped.items():
         per_bucket[key] = (acc[0], acc[1:])
 
@@ -348,6 +351,7 @@ async def get_response_time(
             request_count=sum(bands),
         )
         for key, (dur_sum, bands) in sorted(per_bucket.items())
+        if key not in drop
     ]
     sample_count = sum(overall_bands)
     return ResponseTimeResponse(
@@ -734,7 +738,10 @@ async def get_denials(
         t_acl += acl
         t_auth += auth
         t_other += other
+    drop = _drop_in_progress_bucket(list(tmp), granularity)
     for key, (acl, auth, other) in sorted(tmp.items()):
+        if key in drop:
+            continue
         grouped[key] = DenialReasonPoint(
             bucket_ts=key, acl_denied=acl, proxy_auth=auth, other_blocked=other
         )

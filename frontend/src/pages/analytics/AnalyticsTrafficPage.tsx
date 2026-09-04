@@ -9,8 +9,9 @@ import { CategoryTrendChart } from '@/components/analytics/CategoryTrendChart'
 import { ActivityHeatmap } from '@/components/analytics/ActivityHeatmap'
 import { MiniStat } from '@/components/analytics/MiniStat'
 import { Toggle } from '@/components/analytics/Toggle'
+import { OpsRetentionNote } from '@/components/analytics/OpsRetentionNote'
 import { cn } from '@/lib/utils'
-import { formatNumber } from '@/lib/format'
+import { formatLatencyMs as ms, formatNumber } from '@/lib/format'
 import { durationBandColor, resultCodeColor, statusClassColor } from '@/lib/ops-colors'
 import { useRangeSearchParams } from '@/lib/filters-store'
 import {
@@ -25,7 +26,6 @@ import { useTranslation } from '@/i18n'
 import type { TrendGranularity, TrendMetric } from '@/types/api'
 
 const pct = (v: number | null | undefined) => (v == null ? '—' : `${(v * 100).toFixed(1)}%`)
-const ms = (v: number) => (v >= 1000 ? `${(v / 1000).toFixed(1)}s` : `${Math.round(v)}ms`)
 
 export default function AnalyticsTrafficPage() {
   const { t } = useTranslation()
@@ -54,6 +54,7 @@ export default function AnalyticsTrafficPage() {
 
   return (
     <div className="flex flex-col gap-4">
+      <OpsRetentionNote />
       <Panel title={t('analytics.traffic.resultCodes')} action={granularityToggle}>
         <PanelErrorBoundary panelLabel={t('analytics.traffic.resultCodes')}>
           {codes.isError ? (

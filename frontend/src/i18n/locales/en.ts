@@ -403,6 +403,7 @@ export const en = {
   'analytics.trend.granularityHour': 'Hourly',
   'analytics.trend.granularityDay': 'Daily',
   'analytics.trend.coarsenedNote': 'Range too wide for hourly — showing daily buckets.',
+  'analytics.opsRetentionNote': 'Traffic & cache and Blocks only keep {{days}} days of per-minute detail — the part of this range before that is not shown.',
 
   'analytics.movers.empty': 'No change to compare yet.',
   'analytics.movers.new': 'new',

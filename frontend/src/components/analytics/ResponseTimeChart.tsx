@@ -1,3 +1,4 @@
+import { formatLatencyMs as fmtMs } from '@/lib/format'
 import { CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
 import { useTranslation } from '@/i18n'
 import type { ResponseTimePoint, TrendGranularity } from '@/types/api'
@@ -18,7 +19,6 @@ function formatBucket(iso: string, granularity: TrendGranularity): string {
   )
 }
 
-const fmtMs = (v: number) => (v >= 1000 ? `${(v / 1000).toFixed(1)}s` : `${Math.round(v)}ms`)
 
 export function ResponseTimeChart({ points, granularity, loading }: ResponseTimeChartProps) {
   const { t } = useTranslation()

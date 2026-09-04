@@ -160,3 +160,14 @@ class ActivityHeatmapResponse(BaseModel):
     tz_offset_minutes: int
     max_value: int
     cells: list[HeatmapCell]
+
+
+class RetentionInfo(BaseModel):
+    """How far back each tier of data goes, so the UI can warn when a
+    custom range reaches past what a given view actually has."""
+
+    raw_event_days: int
+    aggregate_days: int
+    # The per-minute operational aggregates behind Traffic & cache / Blocks
+    # -- kept a shorter time than the core aggregates.
+    ops_aggregate_days: int

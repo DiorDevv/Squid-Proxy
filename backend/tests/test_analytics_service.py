@@ -80,6 +80,28 @@ async def test_category_trend_orders_categories_by_total_and_buckets(db_session:
     assert trend.points[0].values["video_streaming"] == 5000
 
 
+async def test_category_trend_drops_the_in_progress_bucket(db_session: AsyncSession):
+    """The bucket covering "now" is still filling; plotting it makes the
+    series look like it just crashed. It must be excluded."""
+    now = datetime.now(UTC)
+    current_hour = now.replace(minute=0, second=0, microsecond=0)
+    prev_hour = current_hour - timedelta(hours=1)
+    db_session.add_all(
+        [
+            DomainMinuteAggregate(bucket_ts=prev_hour + timedelta(minutes=10), domain="youtube.com", request_count=50, total_bytes=9000),
+            DomainMinuteAggregate(bucket_ts=current_hour + timedelta(minutes=1), domain="youtube.com", request_count=1, total_bytes=10),
+        ]
+    )
+    await db_session.commit()
+
+    trend = await analytics_service.get_category_trend(
+        db_session, prev_hour - timedelta(hours=1), now, TrendGranularity.HOUR, TrendMetric.BYTES, branch=None
+    )
+    hours = {p.bucket_ts for p in trend.points}
+    assert prev_hour in hours
+    assert current_hour not in hours  # the still-filling bucket is excluded
+
+
 async def test_branch_breakdown_sorts_and_scopes(db_session: AsyncSession, monkeypatch):
     monkeypatch.setattr(
         analytics_service,

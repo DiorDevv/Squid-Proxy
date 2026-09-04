@@ -1,12 +1,11 @@
 import { MiniStat } from '@/components/analytics/MiniStat'
-import { formatNumber } from '@/lib/format'
+import { formatLatencyMs as ms, formatNumber } from '@/lib/format'
 import { resultCodeColor } from '@/lib/ops-colors'
 import { useRangeSearchParams } from '@/lib/filters-store'
 import { useResponseTime, useResultCodes } from '@/hooks/useAnalytics'
 import { useTranslation } from '@/i18n'
 
 const pct = (v: number | null | undefined) => (v == null ? '—' : `${(v * 100).toFixed(1)}%`)
-const ms = (v: number) => (v >= 1000 ? `${(v / 1000).toFixed(1)}s` : `${Math.round(v)}ms`)
 
 /** One-glance Squid operational health for the Overview tab: cache
  * effectiveness, deny/tunnel share, tail latency, server errors -- plus

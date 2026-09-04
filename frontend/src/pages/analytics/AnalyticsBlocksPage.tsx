@@ -5,6 +5,7 @@ import { ErrorState } from '@/components/common/ErrorState'
 import { StackedAreaOverTime } from '@/components/analytics/StackedAreaOverTime'
 import { MiniStat } from '@/components/analytics/MiniStat'
 import { Toggle } from '@/components/analytics/Toggle'
+import { OpsRetentionNote } from '@/components/analytics/OpsRetentionNote'
 import { formatBytes, formatNumber } from '@/lib/format'
 import { CATEGORY_COLORS, CATEGORY_LABEL_KEYS } from '@/lib/categories'
 import { DENIAL_REASON_COLORS } from '@/lib/ops-colors'
@@ -37,6 +38,7 @@ export default function AnalyticsBlocksPage() {
 
   return (
     <div className="flex flex-col gap-4">
+      <OpsRetentionNote />
       <Panel
         title={t('analytics.blocks.title')}
         action={

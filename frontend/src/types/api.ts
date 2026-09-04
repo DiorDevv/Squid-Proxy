@@ -564,3 +564,9 @@ export interface ExportSettingsOut {
   warn_undownloaded_after_hours: number | null
   updated_at: string
 }
+
+export interface RetentionInfo {
+  raw_event_days: number
+  aggregate_days: number
+  ops_aggregate_days: number
+}

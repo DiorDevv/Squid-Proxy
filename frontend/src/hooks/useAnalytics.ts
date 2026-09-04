@@ -19,6 +19,7 @@ import type {
   ResultCodeResponse,
   TrendGranularity,
   TrendMetric,
+  RetentionInfo,
 } from '@/types/api'
 
 type RangeParams = Record<string, string>
@@ -180,5 +181,13 @@ export function useConfigAdvisor(rangeParams: RangeParams, live: boolean) {
     queryKey: ['analytics-config-advisor', rangeParams.branch ?? null],
     queryFn: () => apiFetch<ConfigAdvisorResponse>('/api/analytics/config-advisor', { searchParams: rangeParams }),
     refetchInterval: live ? false : POLLING_FALLBACK_INTERVAL_MS,
+  })
+}
+
+export function useRetention() {
+  return useQuery({
+    queryKey: ['analytics-retention'],
+    queryFn: () => apiFetch<RetentionInfo>('/api/analytics/retention'),
+    staleTime: 60 * 60 * 1000,
   })
 }

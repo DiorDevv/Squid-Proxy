@@ -13,7 +13,7 @@ weekday/hour split in the heatmap.
 """
 
 from collections import defaultdict
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from typing import Literal
 
 from sqlalchemy import func, select
@@ -232,6 +232,16 @@ def _truncate(ts: datetime, granularity: TrendGranularity) -> datetime:
     return ts.replace(minute=0, second=0, microsecond=0)
 
 
+def _drop_in_progress_bucket(keys: list[datetime], granularity: TrendGranularity) -> set[datetime]:
+    """The bucket covering "now" is still filling, so plotting it makes every
+    live time series look like it just dropped. Returns the bucket key(s) to
+    exclude -- only ever the current one, and only when the series actually
+    reaches the present (a historical range has no such bucket, so nothing
+    is dropped)."""
+    current = _truncate(datetime.now(UTC), granularity)
+    return {k for k in keys if k >= current}
+
+
 async def get_category_trend(
     session: AsyncSession,
     since: datetime,
@@ -288,9 +298,11 @@ async def get_category_trend(
         DomainCategoryLabel(name)
         for name, _ in sorted(totals.items(), key=lambda kv: kv[1], reverse=True)
     ]
+    drop = _drop_in_progress_bucket(list(buckets), effective_granularity)
     points = [
         CategoryTrendPoint(bucket_ts=bucket, values=dict(values))
         for bucket, values in sorted(buckets.items())
+        if bucket not in drop
     ]
     return CategoryTrendResponse(
         granularity=effective_granularity, metric=metric, categories=ordered_categories, points=points

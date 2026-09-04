@@ -5,6 +5,31 @@ All notable changes to this project are documented here. Format loosely follows
 
 ## [Unreleased]
 
+### Fixed
+
+- **Analytics → Blocks: denial-reason split double-counted auth challenges.** On an
+  auth-enabled deployment every unauthenticated request is logged `TCP_DENIED/407`; folding
+  `TCP_DENIED` into "ACL denied" both mislabelled those as ACL denies and counted them a second
+  time in `total_denied` (which could then be ~2× the real blocked count). The split is now keyed
+  off the disjoint `403` / `407` status codes, so `acl_denied + proxy_auth + other_blocked`
+  reconciles exactly with blocked requests.
+- **Watchlist matched a lower-cased value against non-lower-cased log data.** A watched domain or
+  user with any uppercase (`Evil.example`, `Alice`) never fired. Domain/user matches are now
+  case-insensitive.
+- **Watchlist could miss a hit if a check run was delayed** — the lookback window is now two
+  intervals wide (the per-target cooldown still dedupes), so a slow run can't leave an uncovered
+  gap.
+- **Analytics → Who: the leaderboard silently dropped unauthenticated traffic** on a
+  partial-auth deployment. It now reports the unattributed request count so the rows visibly
+  don't have to reconcile with the Overview totals; "first/last seen" is relabelled "first/last
+  active (in range)" since it was always range-scoped.
+- **Analytics → Who: "new this period"** looked back only one window before the range, flagging a
+  long-time user who'd merely had a gap (a weekend) as new; it now checks first-seen across the
+  full retained history.
+- **Analytics → Branches risk:** the "sensitive traffic" signal divided by *all* bytes including
+  domain-less CONNECT tunnels, deflating the ratio on HTTPS-heavy deployments; it now divides by
+  domain-attributed bytes.
+
 ### Added
 
 - **Watchlist.** Flag a client IP, domain or proxy-auth user (per branch or fleet-wide) at

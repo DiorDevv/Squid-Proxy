@@ -415,6 +415,8 @@ export interface ActorRow {
 export interface ActorLeaderboardResponse {
   actor_kind: string
   rows: ActorRow[]
+  /** requests with no user, not shown as rows (0 for the client_ip view) */
+  unattributed_requests: number
 }
 
 export interface ActorCategorySlice {

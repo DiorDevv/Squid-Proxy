@@ -120,6 +120,28 @@ async def test_monitor_respects_cooldown(db_engine, db_session, monkeypatch):
     assert row.last_seen_at is not None
 
 
+async def test_monitor_matches_domain_case_insensitively(db_engine, db_session, monkeypatch):
+    """The watchlist value is stored lower-cased; the aggregates keep
+    whatever case Squid logged. A watched "Evil.Example" must still fire on
+    logged "evil.example" (and vice versa)."""
+    db_session.add_all(
+        [
+            WatchlistEntry(
+                target_type=WatchlistTargetType.DOMAIN, value="evil.example", branch="", created_by="a"
+            ),
+            DomainMinuteAggregate(
+                bucket_ts=NOW - timedelta(minutes=1), domain="Evil.Example", branch="default",
+                request_count=3, blocked_count=0, total_bytes=10,
+            ),
+        ]
+    )
+    await db_session.commit()
+
+    alerts = await _run_monitor(db_engine, monkeypatch)
+    assert len(alerts) == 1
+    assert alerts[0].kind == "watchlist_hit"
+
+
 async def test_monitor_ignores_inactive_and_quiet_targets(db_engine, db_session, monkeypatch):
     db_session.add_all(
         [

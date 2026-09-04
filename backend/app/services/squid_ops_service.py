@@ -13,7 +13,7 @@ None = every branch, a concrete tag = just that one.
 
 import math
 from collections import defaultdict
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any
 
 from sqlalchemy import case, func, select
@@ -432,6 +432,18 @@ async def get_actor_leaderboard(
     actor_ids = [r[0] for r in rows]
     top_category = await _top_category_per_actor(session, since, until, branch, actor_ids, is_user)
 
+    unattributed = 0
+    if is_user:
+        unattributed = int(
+            (
+                await session.execute(
+                    select(func.coalesce(func.sum(combined.c.request_count), 0)).where(
+                        (combined.c.user.is_(None)) | (combined.c.user == "")
+                    )
+                )
+            ).scalar_one()
+        )
+
     leaderboard = [
         ActorRow(
             actor=actor,
@@ -445,7 +457,9 @@ async def get_actor_leaderboard(
         for actor, req, blocked, byte_total in rows
     ]
     return ActorLeaderboardResponse(
-        actor_kind="user" if is_user else "client_ip", rows=leaderboard
+        actor_kind="user" if is_user else "client_ip",
+        rows=leaderboard,
+        unattributed_requests=unattributed,
     )
 
 
@@ -619,7 +633,12 @@ async def _actor_domains(
 async def get_new_entities(
     session: AsyncSession, since: datetime, until: datetime, branch: str | None
 ) -> NewEntitiesResponse:
-    combined = client_bucket_rows(since - (until - since), until, branch=branch)
+    # "New" means "first seen anywhere in the retained history falls inside
+    # [since, until]" -- so it looks back over the whole client-aggregate
+    # window (minute rows plus the rolled-up hourly rows, ~400 days), not
+    # just one window before `since`. A shorter lookback would flag a
+    # long-time user who simply had a gap (a weekend, a holiday) as new.
+    combined = client_bucket_rows(until - timedelta(days=400), until, branch=branch)
 
     async def _first_seen_within(col: Any) -> list[str]:
         rows = (
@@ -657,19 +676,22 @@ async def get_denials(
     granularity: TrendGranularity,
     branch: str | None,
 ) -> DenialsResponse:
-    # Reason time series + totals: all from aggregates, no raw_events scan.
+    # Reason split, all from aggregates (no raw_events scan). Squid marks a
+    # request `blocked` when its status is 403 or 407, or the result tag is
+    # TCP_DENIED* (see log_parser). 403 and 407 are disjoint status codes so
+    # `acl_denied + proxy_auth <= total_blocked` always holds and
+    # `other_blocked` (the remainder -- TCP_DENIED with status 0, a
+    # blacklist redirect, a quota block, ...) is never negative. Do NOT
+    # count TCP_DENIED separately: on an auth-enabled deployment every
+    # unauthenticated request is logged TCP_DENIED/407, so folding it into
+    # "acl_denied" both mislabels auth challenges and double-counts them
+    # against proxy_auth.
     http_conditions = [HttpMinuteAggregate.bucket_ts >= since, HttpMinuteAggregate.bucket_ts <= until]
-    code_conditions = [
-        ResultCodeMinuteAggregate.bucket_ts >= since,
-        ResultCodeMinuteAggregate.bucket_ts <= until,
-    ]
     min_conditions = [MinuteAggregate.bucket_ts >= since, MinuteAggregate.bucket_ts <= until]
     if branch is not None:
         http_conditions.append(HttpMinuteAggregate.branch == branch)
-        code_conditions.append(ResultCodeMinuteAggregate.branch == branch)
         min_conditions.append(MinuteAggregate.branch == branch)
 
-    # 403 (ACL forbid) and 407 (proxy auth) by bucket
     http_rows = (
         await session.execute(
             select(
@@ -679,18 +701,6 @@ async def get_denials(
             )
             .where(*http_conditions, HttpMinuteAggregate.status_code.in_([403, 407]))
             .group_by(HttpMinuteAggregate.bucket_ts, HttpMinuteAggregate.status_code)
-        )
-    ).all()
-    # TCP_DENIED by bucket (may overlap 403; take the max of the two as
-    # "acl_denied" per bucket rather than double-counting)
-    denied_rows = (
-        await session.execute(
-            select(
-                ResultCodeMinuteAggregate.bucket_ts,
-                func.sum(ResultCodeMinuteAggregate.request_count),
-            )
-            .where(*code_conditions, ResultCodeMinuteAggregate.action.ilike("%DENIED%"))
-            .group_by(ResultCodeMinuteAggregate.bucket_ts)
         )
     ).all()
     total_blocked_rows = (
@@ -708,15 +718,13 @@ async def get_denials(
             forbid_403[bucket_ts] += int(count)
         else:
             auth_407[bucket_ts] += int(count)
-    denied_tag: dict[datetime, int] = {r[0]: int(r[1]) for r in denied_rows}
     total_blocked: dict[datetime, int] = {r[0]: int(r[1]) for r in total_blocked_rows}
 
     grouped: dict[datetime, DenialReasonPoint] = {}
     t_acl = t_auth = t_other = 0
-    all_buckets = set(forbid_403) | set(auth_407) | set(denied_tag) | set(total_blocked)
     tmp: dict[datetime, list[int]] = defaultdict(lambda: [0, 0, 0])
-    for bucket_ts in all_buckets:
-        acl = max(forbid_403.get(bucket_ts, 0), denied_tag.get(bucket_ts, 0))
+    for bucket_ts in set(forbid_403) | set(auth_407) | set(total_blocked):
+        acl = forbid_403.get(bucket_ts, 0)
         auth = auth_407.get(bucket_ts, 0)
         other = max(0, total_blocked.get(bucket_ts, 0) - acl - auth)
         key = _truncate(bucket_ts, granularity)

@@ -313,6 +313,7 @@ export const uz = {
 
   'analytics.who.title': 'Kim nima qilyapti',
   'analytics.who.hint': 'Batafsili uchun qatorni bosing',
+  'analytics.who.unattributed': '{{count}} ta so‘rovda foydalanuvchi yo‘q va quyida ko‘rsatilmagan — IP ko‘rinishiga qarang yoki proksi avtorizatsiyasini yoqing.',
   'analytics.who.empty': 'Bu oraliqda mijoz faolligi yo‘q.',
   'analytics.who.colActor': 'Subyekt',
   'analytics.who.colUser': 'Foydalanuvchi',
@@ -323,8 +324,8 @@ export const uz = {
   'analytics.who.newUsers': 'Yangi foydalanuvchilar',
   'analytics.who.newClients': 'Yangi mijoz IP‘lari',
   'analytics.who.noneNew': 'Yangi narsa yo‘q.',
-  'analytics.who.firstSeen': 'Birinchi ko‘rilgan',
-  'analytics.who.lastSeen': 'Oxirgi ko‘rilgan',
+  'analytics.who.firstSeen': 'Birinchi faollik (oraliqda)',
+  'analytics.who.lastSeen': 'Oxirgi faollik (oraliqda)',
   'analytics.who.hourlyActivity': 'Soatlik faollik (UTC)',
   'analytics.who.deniedDomains': 'Rad etilgan domenlar',
 

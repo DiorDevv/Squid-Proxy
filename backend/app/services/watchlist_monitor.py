@@ -24,9 +24,13 @@ from app.services.interval_job import IntervalJob
 logger = logging.getLogger(__name__)
 
 _ANOMALY_TITLE = "Watched target active"
-# A little slack past the interval so a hit right on a bucket boundary
-# isn't missed between two runs.
+# Look back TWICE the interval (plus slack), not just one interval: if a run
+# is delayed (a busy event loop, a slow prior run) a one-interval window
+# would leave an uncovered gap and silently miss a hit in it. The per-entry
+# cooldown means the wider window just re-confirms an ongoing presence
+# without re-alerting, so over-covering is free.
 _LOOKBACK_SLACK = timedelta(minutes=2)
+_LOOKBACK_INTERVALS = 2
 
 
 class WatchlistMonitorJob(IntervalJob):
@@ -40,7 +44,11 @@ class WatchlistMonitorJob(IntervalJob):
     async def run(self) -> None:
         settings = get_settings()
         now = datetime.now(UTC)
-        since = now - timedelta(seconds=self.interval_seconds) - _LOOKBACK_SLACK
+        since = (
+            now
+            - timedelta(seconds=self.interval_seconds * _LOOKBACK_INTERVALS)
+            - _LOOKBACK_SLACK
+        )
         cooldown = timedelta(seconds=settings.WATCHLIST_ALERT_COOLDOWN_SECONDS)
 
         async with AsyncSessionLocal() as session:
@@ -77,10 +85,16 @@ class WatchlistMonitorJob(IntervalJob):
         self, session: AsyncSession, entry: WatchlistEntry, since: datetime, now: datetime
     ) -> tuple[int, int]:
         """(request count, blocked count) for this watched target in the
-        [since, now] window, read from the pre-aggregated minute tables."""
+        [since, now] window, read from the pre-aggregated minute tables.
+
+        `entry.value` is stored lower-cased for domains and users (see
+        watchlist_service.normalize_value), but the aggregate tables keep
+        whatever case Squid logged -- so those two are matched
+        case-insensitively via lower(). client_ip is matched as-is (case is
+        never meaningful for an IP)."""
         if entry.target_type == WatchlistTargetType.DOMAIN:
             conditions = [
-                DomainMinuteAggregate.domain == entry.value,
+                func.lower(DomainMinuteAggregate.domain) == entry.value,
                 DomainMinuteAggregate.bucket_ts >= since,
                 DomainMinuteAggregate.bucket_ts <= now,
             ]
@@ -91,13 +105,12 @@ class WatchlistMonitorJob(IntervalJob):
                 func.coalesce(func.sum(DomainMinuteAggregate.blocked_count), 0),
             ).where(*conditions)
         else:
-            match_col = (
-                ClientMinuteAggregate.client_ip
-                if entry.target_type == WatchlistTargetType.CLIENT_IP
-                else ClientMinuteAggregate.user
-            )
+            if entry.target_type == WatchlistTargetType.CLIENT_IP:
+                match = ClientMinuteAggregate.client_ip == entry.value
+            else:
+                match = func.lower(ClientMinuteAggregate.user) == entry.value
             conditions = [
-                match_col == entry.value,
+                match,
                 ClientMinuteAggregate.bucket_ts >= since,
                 ClientMinuteAggregate.bucket_ts <= now,
             ]

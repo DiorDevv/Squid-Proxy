@@ -52,14 +52,23 @@ export default function AnalyticsWhoPage() {
           {board.isError ? (
             <ErrorState message={board.error?.message} onRetry={() => board.refetch()} />
           ) : (
-            <ActorLeaderboard
-              rows={board.data?.rows ?? []}
-              actorKind={board.data?.actor_kind ?? 'user'}
-              loading={board.isLoading}
-              sort={sort}
-              onSortChange={setSort}
-              onSelect={setSelected}
-            />
+            <div className="flex flex-col gap-2">
+              {(board.data?.unattributed_requests ?? 0) > 0 && (
+                <p className="rounded-md bg-secondary/40 px-2.5 py-1.5 text-xs text-muted-foreground">
+                  {t('analytics.who.unattributed', {
+                    count: formatNumber(board.data?.unattributed_requests ?? 0),
+                  })}
+                </p>
+              )}
+              <ActorLeaderboard
+                rows={board.data?.rows ?? []}
+                actorKind={board.data?.actor_kind ?? 'user'}
+                loading={board.isLoading}
+                sort={sort}
+                onSortChange={setSort}
+                onSelect={setSelected}
+              />
+            </div>
           )}
         </PanelErrorBoundary>
       </Panel>

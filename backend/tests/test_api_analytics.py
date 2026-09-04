@@ -117,20 +117,24 @@ async def test_category_trend_accepts_day_granularity_and_requests_metric(
 async def test_squid_ops_endpoints_shape(
     app_client: AsyncClient, admin_token, auth_headers, db_session: AsyncSession
 ):
-    from app.models.ops_aggregate import ResultCodeMinuteAggregate
+    from app.models.ops_aggregate import HttpMinuteAggregate, ResultCodeMinuteAggregate
 
-    now = datetime.now(UTC).replace(second=0, microsecond=0)
+    bucket = datetime.now(UTC).replace(second=0, microsecond=0) - timedelta(minutes=2)
     db_session.add_all(
         [
             MinuteAggregate(
-                bucket_ts=now - timedelta(minutes=2), total_requests=10, blocked_requests=2, allowed_requests=8,
+                bucket_ts=bucket, total_requests=10, blocked_requests=2, allowed_requests=8
             ),
             ResultCodeMinuteAggregate(
-                bucket_ts=now - timedelta(minutes=2), branch="default", action="TCP_MISS",
-                request_count=8, total_bytes=4000,
+                bucket_ts=bucket, branch="default", action="TCP_MISS", request_count=8, total_bytes=4000
             ),
             ResultCodeMinuteAggregate(
-                bucket_ts=now - timedelta(minutes=2), branch="default", action="TCP_DENIED",
+                bucket_ts=bucket, branch="default", action="TCP_DENIED", request_count=2, total_bytes=100
+            ),
+            # a real Squid ACL deny is TCP_DENIED/403 -- the denials view keys
+            # "acl_denied" off the 403 status, not the TCP_DENIED tag.
+            HttpMinuteAggregate(
+                bucket_ts=bucket, branch="default", method="GET", status_code=403,
                 request_count=2, total_bytes=100,
             ),
         ]

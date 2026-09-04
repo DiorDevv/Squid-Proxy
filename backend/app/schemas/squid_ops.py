@@ -95,6 +95,11 @@ class ActorLeaderboardResponse(BaseModel):
     # else "client_ip" -- tells the frontend which column header to show.
     actor_kind: str
     rows: list[ActorRow]
+    # When actor_kind == "user" and proxy auth is only partial, this is how
+    # many requests in the window had no user and so aren't represented by
+    # any row above (0 for the client_ip view). The frontend surfaces it so
+    # the row totals visibly don't have to reconcile with the Overview tab.
+    unattributed_requests: int = 0
 
 
 class ActorCategorySlice(BaseModel):

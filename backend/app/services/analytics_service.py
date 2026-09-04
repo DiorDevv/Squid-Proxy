@@ -569,11 +569,17 @@ async def get_branch_risk(
 
         sensitive = sensitive_by_branch[b]
         sensitive_share = 0.0
-        if sensitive and total_bytes:
-            sensitive_bytes = sum(
-                v for cat, v in category_bytes[b].items() if cat in sensitive
-            )
-            sensitive_share = sensitive_bytes / total_bytes
+        if sensitive:
+            # Share of *domain-attributed* bytes, not of MinuteAggregate's
+            # total_bytes -- the latter also counts CONNECT tunnels and
+            # other traffic with no domain, which would silently deflate the
+            # ratio on an HTTPS-heavy deployment.
+            categorized_bytes = sum(category_bytes[b].values())
+            if categorized_bytes:
+                sensitive_bytes = sum(
+                    v for cat, v in category_bytes[b].items() if cat in sensitive
+                )
+                sensitive_share = sensitive_bytes / categorized_bytes
 
         anomaly_points, anomaly_count, quota_breaches = anomaly_stats[b]
 

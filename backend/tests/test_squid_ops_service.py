@@ -109,6 +109,12 @@ async def test_actor_leaderboard_prefers_users_and_reports_top_category(db_sessi
                 bucket_ts=BUCKET, client_ip="10.0.0.2", branch="default", user="bob",
                 request_count=40, blocked_count=1, total_bytes=2000,
             ),
+            # unauthenticated traffic: not a row, but reported as
+            # unattributed so the totals visibly don't have to reconcile
+            ClientMinuteAggregate(
+                bucket_ts=BUCKET, client_ip="10.0.0.9", branch="default", user=None,
+                request_count=333, blocked_count=0, total_bytes=1000,
+            ),
             UserCategoryMinuteAggregate(
                 bucket_ts=BUCKET, branch="default", user="alice",
                 category=DomainCategoryLabel.VIDEO_STREAMING, request_count=80, total_bytes=4000,
@@ -126,6 +132,7 @@ async def test_actor_leaderboard_prefers_users_and_reports_top_category(db_sessi
     )
     assert board.actor_kind == "user"
     assert [r.actor for r in board.rows] == ["alice", "bob"]
+    assert board.unattributed_requests == 333
     alice = board.rows[0]
     assert alice.request_count == 100
     assert alice.blocked_ratio == 0.1
@@ -147,6 +154,7 @@ async def test_actor_leaderboard_falls_back_to_client_ip_without_auth(db_session
     assert board.actor_kind == "client_ip"
     assert board.rows[0].actor == "192.168.1.9"
     assert board.rows[0].is_user is False
+    assert board.unattributed_requests == 0  # no "unattributed" concept in the IP view
 
 
 async def test_denials_splits_reasons_from_aggregates(db_session: AsyncSession):
@@ -164,10 +172,6 @@ async def test_denials_splits_reasons_from_aggregates(db_session: AsyncSession):
                 bucket_ts=BUCKET, branch="default", method="GET", status_code=407,
                 request_count=5, total_bytes=0,
             ),
-            ResultCodeMinuteAggregate(
-                bucket_ts=BUCKET, branch="default", action="TCP_DENIED",
-                request_count=12, total_bytes=0,
-            ),
             DomainMinuteAggregate(
                 bucket_ts=BUCKET, domain="pokerstars.com", branch="default",
                 request_count=12, blocked_count=12, total_bytes=800,
@@ -179,12 +183,50 @@ async def test_denials_splits_reasons_from_aggregates(db_session: AsyncSession):
     denials = await squid_ops_service.get_denials(
         db_session, SINCE, NOW, TrendGranularity.HOUR, branch=None
     )
-    assert denials.acl_denied == 12  # max(403 count, TCP_DENIED count)
-    assert denials.proxy_auth == 5
+    assert denials.acl_denied == 12  # status 403
+    assert denials.proxy_auth == 5  # status 407
     assert denials.other_blocked == 30 - 12 - 5  # remainder of blocked_requests
     assert denials.total_denied == 30
     assert denials.top_domains[0].domain == "pokerstars.com"
     assert denials.top_categories[0].category == DomainCategoryLabel.GAMBLING
+
+
+async def test_denials_does_not_double_count_auth_challenges(db_session: AsyncSession):
+    """On an auth-enabled deployment every unauthenticated request is logged
+    TCP_DENIED/407. Folding TCP_DENIED into acl_denied used to both
+    mislabel those as ACL denies and double-count them against
+    total_denied. acl_denied must stay keyed off the disjoint 403 status."""
+    db_session.add_all(
+        [
+            MinuteAggregate(
+                bucket_ts=BUCKET, branch="default", total_requests=1000,
+                blocked_requests=110, allowed_requests=890,
+            ),
+            HttpMinuteAggregate(
+                bucket_ts=BUCKET, branch="default", method="GET", status_code=403,
+                request_count=10, total_bytes=0,
+            ),
+            HttpMinuteAggregate(
+                bucket_ts=BUCKET, branch="default", method="GET", status_code=407,
+                request_count=100, total_bytes=0,
+            ),
+            # TCP_DENIED covers both the 10 ACL denies and the 100 auth
+            # challenges -- must NOT be added on top.
+            ResultCodeMinuteAggregate(
+                bucket_ts=BUCKET, branch="default", action="TCP_DENIED",
+                request_count=110, total_bytes=0,
+            ),
+        ]
+    )
+    await db_session.commit()
+
+    denials = await squid_ops_service.get_denials(
+        db_session, SINCE, NOW, TrendGranularity.HOUR, branch=None
+    )
+    assert denials.acl_denied == 10
+    assert denials.proxy_auth == 100
+    assert denials.other_blocked == 0
+    assert denials.total_denied == 110  # == blocked_requests, no inflation
 
 
 async def test_new_entities_reports_first_seen_within_window(db_session: AsyncSession):

@@ -310,6 +310,7 @@ export const ru = {
 
   'analytics.who.title': 'Кто чем занят',
   'analytics.who.hint': 'Нажмите на строку для детализации',
+  'analytics.who.unattributed': '{{count}} запрос(ов) без пользователя не показаны ниже — см. представление по IP или включите авторизацию прокси.',
   'analytics.who.empty': 'Нет активности клиентов за этот период.',
   'analytics.who.colActor': 'Субъект',
   'analytics.who.colUser': 'Пользователь',
@@ -320,8 +321,8 @@ export const ru = {
   'analytics.who.newUsers': 'Новые пользователи',
   'analytics.who.newClients': 'Новые IP клиентов',
   'analytics.who.noneNew': 'Ничего нового.',
-  'analytics.who.firstSeen': 'Первое появление',
-  'analytics.who.lastSeen': 'Последнее появление',
+  'analytics.who.firstSeen': 'Первая активность (в периоде)',
+  'analytics.who.lastSeen': 'Последняя активность (в периоде)',
   'analytics.who.hourlyActivity': 'Активность по часам (UTC)',
   'analytics.who.deniedDomains': 'Заблокированные домены',
 

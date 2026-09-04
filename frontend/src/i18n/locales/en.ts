@@ -327,6 +327,7 @@ export const en = {
   // Who is doing what
   'analytics.who.title': 'Who is doing what',
   'analytics.who.hint': 'Click a row for the full breakdown',
+  'analytics.who.unattributed': '{{count}} request(s) had no user and are not shown below — see the Client IP view or enable proxy auth.',
   'analytics.who.empty': 'No client activity in this range.',
   'analytics.who.colActor': 'Actor',
   'analytics.who.colUser': 'User',
@@ -337,8 +338,8 @@ export const en = {
   'analytics.who.newUsers': 'New users',
   'analytics.who.newClients': 'New client IPs',
   'analytics.who.noneNew': 'Nothing new.',
-  'analytics.who.firstSeen': 'First seen',
-  'analytics.who.lastSeen': 'Last seen',
+  'analytics.who.firstSeen': 'First active (in range)',
+  'analytics.who.lastSeen': 'Last active (in range)',
   'analytics.who.hourlyActivity': 'Activity by hour (UTC)',
   'analytics.who.deniedDomains': 'Denied domains',
 

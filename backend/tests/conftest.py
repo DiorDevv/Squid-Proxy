@@ -20,6 +20,7 @@ from app.models import (  # noqa: F401
     client_hourly_aggregate,
     domain_aggregate,
     minute_aggregate,
+    ops_aggregate,
     raw_event,
     refresh_token,
     totp_recovery_code,

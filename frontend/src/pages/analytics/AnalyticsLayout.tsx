@@ -6,9 +6,10 @@ import { useTranslation, type TranslationKey } from '@/i18n'
 
 const ANALYTICS_NAV_ITEMS: { to: string; labelKey: TranslationKey }[] = [
   { to: 'overview', labelKey: 'analytics.nav.overview' },
+  { to: 'who', labelKey: 'analytics.nav.who' },
+  { to: 'traffic', labelKey: 'analytics.nav.traffic' },
+  { to: 'blocks', labelKey: 'analytics.nav.blocks' },
   { to: 'branches', labelKey: 'analytics.nav.branches' },
-  { to: 'categories', labelKey: 'analytics.nav.categories' },
-  { to: 'heatmap', labelKey: 'analytics.nav.heatmap' },
 ]
 
 /** Four analytics views behind one shared sub-nav and a single

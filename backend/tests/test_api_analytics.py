@@ -13,6 +13,14 @@ ENDPOINTS = [
     "/api/analytics/branch-breakdown",
     "/api/analytics/branch-risk",
     "/api/analytics/activity-heatmap",
+    "/api/analytics/result-codes",
+    "/api/analytics/http-breakdown",
+    "/api/analytics/hierarchy",
+    "/api/analytics/response-time",
+    "/api/analytics/actors",
+    "/api/analytics/new-entities",
+    "/api/analytics/denials",
+    "/api/analytics/ingest-health",
 ]
 
 
@@ -103,6 +111,59 @@ async def test_category_trend_accepts_day_granularity_and_requests_metric(
     body = response.json()
     assert body["granularity"] == "day"
     assert body["metric"] == "requests"
+
+
+async def test_squid_ops_endpoints_shape(
+    app_client: AsyncClient, admin_token, auth_headers, db_session: AsyncSession
+):
+    from app.models.ops_aggregate import ResultCodeMinuteAggregate
+
+    now = datetime.now(UTC).replace(second=0, microsecond=0)
+    db_session.add_all(
+        [
+            MinuteAggregate(
+                bucket_ts=now - timedelta(minutes=2), total_requests=10, blocked_requests=2, allowed_requests=8,
+            ),
+            ResultCodeMinuteAggregate(
+                bucket_ts=now - timedelta(minutes=2), branch="default", action="TCP_MISS",
+                request_count=8, total_bytes=4000,
+            ),
+            ResultCodeMinuteAggregate(
+                bucket_ts=now - timedelta(minutes=2), branch="default", action="TCP_DENIED",
+                request_count=2, total_bytes=100,
+            ),
+        ]
+    )
+    await db_session.commit()
+
+    codes = await app_client.get(
+        "/api/analytics/result-codes", params={"range": "24h"}, headers=auth_headers(admin_token)
+    )
+    assert codes.status_code == 200
+    body = codes.json()
+    assert {c["label"] for c in body["codes"]} == {"TCP_MISS", "TCP_DENIED"}
+    assert body["denied_ratio"] == 0.2
+
+    denials = await app_client.get(
+        "/api/analytics/denials", params={"range": "24h"}, headers=auth_headers(admin_token)
+    )
+    assert denials.status_code == 200
+    assert denials.json()["acl_denied"] == 2
+
+    ingest = await app_client.get("/api/analytics/ingest-health", headers=auth_headers(admin_token))
+    assert ingest.status_code == 200
+    assert "branches" in ingest.json()
+
+
+async def test_squid_ops_branch_scoping(
+    app_client: AsyncClient, branch_a_admin_token, auth_headers
+):
+    resp = await app_client.get(
+        "/api/analytics/result-codes",
+        params={"branch": "branch-b"},
+        headers=auth_headers(branch_a_admin_token),
+    )
+    assert resp.status_code == 403
 
 
 async def test_activity_heatmap_echoes_tz_offset_and_bounds_it(

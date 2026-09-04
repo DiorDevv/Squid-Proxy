@@ -292,6 +292,7 @@ Key ones to know:
 | `DATABASE_URL` | `sqlite+aiosqlite:///...` (default) or `postgresql+asyncpg://...` |
 | `JWT_SECRET` | Signs access tokens — must be set to a real secret in any non-dev environment |
 | `RETENTION_DAYS_RAW_EVENTS` / `RETENTION_DAYS_AGGREGATES` | How long raw vs. aggregated data is kept |
+| `RETENTION_DAYS_OPS_AGGREGATES` | How long the Analytics per-minute operational aggregates (result codes, HTTP, hierarchy, per-user category) are kept — shorter (default 90d) than the core aggregates |
 | `ADMIN_EMAIL` / `ADMIN_PASSWORD` | First-boot admin bootstrap (only used if the `users` table is empty) |
 | `RING_BUFFER_MAX_EVENTS` / `AGGREGATION_INTERVAL_SECONDS` | In-memory event buffer size and flush interval — see "Capacity planning" below |
 | `DATABASE_POOL_SIZE` / `DATABASE_MAX_OVERFLOW` | Postgres connection pool sizing (ignored for SQLite) — see "Capacity planning" below |
@@ -621,15 +622,20 @@ send-now), `events` (recent, ring-buffer-backed), `export` (admin-only CSV/JSON)
 `/ws/live` WebSocket for real-time push. Interactive docs are available at `/docs` when the backend
 is running (FastAPI's built-in Swagger UI).
 
-**`GET /api/analytics/*`** backs the Analytics section of the dashboard — `overview`
-(period-over-period comparison of every headline metric + top categories/domains + biggest
-category movers), `category-trend` (stacked traffic-by-category over time; an hourly request over a
-window wider than `CATEGORY_TREND_MAX_BUCKETS` buckets is auto-coarsened to daily and the response
-says so), `branch-breakdown` (per-branch totals), `branch-risk` (a 0–100 composite risk score per
-branch, blended from five weighted signals — see `RISK_MODEL` under configuration), and
-`activity-heatmap` (hour × weekday request volume; pass `tz_offset_minutes` to bucket in a
-timezone other than UTC). All are read-only, computed on the fly from data that already exists (no
-analytics-specific tables), and branch-scoped identically to the rest of the read API.
+**`GET /api/analytics/*`** backs the Analytics section of the dashboard. Usage rollups —
+`overview` (period-over-period comparison + top categories/domains + biggest movers),
+`category-trend` (stacked traffic-by-category; an hourly request over a window wider than
+`CATEGORY_TREND_MAX_BUCKETS` is auto-coarsened to daily), `branch-breakdown`, `branch-risk` (a
+0–100 composite risk score per branch — see `RISK_MODEL` under configuration), `activity-heatmap`
+(hour × weekday volume; pass `tz_offset_minutes` for a non-UTC split). Squid-operational views —
+`result-codes` (`%Ss` mix over time + request/byte cache hit rate + deny/tunnel share),
+`http-breakdown` (method + status class, 403/407/5xx), `hierarchy`, `response-time` (approximate
+p50/p95/p99 from a per-minute latency histogram), `actors` + `actor-detail` (per-user/per-IP
+leaderboard and drill-down), `new-entities`, `denials` (blocked requests over time by reason +
+top blocked domains/categories/clients), `ingest-health` (per-branch tailer/parse/backlog status).
+All read-only and branch-scoped; the operational views read the per-minute aggregate tables
+(`result_code_`/`http_`/`hierarchy_`/`user_category_minute_aggregates`, retained
+`RETENTION_DAYS_OPS_AGGREGATES` days) rather than scanning raw events.
 
 **`GET /api/audit-log`** (admin-only) is the who-did-what trail for admin actions: user
 management (create/role-change/password-reset/delete), the full export lifecycle

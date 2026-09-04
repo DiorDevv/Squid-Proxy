@@ -344,6 +344,151 @@ export interface ActivityHeatmapResponse {
   cells: HeatmapCell[]
 }
 
+// --- Squid operational views (Traffic & cache, Blocks, Who) ---
+
+export interface NamedCount {
+  label: string
+  request_count: number
+  total_bytes: number
+  pct: number
+}
+
+export interface TimeBucketCounts {
+  bucket_ts: string
+  values: Record<string, number>
+}
+
+export interface ResultCodeResponse {
+  granularity: TrendGranularity
+  hit_ratio: number | null
+  byte_hit_ratio: number | null
+  denied_ratio: number
+  tunnel_ratio: number
+  codes: NamedCount[]
+  series_labels: string[]
+  series: TimeBucketCounts[]
+}
+
+export interface HttpBreakdownResponse {
+  methods: NamedCount[]
+  status_codes: NamedCount[]
+  status_classes: NamedCount[]
+  denied_403: number
+  proxy_auth_407: number
+  server_error_5xx: number
+}
+
+export interface HierarchyResponse {
+  codes: NamedCount[]
+}
+
+export interface ResponseTimePoint {
+  bucket_ts: string
+  p50: number
+  p95: number
+  p99: number
+  mean: number
+  request_count: number
+}
+
+export interface ResponseTimeResponse {
+  granularity: TrendGranularity
+  overall_p50: number
+  overall_p95: number
+  overall_p99: number
+  overall_mean: number
+  sample_count: number
+  bands: NamedCount[]
+  series: ResponseTimePoint[]
+}
+
+export interface ActorRow {
+  actor: string
+  is_user: boolean
+  request_count: number
+  blocked_count: number
+  blocked_ratio: number
+  total_bytes: number
+  top_category: DomainCategoryLabel | null
+  busiest_hour_utc: number | null
+}
+
+export interface ActorLeaderboardResponse {
+  actor_kind: string
+  rows: ActorRow[]
+}
+
+export interface ActorCategorySlice {
+  category: DomainCategoryLabel
+  request_count: number
+  total_bytes: number
+}
+
+export interface ActorDomainRow {
+  domain: string
+  request_count: number
+  blocked_count: number
+  total_bytes: number
+}
+
+export interface ActorDetailResponse {
+  actor: string
+  is_user: boolean
+  first_seen: string | null
+  last_seen: string | null
+  request_count: number
+  blocked_count: number
+  total_bytes: number
+  categories: ActorCategorySlice[]
+  top_domains: ActorDomainRow[]
+  denied_domains: ActorDomainRow[]
+  hourly: number[]
+}
+
+export interface NewEntitiesResponse {
+  since: string
+  until: string
+  new_users: string[]
+  new_clients: string[]
+  new_domains: string[]
+  new_users_total: number
+  new_clients_total: number
+  new_domains_total: number
+}
+
+export interface DenialReasonPoint {
+  bucket_ts: string
+  acl_denied: number
+  proxy_auth: number
+  other_blocked: number
+}
+
+export interface DenialsResponse {
+  granularity: TrendGranularity
+  total_denied: number
+  acl_denied: number
+  proxy_auth: number
+  other_blocked: number
+  series: DenialReasonPoint[]
+  top_domains: ActorDomainRow[]
+  top_categories: ActorCategorySlice[]
+  top_actors: ActorRow[]
+}
+
+export interface BranchIngestRow {
+  branch: string
+  tailer_alive: boolean
+  parse_failure_rate: number | null
+  lines_seen: number
+  lines_parsed: number
+}
+
+export interface IngestHealthResponse {
+  aggregator_backlog_ratio: number
+  aggregator_events_likely_lost: boolean
+  branches: BranchIngestRow[]
+}
+
 export type ExportJobStatus = 'pending' | 'running' | 'done' | 'failed' | 'cancelled'
 
 export interface ExportJob {

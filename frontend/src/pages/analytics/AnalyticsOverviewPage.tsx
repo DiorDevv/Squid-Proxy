@@ -2,6 +2,7 @@ import { Panel } from '@/components/common/Panel'
 import { PanelErrorBoundary } from '@/components/common/PanelErrorBoundary'
 import { ErrorState } from '@/components/common/ErrorState'
 import { ComparisonCards } from '@/components/analytics/ComparisonCards'
+import { SquidHealthStrip } from '@/components/analytics/SquidHealthStrip'
 import { TopMoversList } from '@/components/analytics/TopMoversList'
 import { cn } from '@/lib/utils'
 import { formatBytes, formatNumber } from '@/lib/format'
@@ -46,6 +47,12 @@ export default function AnalyticsOverviewPage() {
   return (
     <div className="flex flex-col gap-4">
       <ComparisonCards metrics={data?.metrics ?? []} loading={query.isLoading} />
+
+      <Panel title={t('analytics.overview.squidHealth')}>
+        <PanelErrorBoundary panelLabel={t('analytics.overview.squidHealth')}>
+          <SquidHealthStrip />
+        </PanelErrorBoundary>
+      </Panel>
 
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
         <Panel title={t('analytics.overview.topCategories')}>

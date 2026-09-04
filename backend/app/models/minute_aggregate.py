@@ -36,3 +36,17 @@ class MinuteAggregate(Base):
     # (hit_requests + miss_requests), not by total_requests.
     hit_requests: Mapped[int] = mapped_column(Integer, default=0)
     miss_requests: Mapped[int] = mapped_column(Integer, default=0)
+    # Response-time distribution for this minute, as a fixed 6-band
+    # histogram plus the raw sum -- enough for an approximate p50/p95/p99
+    # (walk the bands to the target rank, interpolate) and an exact mean,
+    # without keeping every per-request duration. Bands are disjoint:
+    # dur_lt_100 is [0,100)ms, dur_lt_300 is [100,300), ... dur_gte_10000
+    # is [10000, inf). See aggregator._duration_band and
+    # analytics_service.get_response_time.
+    duration_sum_ms: Mapped[int] = mapped_column(BigInteger, default=0)
+    dur_lt_100: Mapped[int] = mapped_column(Integer, default=0)
+    dur_lt_300: Mapped[int] = mapped_column(Integer, default=0)
+    dur_lt_1000: Mapped[int] = mapped_column(Integer, default=0)
+    dur_lt_3000: Mapped[int] = mapped_column(Integer, default=0)
+    dur_lt_10000: Mapped[int] = mapped_column(Integer, default=0)
+    dur_gte_10000: Mapped[int] = mapped_column(Integer, default=0)

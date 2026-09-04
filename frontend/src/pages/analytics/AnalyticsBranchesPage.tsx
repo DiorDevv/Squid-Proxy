@@ -3,10 +3,11 @@ import { PanelErrorBoundary } from '@/components/common/PanelErrorBoundary'
 import { ErrorState } from '@/components/common/ErrorState'
 import { BranchComparisonChart } from '@/components/analytics/BranchComparisonChart'
 import { BranchRiskTable } from '@/components/analytics/BranchRiskTable'
+import { IngestHealthPanel } from '@/components/analytics/IngestHealthPanel'
 import { cn } from '@/lib/utils'
 import { formatBytes, formatNumber } from '@/lib/format'
 import { useRangeSearchParams } from '@/lib/filters-store'
-import { useBranchBreakdown, useBranchRisk } from '@/hooks/useAnalytics'
+import { useBranchBreakdown, useBranchRisk, useIngestHealth } from '@/hooks/useAnalytics'
 import { useTranslation } from '@/i18n'
 
 export default function AnalyticsBranchesPage() {
@@ -14,11 +15,22 @@ export default function AnalyticsBranchesPage() {
   const rangeParams = useRangeSearchParams()
   const breakdown = useBranchBreakdown(rangeParams, true)
   const risk = useBranchRisk(rangeParams, true)
+  const ingest = useIngestHealth(true)
 
   const rows = breakdown.data?.rows ?? []
 
   return (
     <div className="flex flex-col gap-4">
+      <Panel title={t('analytics.ingest.title')}>
+        <PanelErrorBoundary panelLabel={t('analytics.ingest.title')}>
+          {ingest.isError ? (
+            <ErrorState message={ingest.error?.message} onRetry={() => ingest.refetch()} />
+          ) : (
+            <IngestHealthPanel data={ingest.data} loading={ingest.isLoading} />
+          )}
+        </PanelErrorBoundary>
+      </Panel>
+
       <Panel title={t('analytics.branches.riskTitle')} action={<span className="text-xs text-muted-foreground">{t('analytics.branches.riskHint')}</span>}>
         <PanelErrorBoundary panelLabel={t('analytics.branches.riskTitle')}>
           {risk.isError ? (

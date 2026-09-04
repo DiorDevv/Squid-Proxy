@@ -23,6 +23,12 @@ from app.models.client_hourly_aggregate import ClientHourlyAggregate
 from app.models.db import AsyncSessionLocal
 from app.models.domain_aggregate import DomainMinuteAggregate
 from app.models.minute_aggregate import MinuteAggregate
+from app.models.ops_aggregate import (
+    HierarchyMinuteAggregate,
+    HttpMinuteAggregate,
+    ResultCodeMinuteAggregate,
+    UserCategoryMinuteAggregate,
+)
 from app.models.raw_event import RawEvent
 from app.models.refresh_token import RefreshToken
 from app.services.db_upsert import bulk_upsert_sum, declared_table
@@ -69,6 +75,7 @@ class RetentionJob(IntervalJob):
         now = datetime.now(UTC)
         raw_cutoff = now - timedelta(days=settings.RETENTION_DAYS_RAW_EVENTS)
         aggregate_cutoff = now - timedelta(days=settings.RETENTION_DAYS_AGGREGATES)
+        ops_cutoff = now - timedelta(days=settings.RETENTION_DAYS_OPS_AGGREGATES)
         rollup_cutoff = now - timedelta(hours=settings.CLIENT_ROLLUP_AFTER_HOURS)
 
         async with AsyncSessionLocal() as session:
@@ -112,6 +119,29 @@ class RetentionJob(IntervalJob):
             )
             await session.execute(
                 delete(ClientHourlyAggregate).where(ClientHourlyAggregate.bucket_ts < aggregate_cutoff)
+            )
+            # The Analytics "Squid ops" per-minute aggregates get their own,
+            # shorter window (RETENTION_DAYS_OPS_AGGREGATES) -- higher
+            # cardinality than the tables above and never queried past a few
+            # days by the UI. The response-time histogram lives on
+            # minute_aggregates itself and ages out with it above.
+            await session.execute(
+                delete(ResultCodeMinuteAggregate).where(
+                    ResultCodeMinuteAggregate.bucket_ts < ops_cutoff
+                )
+            )
+            await session.execute(
+                delete(HttpMinuteAggregate).where(HttpMinuteAggregate.bucket_ts < ops_cutoff)
+            )
+            await session.execute(
+                delete(HierarchyMinuteAggregate).where(
+                    HierarchyMinuteAggregate.bucket_ts < ops_cutoff
+                )
+            )
+            await session.execute(
+                delete(UserCategoryMinuteAggregate).where(
+                    UserCategoryMinuteAggregate.bucket_ts < ops_cutoff
+                )
             )
             # Revoked/rotated tokens are kept until their natural expiry (a
             # theft-detection signal, see api/routes/auth.py:refresh), then

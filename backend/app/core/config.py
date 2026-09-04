@@ -122,6 +122,14 @@ class Settings(BaseSettings):
     # per-day disk-cost math this scales from.
     RETENTION_DAYS_RAW_EVENTS: int = 30
     RETENTION_DAYS_AGGREGATES: int = 400
+    # The Analytics "Squid operations" per-minute aggregates (result codes,
+    # HTTP method/status, hierarchy, per-user category -- see
+    # app/services/analytics_service.py and the *_minute_aggregates tables
+    # they read). Higher row cardinality than the core minute/domain
+    # aggregates, and the Analytics UI never looks back more than a few
+    # days, so these get a shorter window of their own rather than riding
+    # the 400-day RETENTION_DAYS_AGGREGATES.
+    RETENTION_DAYS_OPS_AGGREGATES: int = 90
     # How often the ring buffer flushes to DB aggregates. Lower = less
     # runway needed in RING_BUFFER_MAX_EVENTS above per flush cycle, at the
     # cost of more frequent (still bulk-upsert, see db_upsert.py) writes.

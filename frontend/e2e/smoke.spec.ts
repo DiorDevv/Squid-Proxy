@@ -126,7 +126,7 @@ test.describe.serial('authenticated', () => {
     await expect(page.getByRole('heading', { name: 'Analytics', level: 1 })).toBeVisible()
     const main = page.getByRole('main')
 
-    for (const tab of ['Overview', 'Branches', 'Categories', 'Activity map']) {
+    for (const tab of ['Overview', 'Who', 'Traffic & cache', 'Blocks', 'Branches']) {
       await main.getByRole('link', { name: tab }).click()
       await expect(main.getByRole('button', { name: 'Retry' })).not.toBeVisible()
     }

@@ -3,6 +3,30 @@
 All notable changes to this project are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/).
 
+## [Unreleased]
+
+### Added
+
+- **Analytics — Squid operations views.** The section grew from 4 to 5 tabs and became a full
+  operational picture, not just a usage summary:
+  - **Who** — a per-user (or, without proxy auth, per-client-IP) leaderboard: requests, bytes,
+    blocked share, top category, busiest hour; click a row for a drill-down (hour-of-day activity,
+    category split, top domains, denied domains, first/last seen). Plus a "new this period" list
+    of users / client IPs / domains seen for the first time versus the preceding window.
+  - **Traffic & cache** — Squid result-code (`%Ss`) mix over time, request- and byte-level cache
+    hit rate, deny/tunnel share, HTTP method and status-class breakdown (403/407/5xx called out),
+    where requests actually resolved (hierarchy code), and an approximate p50/p95/p99 response-time
+    curve from a per-minute latency histogram. The category trend and activity heatmap moved here.
+  - **Blocks** — denials over time split by reason (ACL forbid vs. proxy-auth vs. other), with the
+    top blocked domains, categories and repeat-offender clients.
+  - **Branches** — now also shows per-branch log-ingestion health (tailer alive, parse-failure
+    rate, aggregator backlog) alongside the risk score.
+- **Four new per-minute aggregate tables** (`result_code_`, `http_`, `hierarchy_`,
+  `user_category_minute_aggregates`) plus a six-band response-time histogram on `minute_aggregates`,
+  all populated in the existing `Aggregator.flush()` pass — so the operations views run off
+  aggregates, not per-request scans, at any traffic volume. `RETENTION_DAYS_OPS_AGGREGATES`
+  (default 90) ages them out on their own, shorter schedule.
+
 ## [0.3.0] - 2026-09-04
 
 ### Added

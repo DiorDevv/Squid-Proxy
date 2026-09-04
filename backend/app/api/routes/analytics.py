@@ -13,6 +13,7 @@ from app.schemas.analytics import (
     TrendMetric,
 )
 from app.schemas.common import EffectiveRange, resolve_range
+from app.schemas.config_advisor import ConfigAdvisorResponse
 from app.schemas.squid_ops import (
     ActorDetailResponse,
     ActorLeaderboardResponse,
@@ -24,7 +25,7 @@ from app.schemas.squid_ops import (
     ResponseTimeResponse,
     ResultCodeResponse,
 )
-from app.services import analytics_service, squid_ops_service
+from app.services import analytics_service, config_advisor_service, squid_ops_service
 
 router = APIRouter(
     prefix="/api/analytics", tags=["analytics"], dependencies=[Depends(require_any_role)]
@@ -170,6 +171,18 @@ async def read_denials(
     return await squid_ops_service.get_denials(
         db, effective_range.since, effective_range.until, granularity, branch
     )
+
+
+@router.get("/config-advisor", response_model=ConfigAdvisorResponse)
+async def read_config_advisor(
+    branch: str | None = Depends(resolve_branch),
+    db: AsyncSession = Depends(get_db),
+) -> ConfigAdvisorResponse:
+    """Heuristic checks over the last 24h of aggregates for common Squid
+    misconfigurations (no caching, no proxy auth, nothing ever denied,
+    sensitive categories allowed through, one domain dominating). Empty
+    `findings` for a well-configured, well-fed deployment."""
+    return await config_advisor_service.analyze(db, branch)
 
 
 @router.get("/ingest-health", response_model=IngestHealthResponse)

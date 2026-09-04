@@ -486,6 +486,27 @@ export interface IngestHealthResponse {
   branches: BranchIngestRow[]
 }
 
+export type ConfigFindingCode =
+  | 'no_caching'
+  | 'no_proxy_auth'
+  | 'no_denies'
+  | 'sensitive_allowed'
+  | 'single_domain_dominant'
+
+export interface ConfigFinding {
+  code: ConfigFindingCode
+  severity: 'info' | 'warning'
+  value: number
+  detail: string | null
+}
+
+export interface ConfigAdvisorResponse {
+  checked_at: string
+  window_hours: number
+  total_requests: number
+  findings: ConfigFinding[]
+}
+
 export type ExportJobStatus = 'pending' | 'running' | 'done' | 'failed' | 'cancelled'
 
 export interface ExportJob {

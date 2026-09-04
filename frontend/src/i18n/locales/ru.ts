@@ -341,6 +341,24 @@ export const ru = {
   'analytics.ingest.alive': 'активно',
   'analytics.ingest.down': 'остановлено',
 
+  'analytics.advisor.title': 'Советы по конфигурации Squid',
+  'analytics.advisor.hint': 'Эвристические проверки за последние 24 ч — не абсолютная истина',
+  'analytics.advisor.noCaching.title': 'Squid не кэширует',
+  'analytics.advisor.noCaching.desc':
+    'Почти ни один кэшируемый запрос не был отдан из кэша. Проверьте cache_dir / cache_mem в squid.conf — прокси без кэша лишь добавляет лишний переход.',
+  'analytics.advisor.noProxyAuth.title': 'Нет привязки к пользователю',
+  'analytics.advisor.noProxyAuth.desc':
+    'Почти весь трафик пишется без пользователя. Включите авторизацию прокси (auth_param + правило acl … proxy_auth), чтобы видеть, кто что делает, а не только IP.',
+  'analytics.advisor.noDenies.title': 'Ничего не блокируется',
+  'analytics.advisor.noDenies.desc':
+    'За последние 24 ч не было ни одного отказа. Если это фильтрующий прокси, его ACL, возможно, ни на что не срабатывают.',
+  'analytics.advisor.sensitiveAllowed.title': 'Чувствительные категории пропускаются',
+  'analytics.advisor.sensitiveAllowed.desc':
+    'Запросы к доменам азартных игр / контента для взрослых были разрешены, а не заблокированы. Добавьте acl для этих категорий, если этого требует политика.',
+  'analytics.advisor.singleDomain.title': 'Один домен доминирует во всём трафике',
+  'analytics.advisor.singleDomain.desc':
+    'Один домен составляет большую часть логируемого трафика. Часто это неверно направленная проверка доступности, цикл обновлений или клиент в бесконечных повторах.',
+
   'analytics.metric.totalRequests': 'Всего запросов',
   'analytics.metric.blocked': 'Заблокировано',
   'analytics.metric.allowed': 'Разрешено',

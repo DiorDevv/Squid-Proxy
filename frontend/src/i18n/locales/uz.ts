@@ -344,6 +344,24 @@ export const uz = {
   'analytics.ingest.alive': 'faol',
   'analytics.ingest.down': 'to‘xtagan',
 
+  'analytics.advisor.title': 'Squid konfiguratsiya maslahati',
+  'analytics.advisor.hint': 'Oxirgi 24 soat bo‘yicha evristik tekshiruvlar — mutlaq haqiqat emas',
+  'analytics.advisor.noCaching.title': 'Squid keshlamayapti',
+  'analytics.advisor.noCaching.desc':
+    'Keshlanadigan so‘rovlarning deyarli hech biri keshdan berilmadi. squid.conf‘dagi cache_dir / cache_mem‘ni tekshiring — keshsiz proxy shunchaki qo‘shimcha bosqich.',
+  'analytics.advisor.noProxyAuth.title': 'Foydalanuvchi aniqlanmayapti',
+  'analytics.advisor.noProxyAuth.desc':
+    'Deyarli barcha trafik foydalanuvchisiz yoziladi. Proksi avtorizatsiyasini yoqing (auth_param + acl … proxy_auth qoidasi) — shunda faqat IP emas, kim nima qilayotganini ko‘rasiz.',
+  'analytics.advisor.noDenies.title': 'Hech narsa bloklanmayapti',
+  'analytics.advisor.noDenies.desc':
+    'Oxirgi 24 soatda birorта so‘rov rad etilmadi. Agar bu filtrlovchi proxy bo‘lsa, uning ACL‘lari hech nimaga mos kelmayotgan bo‘lishi mumkin.',
+  'analytics.advisor.sensitiveAllowed.title': 'Nozik kategoriyalar o‘tkazib yuborilmoqda',
+  'analytics.advisor.sensitiveAllowed.desc':
+    'Qimor / kattalar kontenti domenlariga so‘rovlar bloklanmay, ruxsat berildi. Siyosat talab qilsa, bu kategoriyalar uchun acl qo‘shing.',
+  'analytics.advisor.singleDomain.title': 'Bitta domen butun trafikда ustunlik qilmoqda',
+  'analytics.advisor.singleDomain.desc':
+    'Bitta domen qayd etilgan trafikning katta qismini tashkil qiladi. Ko‘pincha noto‘g‘ri yo‘naltirilgan health-check, yangilanish sikli yoki qayta urinib turgan mijoz.',
+
   'analytics.metric.totalRequests': 'Jami soʻrovlar',
   'analytics.metric.blocked': 'Bloklangan',
   'analytics.metric.allowed': 'Ruxsat berilgan',

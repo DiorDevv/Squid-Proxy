@@ -20,6 +20,7 @@ ENDPOINTS = [
     "/api/analytics/actors",
     "/api/analytics/new-entities",
     "/api/analytics/denials",
+    "/api/analytics/config-advisor",
     "/api/analytics/ingest-health",
 ]
 
@@ -153,6 +154,11 @@ async def test_squid_ops_endpoints_shape(
     ingest = await app_client.get("/api/analytics/ingest-health", headers=auth_headers(admin_token))
     assert ingest.status_code == 200
     assert "branches" in ingest.json()
+
+    advisor = await app_client.get("/api/analytics/config-advisor", headers=auth_headers(admin_token))
+    assert advisor.status_code == 200
+    body = advisor.json()
+    assert body["window_hours"] == 24 and "findings" in body
 
 
 async def test_squid_ops_branch_scoping(

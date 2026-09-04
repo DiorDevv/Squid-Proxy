@@ -2,13 +2,14 @@ import { Panel } from '@/components/common/Panel'
 import { PanelErrorBoundary } from '@/components/common/PanelErrorBoundary'
 import { ErrorState } from '@/components/common/ErrorState'
 import { ComparisonCards } from '@/components/analytics/ComparisonCards'
+import { ConfigAdvisorPanel } from '@/components/analytics/ConfigAdvisorPanel'
 import { SquidHealthStrip } from '@/components/analytics/SquidHealthStrip'
 import { TopMoversList } from '@/components/analytics/TopMoversList'
 import { cn } from '@/lib/utils'
 import { formatBytes, formatNumber } from '@/lib/format'
 import { CATEGORY_COLORS, CATEGORY_LABEL_KEYS, SENSITIVE_CATEGORIES } from '@/lib/categories'
 import { useRangeSearchParams } from '@/lib/filters-store'
-import { useAnalyticsOverview } from '@/hooks/useAnalytics'
+import { useAnalyticsOverview, useConfigAdvisor } from '@/hooks/useAnalytics'
 import { useTranslation } from '@/i18n'
 import type { DomainUsage } from '@/types/api'
 
@@ -38,7 +39,9 @@ export default function AnalyticsOverviewPage() {
   const { t } = useTranslation()
   const rangeParams = useRangeSearchParams()
   const query = useAnalyticsOverview(rangeParams, true)
+  const advisor = useConfigAdvisor(rangeParams, true)
   const data = query.data
+  const findings = advisor.data?.findings ?? []
 
   if (query.isError) {
     return <ErrorState message={query.error?.message} onRetry={() => query.refetch()} />
@@ -53,6 +56,17 @@ export default function AnalyticsOverviewPage() {
           <SquidHealthStrip />
         </PanelErrorBoundary>
       </Panel>
+
+      {findings.length > 0 && (
+        <Panel
+          title={t('analytics.advisor.title')}
+          action={<span className="text-xs text-muted-foreground">{t('analytics.advisor.hint')}</span>}
+        >
+          <PanelErrorBoundary panelLabel={t('analytics.advisor.title')}>
+            <ConfigAdvisorPanel findings={findings} />
+          </PanelErrorBoundary>
+        </Panel>
+      )}
 
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
         <Panel title={t('analytics.overview.topCategories')}>

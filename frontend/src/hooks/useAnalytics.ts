@@ -12,6 +12,7 @@ import type {
   DenialsResponse,
   HierarchyResponse,
   HttpBreakdownResponse,
+  ConfigAdvisorResponse,
   IngestHealthResponse,
   NewEntitiesResponse,
   ResponseTimeResponse,
@@ -168,6 +169,16 @@ export function useIngestHealth(live: boolean) {
   return useQuery({
     queryKey: ['analytics-ingest-health'],
     queryFn: () => apiFetch<IngestHealthResponse>('/api/analytics/ingest-health'),
+    refetchInterval: live ? false : POLLING_FALLBACK_INTERVAL_MS,
+  })
+}
+
+export function useConfigAdvisor(rangeParams: RangeParams, live: boolean) {
+  // The advisor ignores the UI range (fixed 24h server-side); rangeParams
+  // is threaded only so a branch switch refetches.
+  return useQuery({
+    queryKey: ['analytics-config-advisor', rangeParams.branch ?? null],
+    queryFn: () => apiFetch<ConfigAdvisorResponse>('/api/analytics/config-advisor', { searchParams: rangeParams }),
     refetchInterval: live ? false : POLLING_FALLBACK_INTERVAL_MS,
   })
 }

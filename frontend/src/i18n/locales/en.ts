@@ -360,6 +360,25 @@ export const en = {
   'analytics.ingest.alive': 'alive',
   'analytics.ingest.down': 'down',
 
+  // Config advisor (Overview, shown only when there are findings)
+  'analytics.advisor.title': 'Squid config advice',
+  'analytics.advisor.hint': 'Heuristic checks over the last 24h — not authoritative',
+  'analytics.advisor.noCaching.title': "Squid isn't caching",
+  'analytics.advisor.noCaching.desc':
+    'Almost no cacheable request was served from cache. Check cache_dir / cache_mem in squid.conf — a proxy with no cache is just adding a hop.',
+  'analytics.advisor.noProxyAuth.title': 'No user attribution',
+  'analytics.advisor.noProxyAuth.desc':
+    'Nearly all traffic is logged without a user. Enable proxy authentication (auth_param + an acl … proxy_auth rule) to see who is doing what, not just which IP.',
+  'analytics.advisor.noDenies.title': 'Nothing is being denied',
+  'analytics.advisor.noDenies.desc':
+    'No request was denied in the last 24h. If this is a filtering proxy, its ACLs may not be matching anything.',
+  'analytics.advisor.sensitiveAllowed.title': 'Sensitive categories allowed through',
+  'analytics.advisor.sensitiveAllowed.desc':
+    'Requests to gambling / adult-content domains were allowed, not blocked. Add an acl for those categories if policy requires it.',
+  'analytics.advisor.singleDomain.title': 'One domain dominates all traffic',
+  'analytics.advisor.singleDomain.desc':
+    'A single domain is most of the logged traffic. Often a misrouted health check, an update loop, or a client stuck retrying.',
+
   'analytics.metric.totalRequests': 'Total requests',
   'analytics.metric.blocked': 'Blocked',
   'analytics.metric.allowed': 'Allowed',

@@ -129,6 +129,14 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     app.state.uncategorized_domain_monitor = uncategorized_domain_monitor
     uncategorized_domain_monitor.start()
 
+    from app.services.watchlist_monitor import WatchlistMonitorJob
+
+    watchlist_monitor = WatchlistMonitorJob(
+        interval_seconds=settings.WATCHLIST_MONITOR_INTERVAL_SECONDS
+    )
+    app.state.watchlist_monitor = watchlist_monitor
+    watchlist_monitor.start()
+
     from app.services.undownloaded_export_monitor import UndownloadedExportMonitorJob
 
     undownloaded_export_monitor = UndownloadedExportMonitorJob(
@@ -170,6 +178,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         await ut1_scheduler.stop()
         await uncategorized_domain_monitor.stop()
         await undownloaded_export_monitor.stop()
+        await watchlist_monitor.stop()
         await telegram_link_poller.stop()
 
 
@@ -250,6 +259,7 @@ def create_app() -> FastAPI:
         summary,
         timeseries,
         users,
+        watchlist,
         ws,
     )
 
@@ -269,6 +279,7 @@ def create_app() -> FastAPI:
     app.include_router(alert_settings.router)
     app.include_router(analytics.router)
     app.include_router(reports.router)
+    app.include_router(watchlist.router)
     app.include_router(ws.router)
 
     return app

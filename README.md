@@ -632,10 +632,16 @@ is running (FastAPI's built-in Swagger UI).
 `http-breakdown` (method + status class, 403/407/5xx), `hierarchy`, `response-time` (approximate
 p50/p95/p99 from a per-minute latency histogram), `actors` + `actor-detail` (per-user/per-IP
 leaderboard and drill-down), `new-entities`, `denials` (blocked requests over time by reason +
-top blocked domains/categories/clients), `ingest-health` (per-branch tailer/parse/backlog status).
-All read-only and branch-scoped; the operational views read the per-minute aggregate tables
+top blocked domains/categories/clients), `ingest-health` (per-branch tailer/parse/backlog status),
+`config-advisor` (heuristic squid.conf misconfiguration checks over the last 24h — no caching, no
+proxy auth, nothing denied, sensitive categories allowed, one domain dominating). All read-only
+and branch-scoped; the operational views read the per-minute aggregate tables
 (`result_code_`/`http_`/`hierarchy_`/`user_category_minute_aggregates`, retained
 `RETENTION_DAYS_OPS_AGGREGATES` days) rather than scanning raw events.
+
+**`GET/POST/PATCH/DELETE /api/watchlist`** (admin-only) manages the watchlist — client IPs,
+domains or users flagged so that `WatchlistMonitorJob` raises an anomaly the next time one is
+active (see `WATCHLIST_MONITOR_INTERVAL_SECONDS` / `WATCHLIST_ALERT_COOLDOWN_SECONDS`).
 
 **`GET /api/audit-log`** (admin-only) is the who-did-what trail for admin actions: user
 management (create/role-change/password-reset/delete), the full export lifecycle

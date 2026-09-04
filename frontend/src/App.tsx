@@ -29,6 +29,7 @@ const SettingsGeneralPage = lazy(() => import('@/pages/settings/SettingsGeneralP
 const SettingsUsersPage = lazy(() => import('@/pages/settings/SettingsUsersPage'))
 const SettingsCategoriesPage = lazy(() => import('@/pages/settings/SettingsCategoriesPage'))
 const SettingsExportPage = lazy(() => import('@/pages/settings/SettingsExportPage'))
+const SettingsWatchlistPage = lazy(() => import('@/pages/settings/SettingsWatchlistPage'))
 const SettingsTelegramPage = lazy(() => import('@/pages/settings/SettingsTelegramPage'))
 const NotFoundPage = lazy(() => import('@/pages/NotFoundPage'))
 
@@ -80,6 +81,7 @@ export default function App() {
                 <Route path="general" element={<SettingsGeneralPage />} />
                 <Route path="users" element={<SettingsUsersPage />} />
                 <Route path="categories" element={<SettingsCategoriesPage />} />
+                <Route path="watchlist" element={<SettingsWatchlistPage />} />
                 <Route path="export" element={<SettingsExportPage />} />
                 <Route path="telegram" element={<SettingsTelegramPage />} />
               </Route>

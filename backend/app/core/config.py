@@ -268,6 +268,12 @@ class Settings(BaseSettings):
     # anything is admin-configurable at runtime via /api/alert-settings,
     # same as the two intervals above.
     UNCATEGORIZED_DOMAIN_MONITOR_INTERVAL_SECONDS: int = 86400
+    # How often the watchlist monitor (app/services/watchlist_monitor.py)
+    # re-checks whether a watched client/domain/user has been active, and
+    # the minimum gap between two anomalies for the same watched target so
+    # an ongoing presence isn't re-alerted every interval.
+    WATCHLIST_MONITOR_INTERVAL_SECONDS: int = 300
+    WATCHLIST_ALERT_COOLDOWN_SECONDS: int = 3600
     # How often to check for undownloaded export jobs (see
     # app/services/undownloaded_export_monitor.py) -- the threshold that
     # actually gates whether this raises anything

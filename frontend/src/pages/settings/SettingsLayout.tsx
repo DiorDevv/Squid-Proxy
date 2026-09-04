@@ -7,6 +7,7 @@ const SETTINGS_NAV_ITEMS: { to: string; labelKey: TranslationKey }[] = [
   { to: 'general', labelKey: 'settings.nav.general' },
   { to: 'users', labelKey: 'settings.nav.users' },
   { to: 'categories', labelKey: 'settings.nav.categories' },
+  { to: 'watchlist', labelKey: 'settings.nav.watchlist' },
   { to: 'export', labelKey: 'settings.nav.export' },
 ]
 

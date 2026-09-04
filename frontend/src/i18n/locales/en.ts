@@ -180,6 +180,9 @@ export const en = {
   'insights.anomaly.exportNotDownloaded.title': 'Export not downloaded',
   'insights.anomaly.exportNotDownloaded.description':
     'Export job {{jobId}} ({{format}}, {{since}} to {{until}}) finished {{ageHours}}h ago and has never been downloaded (threshold: {{thresholdHours}}h).',
+  'insights.anomaly.watchlistHit.title': 'Watched target active',
+  'insights.anomaly.watchlistHit.description':
+    'Watched {{targetType}} {{value}} made {{count}} request(s) ({{blocked}} blocked) in the last interval.',
 
   'notifications.bellLabel': 'Notifications',
   'notifications.title': 'Recent anomalies',
@@ -443,6 +446,30 @@ export const en = {
   'settings.nav.users': 'Users & audit',
   'settings.nav.categories': 'Categories & alerts',
   'settings.nav.export': 'Export',
+  'settings.nav.watchlist': 'Watchlist',
+
+  // --- Watchlist (Settings) ---
+  'watchlist.title': 'Watchlist',
+  'watchlist.intro':
+    'Flag a client IP, domain or user to watch. When a watched target is active again, an anomaly is raised and goes out on your configured alert channels.',
+  'watchlist.empty': 'Nothing is being watched.',
+  'watchlist.add': 'Add',
+  'watchlist.delete': 'Remove entry',
+  'watchlist.conflict': 'That target is already on the watchlist.',
+  'watchlist.type': 'Type',
+  'watchlist.value': 'Value',
+  'watchlist.valuePlaceholder': 'IP, domain or username',
+  'watchlist.note': 'Note',
+  'watchlist.typeClientIp': 'Client IP',
+  'watchlist.typeDomain': 'Domain',
+  'watchlist.typeUser': 'User',
+  'watchlist.colTarget': 'Target',
+  'watchlist.colNote': 'Note',
+  'watchlist.colLastSeen': 'Last active',
+  'watchlist.colLastAlert': 'Last alert',
+  'watchlist.colActive': 'Watching',
+  'watchlist.on': 'On',
+  'watchlist.off': 'Off',
   'settings.nav.telegram': 'Telegram',
   'settings.userManagement': 'User management',
   'settings.auditLog': 'Audit log',

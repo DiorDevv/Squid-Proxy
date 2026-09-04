@@ -507,6 +507,23 @@ export interface ConfigAdvisorResponse {
   findings: ConfigFinding[]
 }
 
+// --- Watchlist ---
+
+export type WatchlistTargetType = 'client_ip' | 'domain' | 'user'
+
+export interface WatchlistEntry {
+  id: string
+  target_type: WatchlistTargetType
+  value: string
+  note: string | null
+  /** "" means any branch */
+  branch: string
+  active: boolean
+  created_at: string
+  last_seen_at: string | null
+  last_alerted_at: string | null
+}
+
 export type ExportJobStatus = 'pending' | 'running' | 'done' | 'failed' | 'cancelled'
 
 export interface ExportJob {

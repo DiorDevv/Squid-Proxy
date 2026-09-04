@@ -88,6 +88,7 @@ async def init_db() -> None:
         refresh_token,
         totp_recovery_code,
         user,
+        watchlist_entry,
     )
 
     async with engine.begin() as conn:

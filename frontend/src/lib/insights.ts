@@ -37,6 +37,10 @@ const ANOMALY_KEYS: Record<string, { title: TranslationKey; description: Transla
     title: 'insights.anomaly.exportNotDownloaded.title',
     description: 'insights.anomaly.exportNotDownloaded.description',
   },
+  watchlist_hit: {
+    title: 'insights.anomaly.watchlistHit.title',
+    description: 'insights.anomaly.watchlistHit.description',
+  },
 }
 
 /** Re-renders an anomaly's title/description in the user's chosen UI

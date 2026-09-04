@@ -7,6 +7,15 @@ All notable changes to this project are documented here. Format loosely follows
 
 ### Added
 
+- **Watchlist.** Flag a client IP, domain or proxy-auth user (per branch or fleet-wide) at
+  **Settings → Watchlist**. A background job raises an anomaly — which then flows through the
+  existing webhook/Telegram alert channels and shows in "Recent anomalies" — the next time a
+  watched target is active, subject to a cooldown (`WATCHLIST_ALERT_COOLDOWN_SECONDS`). Runs off
+  the per-minute client/domain aggregates, not a raw-event scan.
+- **Squid config advisor** on the Analytics Overview tab: heuristic checks over the last 24h of
+  aggregates for the misconfigurations that quietly make a Squid deployment useless — no caching,
+  no proxy auth, nothing ever denied, sensitive categories allowed through, one domain dominating
+  all traffic. The panel only appears when there's a finding.
 - **Analytics — Squid operations views.** The section grew from 4 to 5 tabs and became a full
   operational picture, not just a usage summary:
   - **Who** — a per-user (or, without proxy auth, per-client-IP) leaderboard: requests, bytes,

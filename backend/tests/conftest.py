@@ -25,6 +25,7 @@ from app.models import (  # noqa: F401
     refresh_token,
     totp_recovery_code,
     user,
+    watchlist_entry,
 )
 from app.models.db import Base, _ensure_aggregate_unique_indexes
 from app.models.user import User, UserRole

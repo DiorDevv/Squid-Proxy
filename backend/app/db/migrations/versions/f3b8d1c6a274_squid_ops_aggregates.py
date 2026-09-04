@@ -46,6 +46,28 @@ _CATEGORY_VALUES = (
 )
 
 
+def _category_column_type() -> sa.types.TypeEngine:
+    """A `category` column that references the *existing* `domaincategorylabel`
+    enum (created by migration 9ad7b1d281bd, extended by 3d8f5a2c9e14) without
+    ever trying to CREATE it again.
+
+    `sa.Enum(..., create_type=False)` alone proved unreliable here: on newer
+    SQLAlchemy the type is still emitted by `op.create_table`'s CREATE TABLE
+    path, which then fails on Postgres with "type already exists". The
+    Postgres-dialect `ENUM` with `create_type=False` suppresses it for real;
+    SQLite has no enum types so plain `sa.Enum` (a VARCHAR + CHECK) is fine
+    there.
+    """
+    bind = op.get_bind()
+    if bind.dialect.name == 'postgresql':
+        from sqlalchemy.dialects import postgresql
+
+        return postgresql.ENUM(
+            *_CATEGORY_VALUES, name='domaincategorylabel', create_type=False
+        )
+    return sa.Enum(*_CATEGORY_VALUES, name='domaincategorylabel', create_type=False)
+
+
 def upgrade() -> None:
     # Backfilled to 0, not NULL -- existing minute rows predate response-time
     # tracking; analytics_service.get_response_time treats a zero total
@@ -147,13 +169,7 @@ def upgrade() -> None:
         sa.Column('bucket_ts', sa.DateTime(timezone=True), nullable=False),
         sa.Column('branch', sa.String(length=64), nullable=False),
         sa.Column('user', sa.String(length=255), nullable=False),
-        # create_type=False: domaincategorylabel already exists (see the
-        # client_category_minute_aggregates migration) -- reuse it.
-        sa.Column(
-            'category',
-            sa.Enum(*_CATEGORY_VALUES, name='domaincategorylabel', create_type=False),
-            nullable=False,
-        ),
+        sa.Column('category', _category_column_type(), nullable=False),
         sa.Column('request_count', sa.Integer(), nullable=False),
         sa.Column('total_bytes', sa.BigInteger(), nullable=False),
         sa.PrimaryKeyConstraint('id'),

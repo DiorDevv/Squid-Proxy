@@ -83,6 +83,7 @@ async def init_db() -> None:
         domain_category,
         export_job,
         minute_aggregate,
+        ops_aggregate,
         raw_event,
         refresh_token,
         totp_recovery_code,

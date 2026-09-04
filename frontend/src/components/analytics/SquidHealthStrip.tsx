@@ -22,13 +22,12 @@ export function SquidHealthStrip() {
 
   return (
     <div className="flex flex-col gap-3">
-      <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-6">
+      <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-5">
         <MiniStat
           label={t('analytics.traffic.hitRatio')}
           value={pct(c?.hit_ratio)}
           tone={c?.hit_ratio != null && c.hit_ratio >= 0.3 ? 'good' : 'default'}
         />
-        <MiniStat label={t('analytics.traffic.byteHitRatio')} value={pct(c?.byte_hit_ratio)} />
         <MiniStat
           label={t('analytics.traffic.deniedRatio')}
           value={pct(c?.denied_ratio)}

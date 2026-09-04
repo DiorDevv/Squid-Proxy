@@ -72,7 +72,7 @@ export default function AnalyticsWhoPage() {
           {newEntities.isLoading ? (
             <div className="h-40 animate-pulse rounded bg-muted" />
           ) : (
-            <div className="grid grid-cols-1 gap-6 sm:grid-cols-3">
+            <div className="grid grid-cols-1 gap-6 sm:grid-cols-2">
               <NewList
                 titleKey="analytics.who.newUsers"
                 items={newEntities.data?.new_users ?? []}
@@ -82,11 +82,6 @@ export default function AnalyticsWhoPage() {
                 titleKey="analytics.who.newClients"
                 items={newEntities.data?.new_clients ?? []}
                 total={newEntities.data?.new_clients_total ?? 0}
-              />
-              <NewList
-                titleKey="analytics.who.newDomains"
-                items={newEntities.data?.new_domains ?? []}
-                total={newEntities.data?.new_domains_total ?? 0}
               />
             </div>
           )}

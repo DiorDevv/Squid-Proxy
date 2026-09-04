@@ -300,8 +300,6 @@ export const en = {
   'analytics.nav.traffic': 'Traffic & cache',
   'analytics.nav.blocks': 'Blocks',
   'analytics.nav.branches': 'Branches',
-  'analytics.nav.categories': 'Categories',
-  'analytics.nav.heatmap': 'Activity map',
 
   'analytics.overview.squidHealth': 'Squid health',
 
@@ -332,11 +330,9 @@ export const en = {
   'analytics.who.colClientIp': 'Client IP',
   'analytics.who.colBlockedPct': 'Blocked %',
   'analytics.who.colTopCategory': 'Top category',
-  'analytics.who.colBusiestHour': 'Busiest hour (UTC)',
   'analytics.who.newThisPeriod': 'New this period',
   'analytics.who.newUsers': 'New users',
   'analytics.who.newClients': 'New client IPs',
-  'analytics.who.newDomains': 'New domains',
   'analytics.who.noneNew': 'Nothing new.',
   'analytics.who.firstSeen': 'First seen',
   'analytics.who.lastSeen': 'Last seen',

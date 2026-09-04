@@ -13,7 +13,6 @@ const ROWS: ActorRow[] = [
     blocked_ratio: 0.45,
     total_bytes: 5000,
     top_category: 'video_streaming',
-    busiest_hour_utc: 14,
   },
 ]
 

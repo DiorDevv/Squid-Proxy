@@ -201,14 +201,6 @@ async def test_new_entities_reports_first_seen_within_window(db_session: AsyncSe
                 bucket_ts=BUCKET, client_ip="10.0.0.2", branch="default", user="newbie",
                 request_count=5, blocked_count=0, total_bytes=100,
             ),
-            DomainMinuteAggregate(
-                bucket_ts=older, domain="old.example", branch="default",
-                request_count=1, blocked_count=0, total_bytes=10,
-            ),
-            DomainMinuteAggregate(
-                bucket_ts=BUCKET, domain="fresh.example", branch="default",
-                request_count=1, blocked_count=0, total_bytes=10,
-            ),
         ]
     )
     await db_session.commit()
@@ -216,8 +208,8 @@ async def test_new_entities_reports_first_seen_within_window(db_session: AsyncSe
     result = await squid_ops_service.get_new_entities(db_session, SINCE, NOW, branch=None)
     assert "newbie" in result.new_users
     assert "veteran" not in result.new_users
-    assert "fresh.example" in result.new_domains
-    assert "old.example" not in result.new_domains
+    assert "10.0.0.2" in result.new_clients
+    assert "10.0.0.1" not in result.new_clients
 
 
 async def test_actor_detail_reads_category_split_and_hourly(db_session: AsyncSession):

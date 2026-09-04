@@ -288,8 +288,6 @@ export const uz = {
   'analytics.nav.traffic': 'Trafik & kesh',
   'analytics.nav.blocks': 'Bloklar',
   'analytics.nav.branches': 'Filiallar',
-  'analytics.nav.categories': 'Kategoriyalar',
-  'analytics.nav.heatmap': 'Faollik xaritasi',
 
   'analytics.overview.squidHealth': 'Squid holati',
 
@@ -318,11 +316,9 @@ export const uz = {
   'analytics.who.colClientIp': 'Mijoz IP',
   'analytics.who.colBlockedPct': 'Bloklash %',
   'analytics.who.colTopCategory': 'Top kategoriya',
-  'analytics.who.colBusiestHour': 'Eng band soat (UTC)',
   'analytics.who.newThisPeriod': 'Bu davrda yangi',
   'analytics.who.newUsers': 'Yangi foydalanuvchilar',
   'analytics.who.newClients': 'Yangi mijoz IP‘lari',
-  'analytics.who.newDomains': 'Yangi domenlar',
   'analytics.who.noneNew': 'Yangi narsa yo‘q.',
   'analytics.who.firstSeen': 'Birinchi ko‘rilgan',
   'analytics.who.lastSeen': 'Oxirgi ko‘rilgan',

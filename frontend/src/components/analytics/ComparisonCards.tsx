@@ -26,15 +26,11 @@ const METRICS: Record<string, MetricConfig> = {
   cache_hit_ratio: { labelKey: 'analytics.metric.cacheHitRate', icon: Gauge, tone: 'default', format: PERCENT, scale: 100 },
 }
 
-const ORDER = [
-  'total_requests',
-  'blocked_requests',
-  'allowed_requests',
-  'total_bytes',
-  'active_clients',
-  'blocked_ratio',
-  'cache_hit_ratio',
-]
+// The five volume headline numbers. The two operational ratios
+// (blocked_ratio, cache_hit_ratio) that get_overview also returns live in
+// the "Squid health" strip right below this on the Overview tab, so they
+// aren't duplicated here.
+const ORDER = ['total_requests', 'blocked_requests', 'allowed_requests', 'total_bytes', 'active_clients']
 
 interface ComparisonCardsProps {
   metrics: MetricDelta[]
@@ -49,7 +45,7 @@ export function ComparisonCards({ metrics, loading }: ComparisonCardsProps) {
   const byMetric = new Map(metrics.map((m) => [m.metric, m]))
 
   return (
-    <div className="grid grid-cols-2 gap-3 lg:grid-cols-4 xl:grid-cols-7">
+    <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
       {ORDER.map((key) => {
         const config = METRICS[key]
         if (!config) return null

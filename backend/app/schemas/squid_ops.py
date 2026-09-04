@@ -88,7 +88,6 @@ class ActorRow(BaseModel):
     blocked_ratio: float
     total_bytes: int
     top_category: DomainCategoryLabel | None
-    busiest_hour_utc: int | None
 
 
 class ActorLeaderboardResponse(BaseModel):
@@ -131,11 +130,9 @@ class NewEntitiesResponse(BaseModel):
     until: datetime
     new_users: list[str]
     new_clients: list[str]
-    new_domains: list[str]
-    # how many were found before the caps below were applied
+    # how many were found before the caps above were applied
     new_users_total: int
     new_clients_total: int
-    new_domains_total: int
 
 
 class DenialReasonPoint(BaseModel):

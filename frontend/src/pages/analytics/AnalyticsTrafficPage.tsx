@@ -9,6 +9,7 @@ import { CategoryTrendChart } from '@/components/analytics/CategoryTrendChart'
 import { ActivityHeatmap } from '@/components/analytics/ActivityHeatmap'
 import { MiniStat } from '@/components/analytics/MiniStat'
 import { Toggle } from '@/components/analytics/Toggle'
+import { cn } from '@/lib/utils'
 import { formatNumber } from '@/lib/format'
 import { durationBandColor, resultCodeColor, statusClassColor } from '@/lib/ops-colors'
 import { useRangeSearchParams } from '@/lib/filters-store'
@@ -121,12 +122,21 @@ export default function AnalyticsTrafficPage() {
         </Panel>
       </div>
 
-      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-        <Panel title={t('analytics.traffic.hierarchy')}>
-          <PanelErrorBoundary panelLabel={t('analytics.traffic.hierarchy')}>
-            <BreakdownBars items={hierarchy.data?.codes ?? []} loading={hierarchy.isLoading} />
-          </PanelErrorBoundary>
-        </Panel>
+      <div
+        className={cn(
+          'grid grid-cols-1 gap-4',
+          (hierarchy.data?.codes.length ?? 0) > 1 && 'lg:grid-cols-2',
+        )}
+      >
+        {/* A single-tier Squid resolves everything HIER_DIRECT, so this
+            panel is only worth the space on a multi-parent setup. */}
+        {(hierarchy.data?.codes.length ?? 0) > 1 && (
+          <Panel title={t('analytics.traffic.hierarchy')}>
+            <PanelErrorBoundary panelLabel={t('analytics.traffic.hierarchy')}>
+              <BreakdownBars items={hierarchy.data?.codes ?? []} loading={hierarchy.isLoading} />
+            </PanelErrorBoundary>
+          </Panel>
+        )}
         <Panel
           title={t('analytics.traffic.responseTime')}
           action={

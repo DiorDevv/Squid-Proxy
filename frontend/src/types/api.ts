@@ -410,7 +410,6 @@ export interface ActorRow {
   blocked_ratio: number
   total_bytes: number
   top_category: DomainCategoryLabel | null
-  busiest_hour_utc: number | null
 }
 
 export interface ActorLeaderboardResponse {
@@ -450,10 +449,8 @@ export interface NewEntitiesResponse {
   until: string
   new_users: string[]
   new_clients: string[]
-  new_domains: string[]
   new_users_total: number
   new_clients_total: number
-  new_domains_total: number
 }
 
 export interface DenialReasonPoint {

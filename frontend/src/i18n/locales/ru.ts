@@ -285,8 +285,6 @@ export const ru = {
   'analytics.nav.traffic': 'Трафик и кэш',
   'analytics.nav.blocks': 'Блокировки',
   'analytics.nav.branches': 'Филиалы',
-  'analytics.nav.categories': 'Категории',
-  'analytics.nav.heatmap': 'Карта активности',
 
   'analytics.overview.squidHealth': 'Состояние Squid',
 
@@ -315,11 +313,9 @@ export const ru = {
   'analytics.who.colClientIp': 'IP клиента',
   'analytics.who.colBlockedPct': '% блокировок',
   'analytics.who.colTopCategory': 'Топ категория',
-  'analytics.who.colBusiestHour': 'Пиковый час (UTC)',
   'analytics.who.newThisPeriod': 'Новое за период',
   'analytics.who.newUsers': 'Новые пользователи',
   'analytics.who.newClients': 'Новые IP клиентов',
-  'analytics.who.newDomains': 'Новые домены',
   'analytics.who.noneNew': 'Ничего нового.',
   'analytics.who.firstSeen': 'Первое появление',
   'analytics.who.lastSeen': 'Последнее появление',

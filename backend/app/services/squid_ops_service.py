@@ -431,7 +431,6 @@ async def get_actor_leaderboard(
     ).all()
     actor_ids = [r[0] for r in rows]
     top_category = await _top_category_per_actor(session, since, until, branch, actor_ids, is_user)
-    busiest = await _busiest_hour_per_actor(session, since, until, branch, actor_ids, is_user)
 
     leaderboard = [
         ActorRow(
@@ -442,7 +441,6 @@ async def get_actor_leaderboard(
             blocked_ratio=(int(blocked) / int(req)) if req else 0.0,
             total_bytes=int(byte_total),
             top_category=top_category.get(actor),
-            busiest_hour_utc=busiest.get(actor),
         )
         for actor, req, blocked, byte_total in rows
     ]
@@ -483,35 +481,6 @@ async def _top_category_per_actor(
         if current is None or count > current[0]:
             best[actor] = (count, category)
     return {actor: category for actor, (_c, category) in best.items()}
-
-
-async def _busiest_hour_per_actor(
-    session: AsyncSession,
-    since: datetime,
-    until: datetime,
-    branch: str | None,
-    actor_ids: list[str],
-    is_user: bool,
-) -> dict[str, int]:
-    if not actor_ids:
-        return {}
-    combined = client_bucket_rows(since, until, branch=branch)
-    actor_col = combined.c.user if is_user else combined.c.client_ip
-    rows = (
-        await session.execute(
-            select(actor_col, combined.c.bucket_ts, func.sum(combined.c.request_count))
-            .where(actor_col.in_(actor_ids))
-            .group_by(actor_col, combined.c.bucket_ts)
-        )
-    ).all()
-    per_actor_hour: dict[str, dict[int, int]] = defaultdict(lambda: defaultdict(int))
-    for actor, bucket_ts, count in rows:
-        per_actor_hour[actor][bucket_ts.hour] += int(count)
-    return {
-        actor: max(hours.items(), key=lambda kv: kv[1])[0]
-        for actor, hours in per_actor_hour.items()
-        if hours
-    }
 
 
 async def get_actor_detail(
@@ -666,28 +635,13 @@ async def get_new_entities(
     new_users = await _first_seen_within(combined.c.user)
     new_clients = await _first_seen_within(combined.c.client_ip)
 
-    dom_conditions = [DomainMinuteAggregate.bucket_ts <= until]
-    if branch is not None:
-        dom_conditions.append(DomainMinuteAggregate.branch == branch)
-    dom_rows = (
-        await session.execute(
-            select(DomainMinuteAggregate.domain, func.min(DomainMinuteAggregate.bucket_ts))
-            .where(*dom_conditions)
-            .group_by(DomainMinuteAggregate.domain)
-            .having(func.min(DomainMinuteAggregate.bucket_ts) >= since)
-        )
-    ).all()
-    new_domains = [r[0] for r in dom_rows]
-
     return NewEntitiesResponse(
         since=since,
         until=until,
         new_users=sorted(new_users)[:_NEW_ENTITY_CAP],
         new_clients=sorted(new_clients)[:_NEW_ENTITY_CAP],
-        new_domains=sorted(new_domains)[:_NEW_ENTITY_CAP],
         new_users_total=len(new_users),
         new_clients_total=len(new_clients),
-        new_domains_total=len(new_domains),
     )
 
 
@@ -850,7 +804,6 @@ async def get_denials(
             blocked_ratio=(int(blocked) / int(req)) if req else 0.0,
             total_bytes=int(tb),
             top_category=None,
-            busiest_hour_utc=None,
         )
         for actor, req, blocked, tb in actor_rows
     ]

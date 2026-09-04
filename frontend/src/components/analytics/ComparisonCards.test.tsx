@@ -14,26 +14,17 @@ const METRICS: MetricDelta[] = [
 ]
 
 describe('ComparisonCards', () => {
-  it('renders every headline metric label', () => {
+  it('renders the five volume headline labels', () => {
     render(<ComparisonCards metrics={METRICS} loading={false} />)
-    for (const label of [
-      'Total requests',
-      'Blocked',
-      'Allowed',
-      'Data transferred',
-      'Active clients',
-      'Blocked share',
-      'Cache hit rate',
-    ]) {
+    for (const label of ['Total requests', 'Blocked', 'Allowed', 'Data transferred', 'Active clients']) {
       expect(screen.getByText(label)).toBeInTheDocument()
     }
   })
 
-  it('scales the ratio metrics to a percent for display', () => {
+  it('does not duplicate the operational ratios (they live in the health strip)', () => {
     render(<ComparisonCards metrics={METRICS} loading={false} />)
-    // blocked_ratio 0.07 -> "7.0%", cache_hit_ratio 0.4 -> "40.0%"
-    expect(screen.getByText('7.0%')).toBeInTheDocument()
-    expect(screen.getByText('40.0%')).toBeInTheDocument()
+    expect(screen.queryByText('Blocked share')).not.toBeInTheDocument()
+    expect(screen.queryByText('Cache hit rate')).not.toBeInTheDocument()
   })
 
   it('renders loading skeletons instead of values', () => {

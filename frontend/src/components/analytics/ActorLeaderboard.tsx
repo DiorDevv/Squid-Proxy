@@ -20,7 +20,6 @@ const COLS: { key: string; labelKey: TranslationKey; sortable: boolean; align?: 
   { key: 'blocked_ratio', labelKey: 'analytics.who.colBlockedPct', sortable: false, align: 'right' },
   { key: 'bytes', labelKey: 'analytics.metric.dataTransferred', sortable: true, align: 'right' },
   { key: 'top_category', labelKey: 'analytics.who.colTopCategory', sortable: false },
-  { key: 'busiest', labelKey: 'analytics.who.colBusiestHour', sortable: false, align: 'right' },
 ]
 
 export function ActorLeaderboard({
@@ -46,7 +45,7 @@ export function ActorLeaderboard({
 
   return (
     <div className="overflow-x-auto">
-      <table className="w-full min-w-[720px] text-sm">
+      <table className="w-full min-w-[640px] text-sm">
         <thead>
           <tr className="border-b border-border text-left text-xs text-muted-foreground">
             {COLS.map((col) => (
@@ -111,9 +110,6 @@ export function ActorLeaderboard({
                   ) : (
                     <span className="text-muted-foreground">—</span>
                   )}
-                </td>
-                <td className="font-data py-2 text-right text-muted-foreground">
-                  {row.busiest_hour_utc === null ? '—' : `${String(row.busiest_hour_utc).padStart(2, '0')}:00`}
                 </td>
               </tr>
             )

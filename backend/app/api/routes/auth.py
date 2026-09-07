@@ -10,6 +10,7 @@ from app.api.deps import CurrentUser, get_current_user, get_db
 from app.core.config import get_settings
 from app.core.rate_limit import limiter
 from app.core.security import (
+    LoginThrottle,
     MfaChallengeStore,
     create_access_token,
     decode_refresh_cookie_value,
@@ -76,10 +77,27 @@ async def login(
     request: Request, response: Response, credentials: LoginRequest, db: AsyncSession = Depends(get_db)
 ) -> LoginResponse:
     settings = get_settings()
+    throttle: LoginThrottle = request.app.state.login_throttle
+    throttle_key = LoginThrottle.key(credentials.email)
+
+    if not throttle.allow_attempt(throttle_key):
+        # This account has too many recent failed logins and not enough time
+        # has passed since the last one (see LoginThrottle). Burn the same
+        # bcrypt time and return the same error as an ordinary wrong
+        # password so a caller can't tell it tripped the throttle.
+        verify_password(credentials.password, None)
+        raise INVALID_CREDENTIALS
+
     user = (await db.execute(select(User).where(User.email == credentials.email))).scalar_one_or_none()
     password_ok = verify_password(credentials.password, user.hashed_password if user else None)
     if user is None or not password_ok:
+        throttle.record_failure(throttle_key)
         raise INVALID_CREDENTIALS
+
+    # Password was correct -- clear this account's failure record even if MFA
+    # is still pending below (the credential-guessing threat is over; the
+    # code step has its own attempt cap in MfaChallengeStore).
+    throttle.record_success(throttle_key)
 
     if user.totp_enabled:
         # Password alone isn't enough -- hand back a short-lived, single-use
@@ -91,7 +109,9 @@ async def login(
         challenge_token = store.issue(user.id)
         return LoginResponse(mfa_required=True, challenge_token=challenge_token)
 
-    access_token = create_access_token(user_id=user.id, role=user.role.value, branch=user.branch)
+    access_token = create_access_token(
+        user_id=user.id, role=user.role.value, branch=user.branch, token_version=user.token_version
+    )
     await _issue_refresh_cookie(response, db, user.id)
 
     return LoginResponse(
@@ -123,7 +143,9 @@ async def verify_mfa(
         raise INVALID_CREDENTIALS
 
     store.consume(body.challenge_token)
-    access_token = create_access_token(user_id=user.id, role=user.role.value, branch=user.branch)
+    access_token = create_access_token(
+        user_id=user.id, role=user.role.value, branch=user.branch, token_version=user.token_version
+    )
     await _issue_refresh_cookie(response, db, user.id)
 
     return LoginResponse(
@@ -150,9 +172,7 @@ async def refresh(
         raise INVALID_REFRESH
     jti, raw_secret = decoded
 
-    token_row = (
-        await db.execute(select(RefreshToken).where(RefreshToken.jti == jti))
-    ).scalar_one_or_none()
+    token_row = (await db.execute(select(RefreshToken).where(RefreshToken.jti == jti))).scalar_one_or_none()
 
     if (
         token_row is None
@@ -200,7 +220,9 @@ async def refresh(
 
     await _issue_refresh_cookie(response, db, user.id)
 
-    access_token = create_access_token(user_id=user.id, role=user.role.value, branch=user.branch)
+    access_token = create_access_token(
+        user_id=user.id, role=user.role.value, branch=user.branch, token_version=user.token_version
+    )
     return RefreshResponse(
         access_token=access_token, expires_in_seconds=settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60
     )
@@ -225,10 +247,21 @@ async def logout(request: Request, response: Response, db: AsyncSession = Depend
 @router.post("/ws-ticket", response_model=WsTicketResponse)
 @limiter.limit(get_settings().SENSITIVE_ACTION_RATE_LIMIT)
 async def issue_ws_ticket(
-    request: Request, current_user: CurrentUser = Depends(get_current_user)
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    current_user: CurrentUser = Depends(get_current_user),
 ) -> WsTicketResponse:
     store = request.app.state.ws_ticket_store
-    ticket = store.issue(user_id=current_user.user_id, role=current_user.role, branch=current_user.branch)
+    # token_version travels with the ticket so the socket's periodic
+    # re-check (see routes/ws.py) closes it the moment the account is
+    # invalidated, not just on branch change.
+    user = await _load_current_user(db, current_user)
+    ticket = store.issue(
+        user_id=current_user.user_id,
+        role=current_user.role,
+        branch=current_user.branch,
+        token_version=user.token_version,
+    )
     return WsTicketResponse(ticket=ticket, expires_in_seconds=int(store.ttl_seconds))
 
 

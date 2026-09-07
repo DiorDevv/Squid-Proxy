@@ -2,11 +2,13 @@ from collections.abc import AsyncGenerator, Awaitable, Callable
 
 from fastapi import Depends, HTTPException, Query, status
 from fastapi.security import OAuth2PasswordBearer
-from jose import JWTError
+from jwt import InvalidTokenError
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.security import decode_access_token
 from app.models.db import get_session
+from app.models.user import User
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/login", auto_error=False)
 
@@ -25,7 +27,10 @@ async def get_db(session: AsyncSession = Depends(get_session)) -> AsyncGenerator
     yield session
 
 
-async def get_current_user(token: str | None = Depends(oauth2_scheme)) -> CurrentUser:
+async def get_current_user(
+    token: str | None = Depends(oauth2_scheme),
+    session: AsyncSession = Depends(get_session),
+) -> CurrentUser:
     unauthorized = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
         detail="Could not validate credentials.",
@@ -35,18 +40,33 @@ async def get_current_user(token: str | None = Depends(oauth2_scheme)) -> Curren
         raise unauthorized
     try:
         payload = decode_access_token(token)
-    except JWTError as exc:
+    except InvalidTokenError as exc:
         raise unauthorized from exc
 
     user_id = payload.get("sub")
-    role = payload.get("role")
-    if not user_id or not role:
+    if not user_id:
         raise unauthorized
-    # .get (not required) -- a token issued before branch-scoping existed
-    # has no "branch" claim at all; treat that the same as an explicit
-    # None (unrestricted) rather than erroring an already-logged-in session.
-    branch = payload.get("branch")
-    return CurrentUser(user_id=user_id, role=role, branch=branch)
+
+    # One SELECT per authenticated request -- the app is a dashboard, not a
+    # high-QPS API, and the alternative (trusting the JWT's role/branch for
+    # the full token lifetime) means a demotion, branch reassignment, or
+    # account deletion silently doesn't take effect for up to
+    # ACCESS_TOKEN_EXPIRE_MINUTES. role/branch are read from the live row,
+    # not the token, so a change lands on the very next request.
+    user = (await session.execute(select(User).where(User.id == user_id))).scalar_one_or_none()
+    if user is None:
+        raise unauthorized
+
+    # A token minted before token_version existed carries tv=None -- accept
+    # it (the user-still-exists check above already ran; these age out
+    # within one access-token lifetime), but a present, non-matching tv
+    # means the account was deliberately invalidated (password reset,
+    # role/branch change) since this token was issued.
+    token_tv = payload.get("tv")
+    if token_tv is not None and token_tv != user.token_version:
+        raise unauthorized
+
+    return CurrentUser(user_id=user.id, role=user.role.value, branch=user.branch)
 
 
 def require_role(*allowed_roles: str) -> Callable[[CurrentUser], Awaitable[CurrentUser]]:
@@ -61,8 +81,12 @@ def require_role(*allowed_roles: str) -> Callable[[CurrentUser], Awaitable[Curre
     return checker
 
 
+# admin: full read + every mutation. viewer: full read, no mutations.
+# auditor: everything a viewer reads, PLUS the audit log and the
+# retention/policy surface, and still no mutations (see docs/PRODUCT.md).
 require_admin = require_role("admin")
-require_any_role = require_role("admin", "viewer")
+require_any_role = require_role("admin", "viewer", "auditor")
+require_admin_or_auditor = require_role("admin", "auditor")
 
 
 async def resolve_branch(

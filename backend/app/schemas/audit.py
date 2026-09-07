@@ -13,3 +13,16 @@ class AuditLogEntryOut(BaseModel):
     actor_email: str
     target_email: str | None
     detail: str | None
+
+
+class AuditChainBreak(BaseModel):
+    id: str
+    position: int
+    created_at: str
+    reason: str
+
+
+class AuditChainVerifyResponse(BaseModel):
+    ok: bool
+    entries_checked: int
+    broken_at: AuditChainBreak | None = None

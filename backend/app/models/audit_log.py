@@ -40,6 +40,20 @@ class AuditAction(str, enum.Enum):
     # code -- see app/services/telegram_link_service.py. Distinct from
     # ALERT_SETTINGS_UPDATED (a manual PUT /api/alert-settings save).
     TELEGRAM_LINKED = "telegram_linked"
+    # Read-access trail (docs/PRODUCT.md #1): for a tool whose job is
+    # watching people, *who looked at whom* must itself be on the record.
+    # One entry per view of a specific subject's activity, per event search,
+    # and per per-actor analytics drill-down.
+    CLIENT_ACTIVITY_VIEWED = "client_activity_viewed"
+    EVENT_SEARCH_RUN = "event_search_run"
+    ANALYTICS_ACTOR_VIEWED = "analytics_actor_viewed"
+    # A subject-access dossier (docs/PRODUCT.md #4: everything this
+    # deployment knows about one client IP or user, in one signed document)
+    # was generated -- see app/services/subject_access_service.py. Not
+    # deduplicated like the other read-access actions above: producing a
+    # dossier is a deliberate, occasional act (unlike paging through a
+    # client's activity), so every one is worth its own record.
+    SUBJECT_DOSSIER_EXPORTED = "subject_dossier_exported"
 
 
 class AuditLogEntry(Base):
@@ -75,3 +89,13 @@ class AuditLogEntry(Base):
     target_user_id: Mapped[str | None] = mapped_column(String(36), nullable=True, index=True)
     target_email: Mapped[str | None] = mapped_column(String(255), nullable=True)
     detail: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Tamper-evidence: entry_hash = SHA-256 over this row's fields plus the
+    # previous entry's entry_hash (see audit_service.compute_entry_hash).
+    # Any row that is altered, inserted between two others, or deleted
+    # breaks the chain from that point on, and audit_service.verify_chain /
+    # scripts/verify_audit_chain.py surface exactly where. prev_hash is
+    # None only for the very first entry ever written. Both are nullable in
+    # the schema so rows written before this feature (and backfilled by the
+    # migration) don't need a non-null default they never had.
+    prev_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    entry_hash: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)

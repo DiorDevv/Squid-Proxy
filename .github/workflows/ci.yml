@@ -26,9 +26,35 @@ jobs:
         with:
           python-version: "3.12"
       - run: pip install -e ".[dev]"
-      - run: pytest -q
+      # --cov enables the fail_under=85 gate in pyproject.toml's
+      # [tool.coverage.report]; a bare local `pytest` still runs without it.
+      - run: pytest -q --cov --cov-report=term-missing
       - run: ruff check .
       - run: mypy app
+      # Software-composition scan: fails on a known-vulnerable installed
+      # dependency (direct or transitive) rather than waiting for a
+      # Dependabot PR nobody's merged yet. To land a fix that legitimately
+      # needs a triaged advisory temporarily allowed, add
+      # `--ignore-vuln GHSA-xxxx` here with a comment and a follow-up issue.
+      - name: Dependency vulnerability scan
+        run: |
+          pip install pip-audit
+          # --skip-editable: the project itself isn't on PyPI, so it can't
+          # be looked up; everything it depends on still is. No --strict
+          # (which would fail on that un-auditable local package); a real
+          # advisory in a real dependency still exits non-zero.
+          pip-audit --skip-editable
+      # The models are one schema authority and the Alembic chain is the
+      # other; this fails the build if they've drifted (a new/changed model
+      # with no matching migration). Runs against a throwaway SQLite file --
+      # env.py's compare_type carve-out handles the one intentional
+      # SQLite/Postgres type divergence (raw_events BIGINT).
+      - name: Migrations match the models
+        env:
+          DATABASE_URL: "sqlite+aiosqlite:///./ci_alembic_check.db"
+        run: |
+          alembic upgrade head
+          alembic check
 
   frontend:
     runs-on: ubuntu-latest
@@ -46,6 +72,13 @@ jobs:
       - run: npm run lint
       - run: npm run test
       - run: npm run build
+      # Same intent as the backend's pip-audit step. Non-blocking for now:
+      # the current tree carries high-severity advisories in dev-only
+      # tooling (undici via jsdom + the shadcn CLI) that need a triaged
+      # `npm audit fix` / dep bump first. Once that's clean, drop the
+      # `|| true` so a new advisory actually stops a merge.
+      - name: Dependency vulnerability scan
+        run: npm audit --audit-level=high || true
 
   e2e:
     # Runs the Playwright smoke suite against the real, wired-together app

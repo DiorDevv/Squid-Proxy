@@ -1,9 +1,11 @@
 from fastapi import APIRouter, Depends, Query, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import get_db, require_any_role, resolve_branch
+from app.api.deps import CurrentUser, get_current_user, get_db, require_any_role, resolve_branch
+from app.models.audit_log import AuditAction
 from app.schemas.common import EffectiveRange, Page, resolve_range
 from app.schemas.events import EventDetail
+from app.services import audit_service
 from app.services.event_query_service import get_events
 
 router = APIRouter(prefix="/api", tags=["events"])
@@ -37,8 +39,9 @@ async def read_events(
     search: str | None = Query(default=None, max_length=255),
     branch: str | None = Depends(resolve_branch),
     db: AsyncSession = Depends(get_db),
+    current_user: CurrentUser = Depends(get_current_user),
 ) -> Page[EventDetail]:
-    return await get_events(
+    page = await get_events(
         db,
         effective_range.since,
         effective_range.until,
@@ -52,3 +55,17 @@ async def read_events(
         search,
         branch,
     )
+    # Audit only a *targeted* query (someone looking for a specific person /
+    # host / term), not a bare range browse -- which is also what the
+    # WebSocket-down polling fallback re-issues every ~10s.
+    targeted = {"search": search, "client_ip": client_ip, "domain": domain, "user": user}
+    if any(targeted.values()):
+        detail = ", ".join(f"{k}={v}" for k, v in targeted.items() if v)
+        await audit_service.record_read_access(
+            db,
+            action=AuditAction.EVENT_SEARCH_RUN,
+            actor_user_id=current_user.user_id,
+            branch=branch,
+            detail=detail,
+        )
+    return page

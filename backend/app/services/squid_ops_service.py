@@ -680,16 +680,26 @@ async def get_denials(
     granularity: TrendGranularity,
     branch: str | None,
 ) -> DenialsResponse:
-    # Reason split, all from aggregates (no raw_events scan). Squid marks a
-    # request `blocked` when its status is 403 or 407, or the result tag is
-    # TCP_DENIED* (see log_parser). 403 and 407 are disjoint status codes so
-    # `acl_denied + proxy_auth <= total_blocked` always holds and
-    # `other_blocked` (the remainder -- TCP_DENIED with status 0, a
-    # blacklist redirect, a quota block, ...) is never negative. Do NOT
-    # count TCP_DENIED separately: on an auth-enabled deployment every
-    # unauthenticated request is logged TCP_DENIED/407, so folding it into
-    # "acl_denied" both mislabels auth challenges and double-counts them
-    # against proxy_auth.
+    # Reason split, all from aggregates (no raw_events scan). A request is
+    # `blocked` when its status is 403 or 407, or the result tag is
+    # TCP_DENIED* (see log_parser -- `blocked` is broad on purpose).
+    #
+    # The `acl_denied` field carries the 403 count. Read it as "forbidden
+    # (403)", NOT "the proxy's ACL forbade it": the per-minute aggregates
+    # record status OR result tag, never both together, so from them alone a
+    # proxy-ACL TCP_DENIED/403 is indistinguishable from an origin server's
+    # own TCP_MISS/403 (the client reached the site and the site refused
+    # it). The UI labels this bucket "Forbidden (403)" and notes the
+    # ambiguity; separating the two would need an action*status aggregate
+    # this tier doesn't keep.
+    #
+    # 403 and 407 are disjoint status codes so `acl_denied + proxy_auth <=
+    # total_blocked` always holds and `other_blocked` (the remainder --
+    # TCP_DENIED with status 0, a blacklist redirect, a quota block, ...) is
+    # never negative. Do NOT count TCP_DENIED separately: on an auth-enabled
+    # deployment every unauthenticated request is logged TCP_DENIED/407, so
+    # folding it in here would double-count auth challenges against
+    # proxy_auth.
     http_conditions = [HttpMinuteAggregate.bucket_ts >= since, HttpMinuteAggregate.bucket_ts <= until]
     min_conditions = [MinuteAggregate.bucket_ts >= since, MinuteAggregate.bucket_ts <= until]
     if branch is not None:

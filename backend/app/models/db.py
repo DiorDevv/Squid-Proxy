@@ -8,7 +8,8 @@ changes (see ARCHITECTURE.md).
 import logging
 from collections.abc import AsyncGenerator
 
-from sqlalchemy import event, text
+from sqlalchemy import event, inspect, text
+from sqlalchemy.engine import Connection
 from sqlalchemy.engine.interfaces import DBAPIConnection
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker, create_async_engine
@@ -70,27 +71,30 @@ if _settings.DATABASE_URL.startswith("sqlite"):
 AsyncSessionLocal = async_sessionmaker(bind=engine, expire_on_commit=False, class_=AsyncSession)
 
 
-async def init_db() -> None:
-    # Import models so they're registered on Base.metadata before create_all.
-    from app.models import (  # noqa: F401
-        anomaly_event,
-        archive_run,
-        audit_log,
-        client_aggregate,
-        client_category_aggregate,
-        client_hourly_aggregate,
-        domain_aggregate,
-        domain_category,
-        export_job,
-        minute_aggregate,
-        ops_aggregate,
-        raw_event,
-        refresh_token,
-        totp_recovery_code,
-        user,
-        watchlist_entry,
-    )
+def _has_alembic_version(sync_conn: Connection) -> bool:
+    return inspect(sync_conn).has_table("alembic_version")
 
+
+async def init_db() -> None:
+    # Importing the package registers every model on Base.metadata -- one
+    # canonical list, see app/models/__init__.py.
+    import app.models  # noqa: F401
+
+    async with engine.begin() as conn:
+        alembic_managed = await conn.run_sync(_has_alembic_version)
+
+    if alembic_managed:
+        # This database is under Alembic (docker-entrypoint.sh / the systemd
+        # unit both run `alembic upgrade head` before the app starts). Alembic
+        # is then the sole schema authority -- running create_all here too
+        # would be a silent second authority that could paper over a missing
+        # migration. CI's `alembic check` is what guards drift now.
+        logger.info("Schema is Alembic-managed; skipping create_all")
+        return
+
+    # No alembic_version table: a fresh dev database started with a bare
+    # `uvicorn app.main:app` and no migration step. Build it straight from
+    # the models so that path still needs zero setup.
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
 
@@ -102,17 +106,20 @@ async def init_db() -> None:
 
 
 async def _ensure_aggregate_unique_indexes(bind_engine: AsyncEngine | None = None) -> None:
-    """Idempotently add the aggregate-table unique indexes for installs that
-    only ever run `create_all` (never Alembic) -- see migration
-    466aaa85c9f3_aggregate_unique_constraints for the full rationale.
-    `create_all` alone won't add these to a table that already exists, and
-    the expression-based client index can't be declared in the ORM model at
-    all, so both are applied here as plain idempotent DDL.
+    """Idempotently add the aggregate-table unique indexes on the
+    `create_all` path only -- a real deployment gets these from the Alembic
+    chain instead (verified: `alembic upgrade head` produces every index
+    listed below), and init_db() no longer calls this once a database is
+    Alembic-managed. See migration 466aaa85c9f3_aggregate_unique_constraints
+    for the rationale. `create_all` alone won't add these to a table that
+    already exists, and the expression-based client index can't be declared
+    in the ORM model at all, so both are applied here as plain idempotent
+    DDL.
 
-    Also called by tests (see conftest.py's db_engine fixture, passing its
-    own in-memory engine) so the ON CONFLICT target that
-    app/services/db_upsert.py relies on for client_minute_aggregates exists
-    against test databases too, not just real ones built via init_db().
+    Still reached on two non-Alembic paths: a bare `uvicorn app.main:app`
+    dev database, and tests (conftest.py's db_engine fixture passes its own
+    in-memory engine), so the ON CONFLICT target app/services/db_upsert.py
+    relies on for client_minute_aggregates exists there too.
     """
     bind_engine = bind_engine if bind_engine is not None else engine
     statements = [

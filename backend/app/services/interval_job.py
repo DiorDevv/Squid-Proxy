@@ -11,6 +11,7 @@ it here means that shape only needs to be gotten right once.
 
 import asyncio
 import logging
+import random
 from abc import ABC, abstractmethod
 
 from app.services.ops_alerting import notify_operator_failure
@@ -31,6 +32,17 @@ class IntervalJob(ABC):
     # full interval_seconds -- see their own docstrings for why. False (the
     # plain "wait, then check" loop) is the right default for the rest.
     run_immediately_on_start: bool = False
+
+    # A random 0..N seconds *added on top of* interval_seconds before the
+    # first check only. All ~9 subclasses are start()ed in a tight loop in
+    # main.py and several share an interval (the 3600s category/quota/
+    # uncategorized monitors), so without this they wake in lockstep and hit
+    # the DB as one synchronized burst every interval. Staggering just the
+    # first wait is enough -- once offset, they stay offset. It's additive
+    # (never shortens the first wait) so the existing "a non-immediate job
+    # does not run before its interval" guarantee still holds. Set to 0.0 in
+    # a subclass (or a test) that needs the first check at a predictable time.
+    max_startup_jitter_seconds: float = 60.0
 
     def __init__(self, interval_seconds: int) -> None:
         self.interval_seconds = interval_seconds
@@ -56,12 +68,17 @@ class IntervalJob(ABC):
                 self._task.cancel()
 
     async def _run_forever(self) -> None:
+        # First wait is interval + jitter (see max_startup_jitter_seconds)
+        # so co-started jobs don't fire in lockstep; every wait after that
+        # is the plain, exact interval.
+        next_wait = self.interval_seconds + random.uniform(0, self.max_startup_jitter_seconds)
         while True:
             try:
-                await asyncio.wait_for(self._stop_event.wait(), timeout=self.interval_seconds)
+                await asyncio.wait_for(self._stop_event.wait(), timeout=next_wait)
                 break
             except TimeoutError:
                 await self._run_catching_errors()
+                next_wait = self.interval_seconds
 
     async def _run_catching_errors(self) -> None:
         """A single bad run must never permanently stop this job -- a

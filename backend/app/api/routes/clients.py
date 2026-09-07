@@ -1,10 +1,12 @@
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import get_db, require_any_role, resolve_branch
+from app.api.deps import CurrentUser, get_current_user, get_db, require_any_role, resolve_branch
+from app.models.audit_log import AuditAction
 from app.schemas.clients import CategoryTimeSpentResponse, ClientSummary, TimeSpentResponse
 from app.schemas.common import EffectiveRange, Page, SortOrder, resolve_range
 from app.schemas.events import EventDetail
+from app.services import audit_service
 from app.services.client_service import get_client_activity, get_client_summary, list_clients
 from app.services.time_spent_service import get_time_spent, get_time_spent_by_category
 
@@ -56,8 +58,9 @@ async def read_client_activity(
     method: str | None = Query(default=None, max_length=16),
     branch: str | None = Depends(resolve_branch),
     db: AsyncSession = Depends(get_db),
+    current_user: CurrentUser = Depends(get_current_user),
 ) -> Page[EventDetail]:
-    return await get_client_activity(
+    page = await get_client_activity(
         db,
         client_ip,
         effective_range.since,
@@ -69,6 +72,14 @@ async def read_client_activity(
         method,
         branch,
     )
+    await audit_service.record_read_access(
+        db,
+        action=AuditAction.CLIENT_ACTIVITY_VIEWED,
+        actor_user_id=current_user.user_id,
+        branch=branch,
+        detail=f"client_ip={client_ip}",
+    )
+    return page
 
 
 @router.get(

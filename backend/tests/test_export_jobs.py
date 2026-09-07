@@ -537,6 +537,45 @@ async def test_create_export_job_route_returns_pending(
     assert body["format"] == "csv"
 
 
+def test_export_dir_total_bytes_sums_only_files(tmp_path: Path, monkeypatch):
+    monkeypatch.setattr(export_job_service, "_jobs_dir", lambda: tmp_path)
+    (tmp_path / "a.zip").write_bytes(b"x" * 1000)
+    (tmp_path / "b.zip").write_bytes(b"y" * 2500)
+    (tmp_path / "subdir").mkdir()
+    assert export_job_service.export_dir_total_bytes() == 3500
+
+
+async def test_create_export_job_route_refuses_when_export_dir_is_full(
+    app_client: AsyncClient, admin_token, auth_headers, tmp_path: Path, monkeypatch
+):
+    """MAX_CONCURRENT caps how many run at once, not total disk use --
+    EXPORT_JOBS_MAX_TOTAL_MB does, with a 507 once the directory is at its
+    limit."""
+    from app.api.routes import export as export_module
+    from app.core.config import Settings
+
+    monkeypatch.setattr(export_job_service, "_jobs_dir", lambda: tmp_path)
+    monkeypatch.setattr(export_job_service, "export_dir_total_bytes", lambda: 5 * 1024 * 1024)
+    monkeypatch.setattr(export_module, "get_settings", lambda: Settings(EXPORT_JOBS_MAX_TOTAL_MB=1))
+
+    response = await app_client.post("/api/export/jobs?format=csv", headers=auth_headers(admin_token))
+    assert response.status_code == 507
+
+
+async def test_create_export_job_route_allows_when_cap_disabled(
+    app_client: AsyncClient, admin_token, auth_headers, tmp_path: Path, monkeypatch
+):
+    from app.api.routes import export as export_module
+    from app.core.config import Settings
+
+    monkeypatch.setattr(export_job_service, "_jobs_dir", lambda: tmp_path)
+    monkeypatch.setattr(export_job_service, "export_dir_total_bytes", lambda: 99 * 1024 * 1024)
+    monkeypatch.setattr(export_module, "get_settings", lambda: Settings(EXPORT_JOBS_MAX_TOTAL_MB=0))
+
+    response = await app_client.post("/api/export/jobs?format=csv", headers=auth_headers(admin_token))
+    assert response.status_code == 201
+
+
 async def test_download_export_job_route_records_audit_entry(
     app_client: AsyncClient, admin_token, auth_headers, tmp_path: Path, monkeypatch, db_session: AsyncSession
 ):

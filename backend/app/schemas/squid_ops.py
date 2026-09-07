@@ -140,6 +140,11 @@ class NewEntitiesResponse(BaseModel):
     new_clients_total: int
 
 
+# `acl_denied` is the count of 403 responses. The wire name is kept for
+# backward compatibility, but it means "forbidden (403)", not "a proxy ACL
+# forbade it" -- a 403 can equally be the destination server's own refusal.
+# See squid_ops_service.get_denials and ARCHITECTURE.md; the UI labels it
+# "Forbidden (403)".
 class DenialReasonPoint(BaseModel):
     bucket_ts: datetime
     acl_denied: int
@@ -150,7 +155,7 @@ class DenialReasonPoint(BaseModel):
 class DenialsResponse(BaseModel):
     granularity: TrendGranularity
     total_denied: int
-    acl_denied: int
+    acl_denied: int  # 403 count -- "forbidden", proxy OR origin; see DenialReasonPoint
     proxy_auth: int
     other_blocked: int
     series: list[DenialReasonPoint]

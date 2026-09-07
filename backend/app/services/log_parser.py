@@ -66,6 +66,8 @@ def _truncate(value: str, max_len: int) -> str:
 def _truncate_opt(value: str | None, max_len: int) -> str | None:
     return None if value is None else _truncate(value, max_len)
 
+# Result-code tags Squid uses when *it* refused the request (its own ACLs /
+# auth), before the request ever left the proxy.
 _DENIED_PREFIXES = ("TCP_DENIED", "TCP_DENIED_REPLY")
 
 
@@ -355,6 +357,20 @@ def parse_line(line: str, branch: str = DEFAULT_BRANCH) -> ParsedEvent | None:
 
     content_type = None if raw_content_type == _EMPTY else raw_content_type
 
+    # `blocked` is a broad "the client did not get the resource because it
+    # was refused" flag, NOT "the proxy blocked it". It covers three cases
+    # that this layer deliberately does not try to separate:
+    #   - a Squid ACL denial (_DENIED_PREFIXES, status usually 403 or 0),
+    #   - a Squid proxy-auth challenge (status 407 -- only the proxy issues
+    #     407, so this is always the proxy),
+    #   - an origin server's own 403 (TCP_MISS/403 etc.) -- the request DID
+    #     leave the proxy and the destination refused it.
+    # The parse/aggregate layer often can't tell a proxy-ACL 403 from an
+    # upstream 403 (the result tag alone isn't reliable across Squid
+    # versions/configs), and for the access record both mean "did not
+    # reach it", so they're counted together here. Anything needing the
+    # proxy-vs-upstream distinction must look at `action` too, not just
+    # this flag -- see squid_ops_service.get_denials and ARCHITECTURE.md.
     blocked = action.startswith(_DENIED_PREFIXES) or status_code in (403, 407)
 
     return ParsedEvent(

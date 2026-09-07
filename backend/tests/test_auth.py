@@ -25,6 +25,36 @@ async def test_login_with_wrong_password_returns_401(app_client: AsyncClient):
     assert response.status_code == 401
 
 
+async def test_login_throttle_blocks_a_correct_password_after_repeated_failures(
+    app_client: AsyncClient, test_app, monkeypatch
+):
+    """Per-account throttle: past the failure threshold, even the correct
+    password is refused (same 401) until the interval elapses -- then it's
+    accepted and the record clears. Kept under the per-IP 5/min limit."""
+    from app.core import security
+    from app.core.security import LoginThrottle
+
+    clock = {"now": 1000.0}
+    monkeypatch.setattr(security.time, "monotonic", lambda: clock["now"])
+    test_app.state.login_throttle = LoginThrottle(failure_threshold=2, throttled_interval_seconds=60)
+
+    async def _login(password: str):
+        return await app_client.post(
+            "/api/auth/login", json={"email": "admin@example.com", "password": password}
+        )
+
+    assert (await _login("wrong")).status_code == 401
+    assert (await _login("wrong")).status_code == 401  # at threshold now
+
+    # Correct password, but throttled -> indistinguishable 401.
+    assert (await _login("admin-test-password-123")).status_code == 401
+
+    clock["now"] += 60  # interval elapsed
+    ok = await _login("admin-test-password-123")
+    assert ok.status_code == 200
+    assert ok.json()["access_token"]
+
+
 async def test_protected_endpoint_without_token_returns_401(app_client: AsyncClient):
     response = await app_client.get("/api/summary")
     assert response.status_code == 401

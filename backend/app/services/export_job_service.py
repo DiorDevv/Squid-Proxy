@@ -14,7 +14,9 @@ also be cancelled mid-run (see request_cancellation / POST
 """
 
 import asyncio
+import contextlib
 import hashlib
+import json
 import logging
 import secrets
 import time
@@ -32,8 +34,8 @@ from app.models.audit_log import AuditAction
 from app.models.domain_category import DomainCategoryLabel
 from app.models.export_job import ExportJob, ExportJobStatus
 from app.models.export_settings import ExportCleanupMode
-from app.schemas.export import ExportJobOut, ExportShareLinkOut
-from app.services import audit_service, export_settings_service
+from app.schemas.export import ExportJobOut, ExportManifestOut, ExportShareLinkOut
+from app.services import audit_service, export_settings_service, export_signing
 from app.services.export_service import (
     new_xlsx_workbook,
     resolve_category_domains,
@@ -112,6 +114,22 @@ def to_out(job: ExportJob) -> ExportJobOut:
         and job.share_token_expires_at is not None
         and job.share_token_expires_at > datetime.now(UTC),
         share_link_expires_at=job.share_token_expires_at,
+        signed=job.signature_b64 is not None,
+    )
+
+
+def get_manifest(job: ExportJob) -> ExportManifestOut | None:
+    """None if the job never reached DONE (no manifest was ever built);
+    otherwise always returns the manifest, with `signature`/`public_key`
+    left None when EXPORT_SIGNING_PRIVATE_KEY isn't configured (job.signed
+    already reflects that -- see to_out)."""
+    if job.manifest_json is None:
+        return None
+    return ExportManifestOut(
+        manifest=json.loads(job.manifest_json),
+        algorithm=export_signing.ALGORITHM,
+        signature=job.signature_b64,
+        public_key=export_signing.public_key_b64() if job.signature_b64 is not None else None,
     )
 
 
@@ -271,6 +289,20 @@ def _jobs_dir() -> Path:
     return path
 
 
+def export_dir_total_bytes() -> int:
+    """Total size of every file in EXPORT_JOBS_DIR right now -- finished
+    result files (which linger until the runtime cleanup policy removes
+    them) plus any in-progress ones. The route uses this to enforce
+    EXPORT_JOBS_MAX_TOTAL_MB before accepting another job."""
+    total = 0
+    for entry in _jobs_dir().iterdir():
+        if entry.is_file():
+            # suppress: raced with cleanup deleting it -- don't count it.
+            with contextlib.suppress(OSError):
+                total += entry.stat().st_size
+    return total
+
+
 def _range_label(job: ExportJob) -> str:
     return (
         job.since.date().isoformat()
@@ -354,6 +386,14 @@ async def run_job(job_id: str) -> None:
 
         raw_path: Path | None = None
         zip_path: Path | None = None
+        # SHA-256 of the uncompressed data file itself (csv/json before
+        # zipping; the xlsx file, which has no separate zip step) -- what
+        # goes into the signed manifest (see export_signing.py), distinct
+        # from job.checksum_sha256 (the final delivered artifact: the zip
+        # for csv/json). A verifier extracts the data file and checks it
+        # against this, not the outer zip's own bytes, which aren't stable
+        # across zip tools/versions.
+        content_sha256: str | None = None
         row_counter = [0]
         try:
             domain_in = (
@@ -403,6 +443,7 @@ async def run_job(job_id: str) -> None:
                             await session.commit()
                             last_progress_commit = now
                     workbook.save(str(raw_path))
+                    content_sha256 = _sha256_file(raw_path)
                 finally:
                     # Releases openpyxl's own internal temp file for this
                     # write-only workbook regardless of how the loop above
@@ -442,6 +483,8 @@ async def run_job(job_id: str) -> None:
                             await session.commit()
                             last_progress_commit = now
 
+                content_sha256 = _sha256_file(raw_path)
+
                 # Zip the finished file rather than serving raw CSV/JSON --
                 # that text compresses roughly 10-15x, so this both shrinks
                 # what an admin has to download and what sits on disk until
@@ -461,6 +504,10 @@ async def run_job(job_id: str) -> None:
             job.file_size_bytes = result_path.stat().st_size
             job.checksum_sha256 = _sha256_file(result_path)
             job.completed_at = datetime.now(UTC)
+            assert content_sha256 is not None  # set on every success path above
+            manifest = export_signing.build_manifest(job, content_sha256)
+            job.manifest_json = json.dumps(manifest, sort_keys=True)
+            job.signature_b64 = export_signing.sign(manifest)
         except _JobCancelled:
             logger.info("export job %s cancelled", job_id)
             if raw_path is not None:

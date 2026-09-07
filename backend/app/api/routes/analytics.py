@@ -1,9 +1,10 @@
 from fastapi import APIRouter, Depends, Query, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import get_db, require_any_role, resolve_branch
+from app.api.deps import CurrentUser, get_current_user, get_db, require_any_role, resolve_branch
 from app.api.routes.health import build_health_snapshot
 from app.core.config import get_settings
+from app.models.audit_log import AuditAction
 from app.schemas.analytics import (
     ActivityHeatmapResponse,
     AnalyticsOverview,
@@ -27,7 +28,12 @@ from app.schemas.squid_ops import (
     ResponseTimeResponse,
     ResultCodeResponse,
 )
-from app.services import analytics_service, config_advisor_service, squid_ops_service
+from app.services import (
+    analytics_service,
+    audit_service,
+    config_advisor_service,
+    squid_ops_service,
+)
 
 router = APIRouter(
     prefix="/api/analytics", tags=["analytics"], dependencies=[Depends(require_any_role)]
@@ -146,10 +152,19 @@ async def read_actor_detail(
     effective_range: EffectiveRange = Depends(resolve_range),
     branch: str | None = Depends(resolve_branch),
     db: AsyncSession = Depends(get_db),
+    current_user: CurrentUser = Depends(get_current_user),
 ) -> ActorDetailResponse:
-    return await squid_ops_service.get_actor_detail(
+    result = await squid_ops_service.get_actor_detail(
         db, actor, is_user, effective_range.since, effective_range.until, branch
     )
+    await audit_service.record_read_access(
+        db,
+        action=AuditAction.ANALYTICS_ACTOR_VIEWED,
+        actor_user_id=current_user.user_id,
+        branch=branch,
+        detail=f"{'user' if is_user else 'client_ip'}={actor}",
+    )
+    return result
 
 
 @router.get("/new-entities", response_model=NewEntitiesResponse)

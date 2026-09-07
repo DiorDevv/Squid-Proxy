@@ -2,9 +2,16 @@ import os
 from collections.abc import AsyncGenerator
 
 os.environ.setdefault("DATABASE_URL", "sqlite+aiosqlite:///:memory:")
-os.environ.setdefault("JWT_SECRET", "test-secret-not-for-production")
+# >= 32 bytes: PyJWT warns (InsecureKeyLengthWarning) on a shorter HS256 key,
+# and a real secret should be long anyway (README: token_urlsafe(48)).
+os.environ.setdefault("JWT_SECRET", "test-secret-not-for-production-0123456789abcdef")
 os.environ.setdefault("ADMIN_EMAIL", "admin@example.com")
 os.environ.setdefault("ADMIN_PASSWORD", "admin-test-password-123")
+# Deliberate key-stretching is dead weight in a test suite that logs in
+# hundreds of times -- drop bcrypt to its minimum cost here (production
+# default is 12, see Settings.BCRYPT_ROUNDS). setdefault, so a run that
+# genuinely wants to exercise the real cost can still export BCRYPT_ROUNDS.
+os.environ.setdefault("BCRYPT_ROUNDS", "4")
 
 import pytest
 import pytest_asyncio
@@ -88,7 +95,7 @@ async def test_app(db_engine, monkeypatch):
     # boots without touching a real log file or spawning a real tailer.
     from contextlib import asynccontextmanager
 
-    from app.core.security import MfaChallengeStore, WsTicketStore
+    from app.core.security import LoginThrottle, MfaChallengeStore, WsTicketStore
     from app.services.event_store import RingBuffer
     from app.services.ws_manager import WebSocketManager
 
@@ -100,6 +107,10 @@ async def test_app(db_engine, monkeypatch):
         _app.state.ws_manager = WebSocketManager()
         _app.state.ws_ticket_store = WsTicketStore(ttl_seconds=30)
         _app.state.mfa_challenge_store = MfaChallengeStore(ttl_seconds=30)
+        # High threshold so ordinary multi-login tests never trip it; the
+        # throttle's own behaviour is covered in test_login_throttle.py and
+        # test_auth.py swaps in a low-threshold instance where it matters.
+        _app.state.login_throttle = LoginThrottle(failure_threshold=1000)
         _app.state.log_tailers = {"default": _NullTailer()}
         yield
 
@@ -141,6 +152,24 @@ async def viewer_token(app_client: AsyncClient, db_session: AsyncSession) -> str
     response = await app_client.post(
         "/api/auth/login",
         json={"email": "viewer@example.com", "password": "viewer-pass-123"},
+    )
+    assert response.status_code == 200, response.text
+    return response.json()["access_token"]
+
+
+@pytest_asyncio.fixture
+async def auditor_token(app_client: AsyncClient, db_session: AsyncSession) -> str:
+    db_session.add(
+        User(
+            email="auditor@example.com",
+            hashed_password=hash_password("auditor-pass-123"),
+            role=UserRole.AUDITOR,
+        )
+    )
+    await db_session.commit()
+    response = await app_client.post(
+        "/api/auth/login",
+        json={"email": "auditor@example.com", "password": "auditor-pass-123"},
     )
     assert response.status_code == 200, response.text
     return response.json()["access_token"]

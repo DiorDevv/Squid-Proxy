@@ -15,6 +15,10 @@ class _CountingJob(IntervalJob):
     job_name = "counting-job"
     failure_source_tag = "counting_job"
     failure_log_message = "Counting job failed; will retry next interval"
+    # These tests assert on exactly when the first check fires; startup
+    # jitter is a production de-synchronization concern, not something a
+    # unit test of the loop mechanism should have to fight RNG over.
+    max_startup_jitter_seconds = 0.0
 
     def __init__(self, interval_seconds: float, should_fail: bool = False) -> None:
         super().__init__(interval_seconds)
@@ -107,3 +111,25 @@ async def test_a_failing_run_does_not_stop_subsequent_ticks(monkeypatch):
 def test_run_is_abstract():
     with pytest.raises(TypeError):
         IntervalJob(interval_seconds=60)  # type: ignore[abstract]
+
+
+def test_startup_jitter_default_is_sixty_seconds():
+    """Real subclasses inherit the stagger; only the test double opts out."""
+    assert IntervalJob.max_startup_jitter_seconds == 60.0
+
+
+async def test_startup_jitter_is_added_on_top_of_the_first_interval(monkeypatch):
+    """Jitter is additive: with it rolled to its max, the first check lands
+    later than a bare interval would, never earlier."""
+    monkeypatch.setattr(interval_job_module.random, "uniform", lambda _lo, _hi: _hi)
+
+    class _JitteredJob(_CountingJob):
+        max_startup_jitter_seconds = 0.06
+
+    job = _JitteredJob(interval_seconds=0.02)
+    job.start()
+    await asyncio.sleep(0.04)
+    assert job.run_count == 0  # bare interval (0.02s) elapsed, but +0.06s jitter hasn't
+    await asyncio.sleep(0.06)
+    assert job.run_count >= 1  # jittered first wait elapsed
+    await job.stop()

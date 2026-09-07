@@ -66,6 +66,14 @@ class ExportJob(Base):
     # actually produced, the same chain-of-custody concern
     # scripts/backup_database.py's restore docs raise for DB backups.
     checksum_sha256: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    # Canonical JSON of the facts a verifier checks the export against (job
+    # id, range, filters, row/byte counts, the *content* file's own SHA-256)
+    # and an Ed25519 signature over it -- see app/services/export_signing.py
+    # and scripts/verify_export.py. signature_b64 is None whenever
+    # EXPORT_SIGNING_PRIVATE_KEY isn't configured; manifest_json is still
+    # set either way (it's useful on its own as a structured summary).
+    manifest_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    signature_b64: Mapped[str | None] = mapped_column(String(128), nullable=True)
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     # Time-limited, admin-issued link so a finished export can be handed to

@@ -20,9 +20,13 @@ dependencies = [
     "aiosqlite>=0.20,<0.21",
     "asyncpg>=0.30,<0.32",
     "alembic>=1.14,<1.20",
-    "python-jose[cryptography]>=3.3,<4",
-    # Used directly (not just as python-jose's transitive dep) to encrypt
-    # archived raw-event exports at rest -- see
+    # JWT access tokens (app/core/security.py). PyJWT, not python-jose:
+    # python-jose is effectively unmaintained (last release 2021, open
+    # algorithm-confusion / DoS advisories), while PyJWT is actively
+    # maintained and is the reference implementation most tooling follows.
+    # HS256 only, so no crypto extra is needed (HMAC is stdlib).
+    "pyjwt>=2.9,<3",
+    # Encrypts archived raw-event exports at rest -- see
     # app/services/archive_service.py's "Encryption at rest" section.
     "cryptography>=43,<51",
     # Hashing goes straight through bcrypt (see app/core/security.py) --
@@ -49,6 +53,7 @@ dependencies = [
 dev = [
     "pytest>=9.0,<10",
     "pytest-asyncio>=1.4,<2",
+    "pytest-cov>=7,<8",
     "ruff>=0.7,<0.8",
     "aiosqlite>=0.20,<0.21",
     "mypy>=2.3,<3",
@@ -85,6 +90,24 @@ warn_unused_ignores = true
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
+
+# Coverage is opt-in locally (`pytest --cov`) to keep a bare `pytest` run
+# fast; CI always passes --cov, so the fail_under gate below is enforced
+# there on every push/PR. Threshold is set a few points under the current
+# ~89% -- a real regression trips it, a one-file refactor doesn't.
+[tool.coverage.run]
+source = ["app"]
+omit = ["app/db/migrations/*"]
+
+[tool.coverage.report]
+fail_under = 85
+show_missing = true
+exclude_lines = [
+    "pragma: no cover",
+    "if TYPE_CHECKING:",
+    "raise NotImplementedError",
+    "\\.\\.\\.",
+]
 
 [build-system]
 requires = ["setuptools>=68"]

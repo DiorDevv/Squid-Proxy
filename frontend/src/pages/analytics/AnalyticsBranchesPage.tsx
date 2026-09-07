@@ -36,7 +36,10 @@ export default function AnalyticsBranchesPage() {
           {risk.isError ? (
             <ErrorState message={risk.error?.message} onRetry={() => risk.refetch()} />
           ) : (
-            <BranchRiskTable rows={risk.data?.rows ?? []} loading={risk.isLoading} />
+            <div className="flex flex-col gap-2">
+              <BranchRiskTable rows={risk.data?.rows ?? []} loading={risk.isLoading} />
+              <p className="text-xs text-muted-foreground">{t('analytics.branches.riskDisclaimer')}</p>
+            </div>
           )}
         </PanelErrorBoundary>
       </Panel>

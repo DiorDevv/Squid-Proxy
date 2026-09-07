@@ -4,6 +4,7 @@ import { AppShell } from '@/components/layout/AppShell'
 import { ProtectedRoute } from '@/routes/ProtectedRoute'
 import { Skeleton } from '@/components/ui/skeleton'
 import { useAuth } from '@/hooks/useAuth'
+import { useAuthStore } from '@/lib/auth-store'
 
 // Route-level code-splitting: with no dynamic imports anywhere, the whole
 // app (React, every Radix primitive, Recharts, react-table, every page)
@@ -27,6 +28,8 @@ const AnalyticsBranchesPage = lazy(() => import('@/pages/analytics/AnalyticsBran
 const SettingsLayout = lazy(() => import('@/pages/settings/SettingsLayout'))
 const SettingsGeneralPage = lazy(() => import('@/pages/settings/SettingsGeneralPage'))
 const SettingsUsersPage = lazy(() => import('@/pages/settings/SettingsUsersPage'))
+const SettingsAuditPage = lazy(() => import('@/pages/settings/SettingsAuditPage'))
+const SettingsPolicyPage = lazy(() => import('@/pages/settings/SettingsPolicyPage'))
 const SettingsCategoriesPage = lazy(() => import('@/pages/settings/SettingsCategoriesPage'))
 const SettingsExportPage = lazy(() => import('@/pages/settings/SettingsExportPage'))
 const SettingsWatchlistPage = lazy(() => import('@/pages/settings/SettingsWatchlistPage'))
@@ -41,6 +44,13 @@ function RouteFallback() {
       <Skeleton className="h-32 w-full" />
     </div>
   )
+}
+
+/** /settings landing: an auditor's only settings sub-page is the audit log;
+ * an admin lands on General as before. */
+function SettingsIndexRedirect() {
+  const role = useAuthStore((state) => state.role)
+  return <Navigate to={role === 'auditor' ? 'audit' : 'general'} replace />
 }
 
 export default function App() {
@@ -75,15 +85,21 @@ export default function App() {
               <Route path="blocks" element={<AnalyticsBlocksPage />} />
               <Route path="branches" element={<AnalyticsBranchesPage />} />
             </Route>
-            <Route element={<ProtectedRoute requiredRole="admin" />}>
+            <Route element={<ProtectedRoute requiredRole={['admin', 'auditor']} />}>
               <Route path="settings" element={<SettingsLayout />}>
-                <Route index element={<Navigate to="general" replace />} />
-                <Route path="general" element={<SettingsGeneralPage />} />
-                <Route path="users" element={<SettingsUsersPage />} />
-                <Route path="categories" element={<SettingsCategoriesPage />} />
-                <Route path="watchlist" element={<SettingsWatchlistPage />} />
-                <Route path="export" element={<SettingsExportPage />} />
-                <Route path="telegram" element={<SettingsTelegramPage />} />
+                <Route index element={<SettingsIndexRedirect />} />
+                {/* Read-only oversight: admin + auditor. */}
+                <Route path="audit" element={<SettingsAuditPage />} />
+                <Route path="policy" element={<SettingsPolicyPage />} />
+                {/* Everything mutable stays admin-only. */}
+                <Route element={<ProtectedRoute requiredRole="admin" />}>
+                  <Route path="general" element={<SettingsGeneralPage />} />
+                  <Route path="users" element={<SettingsUsersPage />} />
+                  <Route path="categories" element={<SettingsCategoriesPage />} />
+                  <Route path="watchlist" element={<SettingsWatchlistPage />} />
+                  <Route path="export" element={<SettingsExportPage />} />
+                  <Route path="telegram" element={<SettingsTelegramPage />} />
+                </Route>
               </Route>
             </Route>
           </Route>

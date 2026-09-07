@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react'
 import { toast } from 'sonner'
 import type { ColumnDef } from '@tanstack/react-table'
-import { Share2, Copy, X } from 'lucide-react'
+import { Share2, Copy, X, ShieldCheck, ShieldOff, Download } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import {
@@ -14,7 +14,7 @@ import {
 } from '@/components/ui/dialog'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { DataTable } from '@/components/common/DataTable'
-import { ApiError } from '@/lib/api-client'
+import { ApiError, downloadExportManifest } from '@/lib/api-client'
 import { formatBytes, formatDateTime, formatNumber } from '@/lib/format'
 import { cn } from '@/lib/utils'
 import { useExportJobs, useCreateExportShareLink, useRevokeExportShareLink } from '@/hooks/useExportJob'
@@ -62,6 +62,45 @@ function ChecksumCell({ checksum }: { checksum: string | null }) {
         </button>
       </TooltipTrigger>
       <TooltipContent>{checksum}</TooltipContent>
+    </Tooltip>
+  )
+}
+
+/** Download the signed manifest for a DONE job (see
+ * scripts/verify_export.py, downloadExportManifest) -- hand this file,
+ * alongside the export itself, to whoever needs to verify it later without
+ * a login or network path back here. Shows whether the server actually had
+ * a signing key configured (job.signed); the manifest itself still exists
+ * either way, but only a signed one carries authenticity proof, not just
+ * an integrity checksum. */
+function ManifestCell({ job }: { job: ExportJob }) {
+  const { t } = useTranslation()
+  if (job.status !== 'done') return <span className="text-muted-foreground">—</span>
+
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <Button
+          variant="ghost"
+          size="sm"
+          className="h-7 gap-1.5 px-2 text-xs"
+          onClick={() => {
+            downloadExportManifest(job.id).catch(() =>
+              toast.error(t('settings.exportManifestDownloadFailed')),
+            )
+          }}
+        >
+          {job.signed ? (
+            <ShieldCheck className="h-3.5 w-3.5 text-success" aria-hidden="true" />
+          ) : (
+            <ShieldOff className="h-3.5 w-3.5 text-muted-foreground" aria-hidden="true" />
+          )}
+          <Download className="h-3 w-3" aria-hidden="true" />
+        </Button>
+      </TooltipTrigger>
+      <TooltipContent>
+        {job.signed ? t('settings.exportManifestSigned') : t('settings.exportManifestUnsigned')}
+      </TooltipContent>
     </Tooltip>
   )
 }
@@ -236,6 +275,11 @@ export function ExportJobsPanel() {
         accessorKey: 'checksum_sha256',
         header: t('settings.exportColumnChecksum'),
         cell: ({ getValue }) => <ChecksumCell checksum={getValue<string | null>()} />,
+      },
+      {
+        id: 'manifest',
+        header: t('settings.exportColumnManifest'),
+        cell: ({ row }) => <ManifestCell job={row.original} />,
       },
       {
         accessorKey: 'created_at',

@@ -67,6 +67,7 @@ export default function AnalyticsBlocksPage() {
                 <MiniStat label={t('analytics.blocks.proxyAuth')} value={formatNumber(d?.proxy_auth ?? 0)} />
                 <MiniStat label={t('analytics.blocks.otherBlocked')} value={formatNumber(d?.other_blocked ?? 0)} />
               </div>
+              <p className="text-xs text-muted-foreground">{t('analytics.blocks.reasonNote')}</p>
               <StackedAreaOverTime
                 rows={seriesRows}
                 labels={['acl_denied', 'proxy_auth', 'other_blocked']}

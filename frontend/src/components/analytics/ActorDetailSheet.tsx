@@ -1,6 +1,12 @@
+import { toast } from 'sonner'
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from '@/components/ui/sheet'
+import { Button } from '@/components/ui/button'
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
+import { ShieldQuestion } from 'lucide-react'
 import { formatBytes, formatDateTime, formatNumber } from '@/lib/format'
 import { CATEGORY_COLORS, CATEGORY_LABEL_KEYS } from '@/lib/categories'
+import { downloadSubjectDossier } from '@/lib/api-client'
+import { useAuthStore } from '@/lib/auth-store'
 import { useActorDetail } from '@/hooks/useAnalytics'
 import { useTranslation } from '@/i18n'
 import type { ActorRow } from '@/types/api'
@@ -13,6 +19,7 @@ interface ActorDetailSheetProps {
 
 export function ActorDetailSheet({ actor, rangeParams, onOpenChange }: ActorDetailSheetProps) {
   const { t } = useTranslation()
+  const role = useAuthStore((state) => state.role)
   const query = useActorDetail(rangeParams, actor?.actor ?? null, actor?.is_user ?? true)
   const data = query.data
 
@@ -22,10 +29,37 @@ export function ActorDetailSheet({ actor, rangeParams, onOpenChange }: ActorDeta
     <Sheet open={actor !== null} onOpenChange={onOpenChange}>
       <SheetContent className="w-full sm:max-w-lg">
         <SheetHeader>
-          <SheetTitle className="font-data">{actor?.actor}</SheetTitle>
-          <SheetDescription>
-            {actor?.is_user ? t('analytics.who.colUser') : t('analytics.who.colClientIp')}
-          </SheetDescription>
+          <div className="flex items-start justify-between gap-2">
+            <div>
+              <SheetTitle className="font-data">{actor?.actor}</SheetTitle>
+              <SheetDescription>
+                {actor?.is_user ? t('analytics.who.colUser') : t('analytics.who.colClientIp')}
+              </SheetDescription>
+            </div>
+            {/* Full subject-access dossier (docs/PRODUCT.md #4) -- admin-only
+                on the backend (it includes watchlist status); every
+                generation is itself audited there. */}
+            {role === 'admin' && actor && (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="h-7 shrink-0 gap-1.5 px-2 text-xs"
+                    onClick={() => {
+                      downloadSubjectDossier(actor.is_user ? 'user' : 'client_ip', actor.actor).catch(() =>
+                        toast.error(t('analytics.who.dossierDownloadFailed')),
+                      )
+                    }}
+                  >
+                    <ShieldQuestion className="h-3.5 w-3.5" aria-hidden="true" />
+                    {t('analytics.who.downloadDossier')}
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>{t('analytics.who.downloadDossierHint')}</TooltipContent>
+              </Tooltip>
+            )}
+          </div>
         </SheetHeader>
 
         <div className="flex flex-col gap-4 overflow-y-auto px-4 pb-6">

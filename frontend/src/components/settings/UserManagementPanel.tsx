@@ -153,6 +153,7 @@ function UserRow({ user, isSelf }: { user: UserSummary; isSelf: boolean }) {
           <SelectContent>
             <SelectItem value="admin">{t('userManagement.roleAdmin')}</SelectItem>
             <SelectItem value="viewer">{t('userManagement.roleViewer')}</SelectItem>
+            <SelectItem value="auditor">{t('userManagement.roleAuditor')}</SelectItem>
           </SelectContent>
         </Select>
       </TableCell>
@@ -274,6 +275,7 @@ function AddUserDialog() {
               <SelectContent>
                 <SelectItem value="admin">{t('userManagement.roleAdmin')}</SelectItem>
                 <SelectItem value="viewer">{t('userManagement.roleViewer')}</SelectItem>
+                <SelectItem value="auditor">{t('userManagement.roleAuditor')}</SelectItem>
               </SelectContent>
             </Select>
           </div>

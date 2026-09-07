@@ -548,6 +548,14 @@ export interface ExportJob {
   completed_at: string | null
   share_link_active: boolean
   share_link_expires_at: string | null
+  signed: boolean
+}
+
+export interface ExportManifest {
+  manifest: Record<string, unknown>
+  algorithm: string
+  signature: string | null
+  public_key: string | null
 }
 
 export interface ExportShareLink {
@@ -569,4 +577,31 @@ export interface RetentionInfo {
   raw_event_days: number
   aggregate_days: number
   ops_aggregate_days: number
+}
+
+export interface CollectedField {
+  name: string
+  description: string
+}
+
+export interface RetentionWindows {
+  raw_events_days: number
+  aggregates_days: number
+  ops_aggregates_days: number
+  archives_days: number
+  client_minute_rollup_after_hours: number
+}
+
+export interface ArchivingPolicy {
+  enabled: boolean
+  encrypted: boolean
+  output_dir: string
+}
+
+export interface DataPolicy {
+  purpose: string | null
+  controller: string | null
+  retention: RetentionWindows
+  archiving: ArchivingPolicy
+  collected_fields: CollectedField[]
 }

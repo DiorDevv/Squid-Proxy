@@ -67,7 +67,7 @@ function decodeTokenPayload(token: string): Record<string, unknown> | null {
 export function decodeAccessTokenRole(token: string): Role | null {
   const payload = decodeTokenPayload(token)
   const role = payload?.role
-  return role === 'admin' || role === 'viewer' ? role : null
+  return role === 'admin' || role === 'viewer' || role === 'auditor' ? role : null
 }
 
 /** Same non-verifying decode as decodeAccessTokenRole, for the branch

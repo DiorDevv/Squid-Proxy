@@ -59,7 +59,7 @@ export function NavLinks({ onNavigate }: NavLinksProps) {
           )}
         </NavLink>
       ))}
-      {role === 'admin' && (
+      {(role === 'admin' || role === 'auditor') && (
         <NavLink to="/settings" className={linkClassName} onClick={onNavigate}>
           {({ isActive }) => (
             <>

@@ -53,3 +53,4 @@ dist-ssr/
 *.pid
 docker-compose.override.yml
 !docker-compose.override.yml.example
+backend/.coverage

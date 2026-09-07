@@ -1,4 +1,4 @@
-export type Role = 'admin' | 'viewer'
+export type Role = 'admin' | 'viewer' | 'auditor'
 
 export interface LoginResponse {
   // Absent (undefined/null) exactly when mfa_required is true -- the

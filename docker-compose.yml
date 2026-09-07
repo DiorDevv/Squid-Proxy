@@ -190,6 +190,17 @@ services:
       PGDATABASE: squid_dashboard
       BACKUP_KEEP_DAYS: ${BACKUP_KEEP_DAYS:-30}
       BACKUP_INTERVAL_SECONDS: ${BACKUP_INTERVAL_SECONDS:-86400}
+      # After a failed cycle, retry this soon instead of waiting a full
+      # BACKUP_INTERVAL_SECONDS (a transient "Postgres mid-restart" used to
+      # cost a whole day with no backup).
+      BACKUP_RETRY_SECONDS: ${BACKUP_RETRY_SECONDS:-600}
+      # Wait up to this long for Postgres to accept connections before
+      # giving up on a cycle (rather than running pg_dump blind).
+      BACKUP_WAIT_MAX_SECONDS: ${BACKUP_WAIT_MAX_SECONDS:-300}
+      # Optional: pin the daily backup to a fixed UTC hour (0-23) so it
+      # lands at the same time regardless of restarts. Unset -> a
+      # drift-corrected BACKUP_INTERVAL_SECONDS.
+      BACKUP_AT_HOUR: ${BACKUP_AT_HOUR:-}
       # Optional -- notified on backup failure only (see
       # backup_postgres_docker.sh). Same fallback as the backend's own
       # ops_alerting: falls back to ALERT_WEBHOOK_URL if unset.
@@ -213,6 +224,60 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+    restart: unless-stopped
+
+  # Off-site replication of the backup + archive files
+  # (backend/scripts/offsite_sync_docker.sh). db-backup above writes dumps
+  # into a LOCAL Docker volume on the same disk as Postgres itself; this
+  # pushes those, plus ./archives, to an encrypted restic repository on
+  # storage that isn't this host -- the only copy that survives the disk /
+  # VM / host being lost. Inert until OFFSITE_RESTIC_REPOSITORY and a repo
+  # password are set in .env (or set OFFSITE_ENABLED=false there to make it
+  # a deliberate no-op); see "Off-site copies" in README.md.
+  db-offsite:
+    image: restic/restic:0.17.3
+    logging: *default-logging
+    environment:
+      # "false" -> the service starts but idles; anything else (or unset)
+      # runs once OFFSITE_RESTIC_REPOSITORY + a password are present.
+      OFFSITE_ENABLED: ${OFFSITE_ENABLED:-}
+      OFFSITE_RESTIC_REPOSITORY: ${OFFSITE_RESTIC_REPOSITORY:-}
+      OFFSITE_RESTIC_PASSWORD: ${OFFSITE_RESTIC_PASSWORD:-}
+      OFFSITE_RESTIC_PASSWORD_FILE: ${OFFSITE_RESTIC_PASSWORD_FILE:-}
+      OFFSITE_PATHS: ${OFFSITE_PATHS:-/backups /archives}
+      OFFSITE_INTERVAL_SECONDS: ${OFFSITE_INTERVAL_SECONDS:-86400}
+      OFFSITE_KEEP_DAILY: ${OFFSITE_KEEP_DAILY:-7}
+      OFFSITE_KEEP_WEEKLY: ${OFFSITE_KEEP_WEEKLY:-8}
+      OFFSITE_KEEP_MONTHLY: ${OFFSITE_KEEP_MONTHLY:-12}
+      OFFSITE_CHECK_EVERY: ${OFFSITE_CHECK_EVERY:-7}
+      # Object-store credentials the repo URL may need -- passed straight
+      # through to restic, left unset (harmless) for an SFTP/REST repo.
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-}
+      AWS_DEFAULT_REGION: ${AWS_DEFAULT_REGION:-}
+      B2_ACCOUNT_ID: ${B2_ACCOUNT_ID:-}
+      B2_ACCOUNT_KEY: ${B2_ACCOUNT_KEY:-}
+      # Same OPS webhook fallback as db-backup.
+      OPS_ALERT_WEBHOOK_URL: ${OPS_ALERT_WEBHOOK_URL:-}
+      ALERT_WEBHOOK_URL: ${ALERT_WEBHOOK_URL:-}
+    mem_limit: 512m
+    cpus: "1"
+    volumes:
+      # Read-only -- this service never writes to either source.
+      - db_backup_data:/backups:ro
+      - ./archives:/archives:ro
+      - ./backend/scripts/offsite_sync_docker.sh:/offsite_sync_docker.sh:ro
+      # Optional: mount a host directory holding a restic password file
+      # and/or an rclone.conf, and point OFFSITE_RESTIC_PASSWORD_FILE /
+      # RCLONE_CONFIG at paths under it, to keep secrets out of .env.
+      # - ./deploy/offsite:/offsite-config:ro
+    entrypoint: ["/bin/sh", "/offsite_sync_docker.sh"]
+    networks:
+      # Its own network -- needs OUTBOUND internet (S3, a remote SFTP/REST
+      # host) but, unlike db-backup, no path to any service in this stack:
+      # it only ever reads local files and pushes them out. Not on
+      # backup_db_net/backend_db_net/frontend_net.
+      - offsite_net
     restart: unless-stopped
 
   # Optional: generates synthetic Squid access.log traffic so the dashboard
@@ -257,6 +322,10 @@ networks:
   backend_db_net:
   # db-backup <-> postgres only.
   backup_db_net:
+  # db-offsite only -- outbound internet, no in-stack peers. A plain
+  # bridge network gives it NAT to the outside while keeping it off every
+  # network a stack service sits on.
+  offsite_net:
 
 volumes:
   postgres_data:

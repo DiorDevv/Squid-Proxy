@@ -1,0 +1,32 @@
+# Weekly verification that the off-site restic repository is still sound
+# (see backend/scripts/offsite_sync.py --check -> `restic check`). Reads
+# the remote repo's structure and a sample of its data without pulling all
+# of it back or touching the live database. Triggered by
+# squid-dashboard-offsite-check.timer, not WantedBy'd directly -- see
+# squid-dashboard-offsite.service for the shared install steps.
+#
+# Separate from the daily sync for the same reason
+# squid-dashboard-backup-verify is separate from the backup itself: a full
+# repository check isn't cheap, and weekly is enough to catch a repo going
+# bad (bit rot on the remote, a half-completed prune, a backend that
+# started silently rejecting writes) well before local retention would
+# rotate out the last good on-disk backup.
+
+[Unit]
+Description=Squid Proxy Log Analytics — off-site repository check
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=squid-dashboard
+Group=squid-dashboard
+WorkingDirectory=/opt/squid-dashboard/backend
+EnvironmentFile=/opt/squid-dashboard/backend/.env
+Environment=RESTIC_CACHE_DIR=/opt/squid-dashboard/offsite-cache
+ExecStart=/opt/squid-dashboard/backend/.venv/bin/python scripts/offsite_sync.py --check
+
+ProtectSystem=strict
+ReadWritePaths=/opt/squid-dashboard/offsite-cache
+NoNewPrivileges=true
+PrivateTmp=true

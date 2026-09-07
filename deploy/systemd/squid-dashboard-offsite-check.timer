@@ -1,0 +1,16 @@
+# Runs squid-dashboard-offsite-check.service once a week. See
+# squid-dashboard-offsite.service for install instructions -- all four
+# off-site units are installed together.
+
+[Unit]
+Description=Weekly Squid Proxy Log Analytics off-site repository check
+
+[Timer]
+OnCalendar=weekly
+# Staggered well clear of the daily 02:00 sync so a check doesn't run in
+# the same window as a sync against the same repo.
+RandomizedDelaySec=3600
+Persistent=true
+
+[Install]
+WantedBy=timers.target

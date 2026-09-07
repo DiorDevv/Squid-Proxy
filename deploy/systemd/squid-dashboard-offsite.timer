@@ -1,0 +1,18 @@
+# Runs squid-dashboard-offsite.service once a day. See that file for
+# install instructions -- all four off-site units are installed together.
+
+[Unit]
+Description=Daily Squid Proxy Log Analytics off-site backup replication
+
+[Timer]
+# 02:00, not OnCalendar=daily -- squid-dashboard-backup.timer runs at
+# midnight + up to its RandomizedDelaySec=3600, so a fixed 02:00 start
+# here means that day's local backup has almost certainly landed before
+# this tries to replicate it. restic just picks up whatever is on disk;
+# a missed backup only means this run replicates one fewer new file.
+OnCalendar=*-*-* 02:00:00
+RandomizedDelaySec=1800
+Persistent=true
+
+[Install]
+WantedBy=timers.target

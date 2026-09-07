@@ -1,3 +1,4 @@
+import asyncio
 import logging
 import uuid
 from collections.abc import AsyncIterator, Awaitable, Callable
@@ -32,15 +33,13 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
     orphaned_count = await reconcile_orphaned_jobs()
     if orphaned_count:
-        logger.warning(
-            "Marked %d export job(s) failed -- interrupted by a previous restart", orphaned_count
-        )
+        logger.warning("Marked %d export job(s) failed -- interrupted by a previous restart", orphaned_count)
 
     from app.services.auth_bootstrap import bootstrap_admin_user
 
     await bootstrap_admin_user()
 
-    from app.core.security import MfaChallengeStore, WsTicketStore
+    from app.core.security import LoginThrottle, MfaChallengeStore, WsTicketStore
     from app.services.event_store import RingBuffer
     from app.services.log_tailer import LogTailer
     from app.services.ws_manager import WebSocketManager
@@ -49,10 +48,16 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     ws_manager = WebSocketManager()
     ws_ticket_store = WsTicketStore(ttl_seconds=settings.WS_TICKET_EXPIRE_SECONDS)
     mfa_challenge_store = MfaChallengeStore()
+    login_throttle = LoginThrottle(
+        failure_threshold=settings.LOGIN_ACCOUNT_FAILURE_THRESHOLD,
+        failure_window_seconds=settings.LOGIN_ACCOUNT_FAILURE_WINDOW_SECONDS,
+        throttled_interval_seconds=settings.LOGIN_ACCOUNT_THROTTLED_INTERVAL_SECONDS,
+    )
     app.state.ring_buffer = ring_buffer
     app.state.ws_manager = ws_manager
     app.state.ws_ticket_store = ws_ticket_store
     app.state.mfa_challenge_store = mfa_challenge_store
+    app.state.login_throttle = login_throttle
 
     # One LogTailer per configured branch/log source (see
     # Settings.effective_log_sources) -- all feed the same, single, shared
@@ -131,9 +136,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
     from app.services.watchlist_monitor import WatchlistMonitorJob
 
-    watchlist_monitor = WatchlistMonitorJob(
-        interval_seconds=settings.WATCHLIST_MONITOR_INTERVAL_SECONDS
-    )
+    watchlist_monitor = WatchlistMonitorJob(interval_seconds=settings.WATCHLIST_MONITOR_INTERVAL_SECONDS)
     app.state.watchlist_monitor = watchlist_monitor
     watchlist_monitor.start()
 
@@ -167,19 +170,30 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         yield
     finally:
         logger.info("Shutting down Squid Dashboard backend")
-        for tailer in log_tailers.values():
-            await tailer.stop()
+        # Ordering that matters: every tailer must stop feeding the ring
+        # buffer *before* the aggregator does its final flush+checkpoint,
+        # otherwise a late event slips in after the last checkpoint and is
+        # re-read on restart (harmless -- the upsert is idempotent -- but
+        # avoidable). Everything after that is mutually independent, so it's
+        # shut down concurrently rather than as a ~13-deep serial await
+        # chain: each .stop() is already individually bounded (5-10s, see
+        # IntervalJob.stop / Aggregator.stop), but serially that summed to
+        # over a minute, well past a typical container stop-grace before
+        # SIGKILL.
+        await asyncio.gather(*(tailer.stop() for tailer in log_tailers.values()))
         await aggregator.stop()
-        await retention_job.stop()
-        await archive_scheduler.stop()
-        await category_usage_monitor.stop()
-        await quota_monitor.stop()
-        await report_scheduler.stop()
-        await ut1_scheduler.stop()
-        await uncategorized_domain_monitor.stop()
-        await undownloaded_export_monitor.stop()
-        await watchlist_monitor.stop()
-        await telegram_link_poller.stop()
+        await asyncio.gather(
+            retention_job.stop(),
+            archive_scheduler.stop(),
+            category_usage_monitor.stop(),
+            quota_monitor.stop(),
+            report_scheduler.stop(),
+            ut1_scheduler.stop(),
+            uncategorized_domain_monitor.stop(),
+            undownloaded_export_monitor.stop(),
+            watchlist_monitor.stop(),
+            telegram_link_poller.stop(),
+        )
 
 
 def _handle_new_event(app: FastAPI, event: ParsedEvent) -> None:
@@ -228,13 +242,29 @@ def create_app() -> FastAPI:
     async def add_request_id(
         request: Request, call_next: Callable[[Request], Awaitable[Response]]
     ) -> Response:
-        request_id = request.headers.get("X-Request-ID") or str(uuid.uuid4())
+        # Cap + strip newlines so a client-supplied value can't bloat or
+        # line-inject a log record (the JSON formatter escapes newlines
+        # anyway, but there's no reason to carry an arbitrary-length header
+        # around).
+        raw_id = request.headers.get("X-Request-ID", "")
+        request_id = raw_id.replace("\n", "").replace("\r", "")[:128] or str(uuid.uuid4())
         token = request_id_var.set(request_id)
         try:
             response = await call_next(request)
         finally:
             request_id_var.reset(token)
         response.headers["X-Request-ID"] = request_id
+        # Cheap, response-shape-independent hardening headers. HSTS/CSP are
+        # deliberately not here -- TLS terminates at the reverse proxy (this
+        # app may legitimately serve plain HTTP behind it) and CSP is a
+        # concern for the HTML frontend, not this JSON/file API.
+        response.headers.setdefault("X-Content-Type-Options", "nosniff")
+        response.headers.setdefault("Referrer-Policy", "no-referrer")
+        response.headers.setdefault("X-Frame-Options", "DENY")
+        # Authenticated API + file downloads (exports, share links): never
+        # let a shared cache hold a response. Endpoints that are fine to
+        # cache set their own Cache-Control before this runs.
+        response.headers.setdefault("Cache-Control", "no-store")
         return response
 
     register_exception_handlers(app)
@@ -255,7 +285,9 @@ def create_app() -> FastAPI:
         export,
         export_settings,
         insights,
+        policy,
         reports,
+        subject_access,
         summary,
         timeseries,
         users,
@@ -275,11 +307,13 @@ def create_app() -> FastAPI:
     app.include_router(export_settings.router)
     app.include_router(users.router)
     app.include_router(audit.router)
+    app.include_router(policy.router)
     app.include_router(insights.router)
     app.include_router(alert_settings.router)
     app.include_router(analytics.router)
     app.include_router(reports.router)
     app.include_router(watchlist.router)
+    app.include_router(subject_access.router)
     app.include_router(ws.router)
 
     return app

@@ -69,6 +69,13 @@ class Settings(BaseSettings):
     # --- General ---
     ENVIRONMENT: str = "development"
     LOG_LEVEL: str = "INFO"
+    # SQLite is the zero-config default for evaluating the project, but it's
+    # a single-writer file -- under the ~9 background jobs plus the
+    # aggregator all writing, a real deployment hits "database is locked".
+    # Production refuses to start on a sqlite DATABASE_URL unless this is
+    # explicitly set true (a genuinely tiny, low-write install). See
+    # _reject_insecure_production_config.
+    ALLOW_SQLITE_IN_PRODUCTION: bool = False
 
     # --- Squid log source(s) ---
     # LOG_FILE_PATH is the single-branch default. For multiple branches (each
@@ -112,6 +119,13 @@ class Settings(BaseSettings):
     # aggregator.py) -- see "Sizing for a large client count" in
     # ARCHITECTURE.md for a worked example and recommended values.
     RING_BUFFER_MAX_EVENTS: int = 500_000
+
+    # --- Data policy (surfaced read-only at Settings -> Data policy, for an
+    # admin or auditor to show what this deployment collects, why, and for
+    # how long -- see app/api/routes/policy.py). Free text; unset renders as
+    # "not configured". ---
+    DATA_PROCESSING_PURPOSE: str | None = None
+    DATA_CONTROLLER: str | None = None
 
     # --- Retention ---
     # 30 days: long enough that an incident noticed a couple weeks late still
@@ -178,16 +192,46 @@ class Settings(BaseSettings):
     # app/models/export_settings.py.
     # A wide range at real traffic volumes can produce a multi-hundred-MB
     # file and run for minutes; nothing stops several admins (or several
-    # browser tabs) from kicking off that many at once, and EXPORT_JOBS_DIR
-    # has no size cap of its own. This bounds how many PENDING/RUNNING jobs
-    # can exist at the same time so that can't fill the disk.
+    # browser tabs) from kicking off that many at once. This bounds how many
+    # PENDING/RUNNING jobs can exist at the same time...
     EXPORT_JOB_MAX_CONCURRENT: int = 3
+    # ...and this bounds the *total* on-disk footprint of EXPORT_JOBS_DIR
+    # (finished result files linger until the runtime cleanup policy removes
+    # them -- see /api/export-settings -- so MAX_CONCURRENT alone doesn't
+    # cap disk use). A new job is refused with 507 once the directory is at
+    # or over this size. 0 disables the check. On a real deployment this
+    # directory, the database, and ARCHIVE_OUTPUT_DIR should ideally be on
+    # separate volumes so a full export dir can't stall ingestion writes.
+    EXPORT_JOBS_MAX_TOTAL_MB: int = 2048
+
+    # --- /metrics access (see api/routes/metrics.py) ---
+    # /metrics and /api/health are both unauthenticated by design (internal
+    # monitoring infra scrapes them). If this list is non-empty, /metrics is
+    # additionally restricted to these client IPs / CIDRs (matched against
+    # the peer address, i.e. the reverse proxy's rewritten X-Forwarded-For
+    # when uvicorn runs with --proxy-headers -- same basis as the rate
+    # limiter). Empty = no IP restriction, unchanged from before. /api/health
+    # is deliberately left open regardless: the frontend health banner polls
+    # it from browsers.
+    METRICS_ALLOWED_IPS: list[str] = Field(default_factory=list)
     # How long a share link (see export_job_service.create_share_link) stays
     # valid for once an admin issues one -- deliberately an env var, not an
     # admin-tunable setting like ExportSettings' cleanup policy: this is a
     # security boundary (how long a no-login download stays reachable), the
     # same category as ACCESS_TOKEN_EXPIRE_MINUTES above, not business policy.
     EXPORT_SHARE_LINK_TTL_HOURS: int = 24
+    # Base64url-encoded 32-byte Ed25519 private-key seed. Unset (default) --
+    # exports are still checksummed but not cryptographically signed. Set to
+    # sign every finished export's manifest, so a copy handed to a third
+    # party can be verified offline against the published public key (see
+    # app/services/export_signing.py, scripts/verify_export.py). Generate
+    # with: python3 -c "import base64, secrets;
+    # print(base64.urlsafe_b64encode(secrets.token_bytes(32)).decode())"
+    # Losing this key doesn't invalidate past exports (their signatures
+    # stay valid against the matching public key) but means new exports
+    # can't be signed until a key exists again -- back it up like
+    # ARCHIVE_ENCRYPTION_KEY.
+    EXPORT_SIGNING_PRIVATE_KEY: str | None = None
 
     # --- Time-spent-per-domain estimation ---
     # Consecutive requests to the same domain more than this many minutes
@@ -197,10 +241,23 @@ class Settings(BaseSettings):
 
     # --- Auth / JWT ---
     JWT_SECRET: str = INSECURE_DEFAULT_JWT_SECRET
+    # Set to the *old* JWT_SECRET for one ACCESS_TOKEN_EXPIRE_MINUTES window
+    # after rotating JWT_SECRET, then clear it. Access tokens are verified
+    # against JWT_SECRET first and this second, so a rotation doesn't break
+    # every logged-in session the instant it lands. Verify-only -- new
+    # tokens are always signed with JWT_SECRET.
+    JWT_SECRET_PREVIOUS: str | None = None
     JWT_ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 20
     REFRESH_TOKEN_EXPIRE_DAYS: int = 14
     WS_TICKET_EXPIRE_SECONDS: int = 30
+    # bcrypt work factor for password hashing (see app/core/security.py).
+    # 12 is the sane production default; the only reason this is tunable is
+    # the test suite, which overrides it to 4 (tests/conftest.py) so the
+    # hundreds of login/hash round-trips across ~600 tests don't spend
+    # minutes in deliberate key-stretching. Never lower it in a real
+    # deployment -- it's the whole point of bcrypt.
+    BCRYPT_ROUNDS: int = 12
 
     # --- Bootstrap admin (first-boot convenience only) ---
     ADMIN_EMAIL: str | None = None
@@ -212,6 +269,16 @@ class Settings(BaseSettings):
     # --- Rate limiting ---
     LOGIN_RATE_LIMIT: str = "5/minute"
     SENSITIVE_ACTION_RATE_LIMIT: str = "20/minute"
+    # Per-account brute-force throttle (app/core/security.py:LoginThrottle),
+    # on top of the per-IP LOGIN_RATE_LIMIT above -- a distributed attacker
+    # spreads guesses across IPs but still targets one email. After
+    # THRESHOLD failed logins for an email within WINDOW seconds, that email
+    # is allowed only one attempt per INTERVAL seconds until it's quiet for a
+    # full window. No hard lock: a correct password is still accepted and
+    # clears the record, so knowing an email can't lock its owner out.
+    LOGIN_ACCOUNT_FAILURE_THRESHOLD: int = 10
+    LOGIN_ACCOUNT_FAILURE_WINDOW_SECONDS: int = 900
+    LOGIN_ACCOUNT_THROTTLED_INTERVAL_SECONDS: int = 60
 
     # --- Insights / anomaly detection ---
     INSIGHTS_PROVIDER: str = "noop"
@@ -312,14 +379,35 @@ class Settings(BaseSettings):
         return [LogSource(branch=DEFAULT_BRANCH, path=self.LOG_FILE_PATH)]
 
     @model_validator(mode="after")
-    def _reject_insecure_production_secret(self) -> "Settings":
+    def _reject_insecure_production_config(self) -> "Settings":
         if self.ENVIRONMENT != "production":
             return self
+        if self.DATABASE_URL.startswith("sqlite") and not self.ALLOW_SQLITE_IN_PRODUCTION:
+            raise ValueError(
+                "DATABASE_URL is SQLite, which is a single-writer file and will "
+                "hit 'database is locked' under this app's background jobs. Point "
+                "DATABASE_URL at PostgreSQL for production, or set "
+                "ALLOW_SQLITE_IN_PRODUCTION=true if this really is a tiny, "
+                "low-write install."
+            )
         if self.JWT_SECRET == INSECURE_DEFAULT_JWT_SECRET:
             raise ValueError(
                 "JWT_SECRET is still the insecure default. Set a real secret "
-                "(python3 -c \"import secrets; print(secrets.token_urlsafe(48))\") "
+                '(python3 -c "import secrets; print(secrets.token_urlsafe(48))") '
                 "before running with ENVIRONMENT=production."
+            )
+        if len(self.JWT_SECRET) < 32:
+            raise ValueError(
+                "JWT_SECRET is shorter than 32 characters -- too little entropy to "
+                "sign session tokens with. Use "
+                'python3 -c "import secrets; print(secrets.token_urlsafe(48))".'
+            )
+        if "*" in self.CORS_ORIGINS:
+            raise ValueError(
+                'CORS_ORIGINS contains "*", which with allow_credentials=True lets '
+                "any website make authenticated requests to this API. List the exact "
+                "dashboard origin(s) instead, e.g. "
+                'CORS_ORIGINS=["https://dashboard.example.com"].'
             )
         if self.ADMIN_PASSWORD == INSECURE_DEFAULT_ADMIN_PASSWORD:
             raise ValueError(

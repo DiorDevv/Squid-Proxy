@@ -124,6 +124,9 @@ class Settings(BaseSettings):
     # docker-compose.yml; unset for a bare-metal install unless the backup
     # units are given a matching --status-dir.
     JOB_STATUS_DIR: str = ""
+    # System health flags the backup as stale (red) once the last
+    # successful one is older than this. Default just past a daily cadence.
+    SYSTEM_HEALTH_BACKUP_STALE_HOURS: int = 26
     # How often the ring buffer flushes to DB aggregates. Lower = less
     # runway needed in RING_BUFFER_MAX_EVENTS above per flush cycle, at the
     # cost of more frequent (still bulk-upsert, see db_upsert.py) writes.

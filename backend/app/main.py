@@ -166,6 +166,25 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     app.state.ut1_scheduler = ut1_scheduler
     ut1_scheduler.start()
 
+    # One place GET /api/system-health enumerates every IntervalJob's
+    # health (alive / last error / consecutive failures) without a
+    # hand-kept list of app.state attribute names.
+    app.state.background_jobs = {
+        job.job_name: job
+        for job in (
+            retention_job,
+            archive_scheduler,
+            category_usage_monitor,
+            quota_monitor,
+            uncategorized_domain_monitor,
+            watchlist_monitor,
+            undownloaded_export_monitor,
+            report_scheduler,
+            telegram_link_poller,
+            ut1_scheduler,
+        )
+    }
+
     try:
         yield
     finally:
@@ -289,6 +308,7 @@ def create_app() -> FastAPI:
         reports,
         subject_access,
         summary,
+        system_health,
         timeseries,
         users,
         watchlist,
@@ -314,6 +334,7 @@ def create_app() -> FastAPI:
     app.include_router(reports.router)
     app.include_router(watchlist.router)
     app.include_router(subject_access.router)
+    app.include_router(system_health.router)
     app.include_router(ws.router)
 
     return app

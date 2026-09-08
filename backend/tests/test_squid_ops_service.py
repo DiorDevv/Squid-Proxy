@@ -76,16 +76,6 @@ async def test_result_codes_and_response_time_from_aggregator_flush(db_engine, m
         assert rt.overall_p50 <= 100  # median falls in the first (<100ms) band
         assert rt.overall_p99 >= 10000  # the 15s outlier
 
-        http = await squid_ops_service.get_http_breakdown(session, SINCE, NOW, branch=None)
-        methods = {m.label: m.request_count for m in http.methods}
-        assert methods["GET"] == 3
-        assert methods["CONNECT"] == 2
-        assert http.denied_403 == 1
-
-        hier = await squid_ops_service.get_hierarchy_breakdown(session, SINCE, NOW, branch=None)
-        assert hier.codes[0].label == "HIER_DIRECT"
-        assert hier.codes[0].request_count == 5
-
 
 async def test_percentile_from_histogram_interpolates():
     # 10 samples all in the 300ms-1s band -> p50 lands mid-band

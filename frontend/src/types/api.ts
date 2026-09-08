@@ -369,19 +369,6 @@ export interface ResultCodeResponse {
   series: TimeBucketCounts[]
 }
 
-export interface HttpBreakdownResponse {
-  methods: NamedCount[]
-  status_codes: NamedCount[]
-  status_classes: NamedCount[]
-  denied_403: number
-  proxy_auth_407: number
-  server_error_5xx: number
-}
-
-export interface HierarchyResponse {
-  codes: NamedCount[]
-}
-
 export interface ResponseTimePoint {
   bucket_ts: string
   p50: number

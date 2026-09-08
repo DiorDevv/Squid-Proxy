@@ -764,8 +764,8 @@ is running (FastAPI's built-in Swagger UI).
 `CATEGORY_TREND_MAX_BUCKETS` is auto-coarsened to daily), `branch-breakdown`, `branch-risk` (a
 0–100 composite risk score per branch — see `RISK_MODEL` under configuration), `activity-heatmap`
 (hour × weekday volume; pass `tz_offset_minutes` for a non-UTC split). Squid-operational views —
-`result-codes` (`%Ss` mix over time + request/byte cache hit rate + deny/tunnel share),
-`http-breakdown` (method + status class, 403/407/5xx), `hierarchy`, `response-time` (approximate
+`result-codes` (`%Ss` mix over time + request/byte cache hit rate + denied share),
+`response-time` (approximate
 p50/p95/p99 from a per-minute latency histogram), `actors` + `actor-detail` (per-user/per-IP
 leaderboard and drill-down), `new-entities`, `denials` (blocked requests over time by reason +
 top blocked domains/categories/clients), `ingest-health` (per-branch tailer/parse/backlog status),

@@ -24,7 +24,6 @@ from app.models.domain_aggregate import DomainMinuteAggregate
 from app.models.domain_category import DomainCategoryLabel
 from app.models.minute_aggregate import MinuteAggregate
 from app.models.ops_aggregate import (
-    HierarchyMinuteAggregate,
     HttpMinuteAggregate,
     ResultCodeMinuteAggregate,
     UserCategoryMinuteAggregate,
@@ -40,8 +39,6 @@ from app.schemas.squid_ops import (
     BranchIngestRow,
     DenialReasonPoint,
     DenialsResponse,
-    HierarchyResponse,
-    HttpBreakdownResponse,
     IngestHealthResponse,
     NamedCount,
     NewEntitiesResponse,
@@ -190,111 +187,6 @@ async def get_result_codes(
         series_labels=series_labels,
         series=series,
     )
-
-
-async def get_http_breakdown(
-    session: AsyncSession, since: datetime, until: datetime, branch: str | None
-) -> HttpBreakdownResponse:
-    conditions = [
-        HttpMinuteAggregate.bucket_ts >= since,
-        HttpMinuteAggregate.bucket_ts <= until,
-    ]
-    if branch is not None:
-        conditions.append(HttpMinuteAggregate.branch == branch)
-    rows = (
-        await session.execute(
-            select(
-                HttpMinuteAggregate.method,
-                HttpMinuteAggregate.status_code,
-                func.sum(HttpMinuteAggregate.request_count),
-                func.sum(HttpMinuteAggregate.total_bytes),
-            )
-            .where(*conditions)
-            .group_by(HttpMinuteAggregate.method, HttpMinuteAggregate.status_code)
-        )
-    ).all()
-
-    method_totals: dict[str, list[int]] = defaultdict(lambda: [0, 0])
-    status_totals: dict[str, list[int]] = defaultdict(lambda: [0, 0])
-    class_totals: dict[str, list[int]] = defaultdict(lambda: [0, 0])
-    grand = 0
-    denied_403 = proxy_auth_407 = server_error_5xx = 0
-    for method, status_code, count, byte_total in rows:
-        count = int(count)
-        byte_total = int(byte_total)
-        grand += count
-        method_totals[method][0] += count
-        method_totals[method][1] += byte_total
-        status_label = str(status_code) if status_code else "-"
-        status_totals[status_label][0] += count
-        status_totals[status_label][1] += byte_total
-        cls = f"{status_code // 100}xx" if status_code else "0"
-        class_totals[cls][0] += count
-        class_totals[cls][1] += byte_total
-        if status_code == 403:
-            denied_403 += count
-        elif status_code == 407:
-            proxy_auth_407 += count
-        elif 500 <= status_code < 600:
-            server_error_5xx += count
-
-    def _named(items: dict[str, list[int]]) -> list[NamedCount]:
-        return sorted(
-            (
-                NamedCount(
-                    label=label,
-                    request_count=v[0],
-                    total_bytes=v[1],
-                    pct=_pct(v[0], grand),
-                )
-                for label, v in items.items()
-            ),
-            key=lambda c: c.request_count,
-            reverse=True,
-        )
-
-    return HttpBreakdownResponse(
-        methods=_named(method_totals),
-        status_codes=_named(status_totals),
-        status_classes=_named(class_totals),
-        denied_403=denied_403,
-        proxy_auth_407=proxy_auth_407,
-        server_error_5xx=server_error_5xx,
-    )
-
-
-async def get_hierarchy_breakdown(
-    session: AsyncSession, since: datetime, until: datetime, branch: str | None
-) -> HierarchyResponse:
-    conditions = [
-        HierarchyMinuteAggregate.bucket_ts >= since,
-        HierarchyMinuteAggregate.bucket_ts <= until,
-    ]
-    if branch is not None:
-        conditions.append(HierarchyMinuteAggregate.branch == branch)
-    rows = (
-        await session.execute(
-            select(
-                HierarchyMinuteAggregate.hierarchy_code,
-                func.sum(HierarchyMinuteAggregate.request_count),
-                func.sum(HierarchyMinuteAggregate.total_bytes),
-            )
-            .where(*conditions)
-            .group_by(HierarchyMinuteAggregate.hierarchy_code)
-        )
-    ).all()
-    grand = sum(int(r[1]) for r in rows)
-    codes = sorted(
-        (
-            NamedCount(
-                label=code, request_count=int(count), total_bytes=int(byte_total), pct=_pct(int(count), grand)
-            )
-            for code, count, byte_total in rows
-        ),
-        key=lambda c: c.request_count,
-        reverse=True,
-    )
-    return HierarchyResponse(codes=codes)
 
 
 async def get_response_time(

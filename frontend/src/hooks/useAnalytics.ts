@@ -10,8 +10,6 @@ import type {
   BranchRiskResponse,
   CategoryTrendResponse,
   DenialsResponse,
-  HierarchyResponse,
-  HttpBreakdownResponse,
   ConfigAdvisorResponse,
   IngestHealthResponse,
   NewEntitiesResponse,
@@ -87,22 +85,6 @@ export function useResultCodes(rangeParams: RangeParams, granularity: TrendGranu
       apiFetch<ResultCodeResponse>('/api/analytics/result-codes', {
         searchParams: { ...rangeParams, granularity },
       }),
-    refetchInterval: live ? false : POLLING_FALLBACK_INTERVAL_MS,
-  })
-}
-
-export function useHttpBreakdown(rangeParams: RangeParams, live: boolean) {
-  return useQuery({
-    queryKey: ['analytics-http-breakdown', rangeParams],
-    queryFn: () => apiFetch<HttpBreakdownResponse>('/api/analytics/http-breakdown', { searchParams: rangeParams }),
-    refetchInterval: live ? false : POLLING_FALLBACK_INTERVAL_MS,
-  })
-}
-
-export function useHierarchy(rangeParams: RangeParams, live: boolean) {
-  return useQuery({
-    queryKey: ['analytics-hierarchy', rangeParams],
-    queryFn: () => apiFetch<HierarchyResponse>('/api/analytics/hierarchy', { searchParams: rangeParams }),
     refetchInterval: live ? false : POLLING_FALLBACK_INTERVAL_MS,
   })
 }

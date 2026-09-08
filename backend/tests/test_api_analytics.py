@@ -14,8 +14,6 @@ ENDPOINTS = [
     "/api/analytics/branch-risk",
     "/api/analytics/activity-heatmap",
     "/api/analytics/result-codes",
-    "/api/analytics/http-breakdown",
-    "/api/analytics/hierarchy",
     "/api/analytics/response-time",
     "/api/analytics/actors",
     "/api/analytics/new-entities",

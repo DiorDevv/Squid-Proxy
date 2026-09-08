@@ -41,20 +41,6 @@ class ResultCodeResponse(BaseModel):
     series: list[TimeBucketCounts]
 
 
-class HttpBreakdownResponse(BaseModel):
-    methods: list[NamedCount]
-    status_codes: list[NamedCount]
-    status_classes: list[NamedCount]
-    # called out because they are policy signals, not just error counts
-    denied_403: int
-    proxy_auth_407: int
-    server_error_5xx: int
-
-
-class HierarchyResponse(BaseModel):
-    codes: list[NamedCount]
-
-
 class ResponseTimePoint(BaseModel):
     bucket_ts: datetime
     p50: float

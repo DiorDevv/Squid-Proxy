@@ -307,12 +307,6 @@ export const uz = {
   'analytics.traffic.p95': 'p95 kechikish',
   'analytics.traffic.p99': 'p99 kechikish',
   'analytics.traffic.samples': '{{count}} ta o‘lchangan so‘rov',
-  'analytics.traffic.methods': 'HTTP metodlari',
-  'analytics.traffic.statusCodes': 'Status kodlari',
-  'analytics.traffic.aclDeny': 'ACL taqiqi',
-  'analytics.traffic.proxyAuth': 'Avtorizatsiya kerak',
-  'analytics.traffic.serverErrors': 'Server xatolari',
-  'analytics.traffic.hierarchy': 'So‘rovlar qayerga ketdi',
   'analytics.traffic.responseTime': 'Javob vaqti',
 
   'analytics.who.title': 'Kim nima qilyapti',

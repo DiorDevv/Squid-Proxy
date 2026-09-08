@@ -320,12 +320,6 @@ export const en = {
   'analytics.traffic.p95': 'p95 latency',
   'analytics.traffic.p99': 'p99 latency',
   'analytics.traffic.samples': '{{count}} timed requests',
-  'analytics.traffic.methods': 'HTTP methods',
-  'analytics.traffic.statusCodes': 'Status codes',
-  'analytics.traffic.aclDeny': 'ACL forbidden',
-  'analytics.traffic.proxyAuth': 'Proxy auth required',
-  'analytics.traffic.serverErrors': 'Server errors',
-  'analytics.traffic.hierarchy': 'Where requests resolved',
   'analytics.traffic.responseTime': 'Response time',
 
   // Who is doing what

@@ -21,8 +21,6 @@ from app.schemas.squid_ops import (
     ActorDetailResponse,
     ActorLeaderboardResponse,
     DenialsResponse,
-    HierarchyResponse,
-    HttpBreakdownResponse,
     IngestHealthResponse,
     NewEntitiesResponse,
     ResponseTimeResponse,
@@ -95,28 +93,6 @@ async def read_result_codes(
 ) -> ResultCodeResponse:
     return await squid_ops_service.get_result_codes(
         db, effective_range.since, effective_range.until, granularity, branch
-    )
-
-
-@router.get("/http-breakdown", response_model=HttpBreakdownResponse)
-async def read_http_breakdown(
-    effective_range: EffectiveRange = Depends(resolve_range),
-    branch: str | None = Depends(resolve_branch),
-    db: AsyncSession = Depends(get_db),
-) -> HttpBreakdownResponse:
-    return await squid_ops_service.get_http_breakdown(
-        db, effective_range.since, effective_range.until, branch
-    )
-
-
-@router.get("/hierarchy", response_model=HierarchyResponse)
-async def read_hierarchy(
-    effective_range: EffectiveRange = Depends(resolve_range),
-    branch: str | None = Depends(resolve_branch),
-    db: AsyncSession = Depends(get_db),
-) -> HierarchyResponse:
-    return await squid_ops_service.get_hierarchy_breakdown(
-        db, effective_range.since, effective_range.until, branch
     )
 
 

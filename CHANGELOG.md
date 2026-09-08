@@ -123,6 +123,17 @@ All notable changes to this project are documented here. Format loosely follows
 
 ### Changed
 
+- **Analytics → Traffic trimmed to the signals that get acted on.** The tab
+  had ~14 breakdowns; the HTTP-methods panel (CONNECT dominates on HTTPS,
+  rarely actionable), the request-hierarchy panel (already auto-hidden on a
+  single-parent Squid), and the status-codes panel (its 403/407 split
+  already lives on the Blocks tab; the status-class bars were low-signal)
+  are gone, along with the niche tunnel-ratio tile. What's left, reordered:
+  the category/time trend (now first), the result-code mix over time with
+  cache-hit and denied ratios, response-time percentiles, and the activity
+  heatmap. `GET /api/analytics/http-breakdown` and `/api/analytics/hierarchy`
+  are removed with them (the `http_`/`hierarchy_minute_aggregates` tables
+  are still written, just not surfaced — a future view can read them).
 - **CI now runs a dependency vulnerability scan** (audit finding L5):
   `pip-audit` on the backend (blocking — a known advisory in a real
   dependency fails the build, rather than only surfacing as an unmerged

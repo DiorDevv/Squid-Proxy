@@ -304,12 +304,6 @@ export const ru = {
   'analytics.traffic.p95': 'Задержка p95',
   'analytics.traffic.p99': 'Задержка p99',
   'analytics.traffic.samples': '{{count}} запросов с замером',
-  'analytics.traffic.methods': 'HTTP-методы',
-  'analytics.traffic.statusCodes': 'Коды статуса',
-  'analytics.traffic.aclDeny': 'Запрещено ACL',
-  'analytics.traffic.proxyAuth': 'Требуется авторизация',
-  'analytics.traffic.serverErrors': 'Ошибки сервера',
-  'analytics.traffic.hierarchy': 'Куда ушли запросы',
   'analytics.traffic.responseTime': 'Время ответа',
 
   'analytics.who.title': 'Кто чем занят',

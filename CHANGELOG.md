@@ -7,6 +7,14 @@ All notable changes to this project are documented here. Format loosely follows
 
 ### Changed
 
+- **Anomaly detection is less noisy and harder to fool.** Traffic-spike
+  detection now compares the window against the *median* + MAD of the last 30
+  minute-buckets (was mean × 3 of the last 10) and needs at least 25 requests
+  in the window — an earlier spike in the baseline no longer hides a real one,
+  and a near-idle branch stops "spiking" on a handful of requests. The three
+  per-flush statistical checks (traffic spike, new blocked domain, client
+  mostly blocked) also hold a 1-hour cooldown per target, so a condition that
+  lasts many flushes raises one anomaly, not one per flush.
 - **Background jobs no longer wake in lockstep.** The ~9 `IntervalJob`
   schedulers are all started together at boot and several share an interval,
   so they hit the database as one synchronized burst every cycle. Each now

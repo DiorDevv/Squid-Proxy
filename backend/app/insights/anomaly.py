@@ -15,6 +15,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.insights.base import Anomaly, AnomalySeverity, Insight, InsightsProvider
+from app.models.anomaly_event import AnomalyEvent
 from app.models.domain_aggregate import DomainMinuteAggregate
 from app.models.minute_aggregate import MinuteAggregate
 from app.models.raw_event import RawEvent
@@ -56,6 +57,16 @@ CLIENT_BLOCKED_MIN_REQUESTS = 5
 # generous slack.
 MAX_WINDOW_SPREAD = timedelta(hours=1)
 
+# detect_anomalies runs every aggregator flush (~AGGREGATION_INTERVAL_SECONDS).
+# A condition that persists across many flushes -- a spike that lasts ten
+# minutes, a client that stays mostly-blocked for an hour -- would otherwise
+# raise a near-identical anomaly on every one of them. Once a check has fired
+# for a given (kind, branch, and client_ip/domain where it has one), it stays
+# quiet for this long. The periodic monitors (quota, uncategorized-domain,
+# ...) already do their own equivalent; this is the same idea for the
+# per-flush statistical checks.
+STATISTICAL_ANOMALY_COOLDOWN = timedelta(hours=1)
+
 
 class StatisticalAnomalyProvider(InsightsProvider):
     async def analyze_window(self, events: list[ParsedEvent]) -> list[Insight]:
@@ -85,11 +96,39 @@ class StatisticalAnomalyProvider(InsightsProvider):
             anomalies += await self._new_blocked_domains(
                 branch_events, session, window_start, generated_at, branch
             )
-            anomalies += self._client_blocked_ratio(branch_events, generated_at, branch)
+            anomalies += await self._client_blocked_ratio(branch_events, session, generated_at, branch)
             anomalies += await self._sensitive_category_visit(
                 branch_events, session, window_start, generated_at, branch
             )
         return anomalies
+
+    async def _recently_flagged(
+        self,
+        session: AsyncSession,
+        kind: str,
+        branch: str,
+        now: datetime,
+        *,
+        client_ip: str | None = None,
+        domain: str | None = None,
+    ) -> bool:
+        """True if an anomaly of this kind for this same target was already
+        raised within STATISTICAL_ANOMALY_COOLDOWN. `now` is the window's
+        latest event timestamp (this file works in event time, not wall
+        clock), matching how the rows being queried were stamped."""
+        conditions = [
+            AnomalyEvent.kind == kind,
+            AnomalyEvent.branch == branch,
+            AnomalyEvent.generated_at >= now - STATISTICAL_ANOMALY_COOLDOWN,
+        ]
+        if client_ip is not None:
+            conditions.append(AnomalyEvent.client_ip == client_ip)
+        if domain is not None:
+            conditions.append(AnomalyEvent.domain == domain)
+        existing = (
+            await session.execute(select(AnomalyEvent.id).where(*conditions).limit(1))
+        ).scalar_one_or_none()
+        return existing is not None
 
     async def _traffic_spike(
         self,
@@ -120,6 +159,8 @@ class StatisticalAnomalyProvider(InsightsProvider):
         mad = statistics.median([abs(count - median) for count in history])
         threshold = max(median + TRAFFIC_SPIKE_MAD_K * mad, median * TRAFFIC_SPIKE_MULTIPLIER)
         if current <= threshold:
+            return []
+        if await self._recently_flagged(session, "traffic_spike", branch, generated_at):
             return []
 
         return [
@@ -162,22 +203,28 @@ class StatisticalAnomalyProvider(InsightsProvider):
         ).scalars().all()
         new_domains = blocked_domains - set(known)
 
-        return [
-            Anomaly(
-                title="New blocked domain observed",
-                description=f"{domain} was blocked for the first time in this window.",
-                severity=AnomalySeverity.MEDIUM,
-                domain=domain,
-                branch=branch,
-                generated_at=generated_at,
-                kind="new_blocked_domain",
-                params={"domain": domain},
+        anomalies: list[Anomaly] = []
+        for domain in sorted(new_domains):
+            if await self._recently_flagged(
+                session, "new_blocked_domain", branch, generated_at, domain=domain
+            ):
+                continue
+            anomalies.append(
+                Anomaly(
+                    title="New blocked domain observed",
+                    description=f"{domain} was blocked for the first time in this window.",
+                    severity=AnomalySeverity.MEDIUM,
+                    domain=domain,
+                    branch=branch,
+                    generated_at=generated_at,
+                    kind="new_blocked_domain",
+                    params={"domain": domain},
+                )
             )
-            for domain in sorted(new_domains)
-        ]
+        return anomalies
 
-    def _client_blocked_ratio(
-        self, events: list[ParsedEvent], generated_at: datetime, branch: str
+    async def _client_blocked_ratio(
+        self, events: list[ParsedEvent], session: AsyncSession, generated_at: datetime, branch: str
     ) -> list[Anomaly]:
         totals: dict[str, int] = defaultdict(int)
         blocked: dict[str, int] = defaultdict(int)
@@ -192,6 +239,10 @@ class StatisticalAnomalyProvider(InsightsProvider):
                 continue
             ratio = blocked[client_ip] / total
             if ratio < CLIENT_BLOCKED_RATIO_THRESHOLD:
+                continue
+            if await self._recently_flagged(
+                session, "client_blocked_ratio", branch, generated_at, client_ip=client_ip
+            ):
                 continue
             anomalies.append(
                 Anomaly(

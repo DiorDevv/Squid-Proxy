@@ -7,6 +7,7 @@ project's "portable across SQLite/Postgres, no heavy dependency" approach
 elsewhere (see ARCHITECTURE.md).
 """
 
+import statistics
 from collections import defaultdict
 from datetime import datetime, timedelta
 
@@ -22,13 +23,23 @@ from app.services.category_inference import effective_category
 from app.services.domain_category_service import get_overrides_map
 from app.services.log_parser import ParsedEvent
 
-# A window's request count must exceed this multiple of the historical
-# per-window baseline to count as a traffic spike.
+# A window is a traffic spike when its request count clears a robust upper
+# bound built from recent history: the greater of (median + K*MAD) -- which
+# widens when the stream is normally noisy -- and a plain multiple of the
+# median, so a very regular stream (MAD ~= 0) still needs a real jump, not a
+# one-request wobble. Median/MAD is used rather than mean/stdev so a single
+# earlier spike in the baseline window can't drag the bar out of reach.
 TRAFFIC_SPIKE_MULTIPLIER = 3.0
-# How many prior minute-buckets to average for that baseline.
-TRAFFIC_SPIKE_BASELINE_WINDOWS = 10
-# Don't flag spikes until there's enough history to make "baseline" meaningful.
+TRAFFIC_SPIKE_MAD_K = 5.0
+# How many prior minute-buckets to pull for that baseline. ~30 is enough
+# for a stable median without reaching so far back that a different traffic
+# regime leaks in.
+TRAFFIC_SPIKE_BASELINE_WINDOWS = 30
+# Don't flag spikes until there's enough history to make median/MAD meaningful.
 TRAFFIC_SPIKE_MIN_BASELINE_WINDOWS = 5
+# Below this many requests in the window, "3x the median" is still just
+# noise on a quiet branch -- never flag a spike under it.
+TRAFFIC_SPIKE_MIN_ABSOLUTE = 25
 
 # A client whose blocked-request ratio in the window is at or above this,
 # with at least this many total requests, is flagged.
@@ -99,9 +110,16 @@ class StatisticalAnomalyProvider(InsightsProvider):
         if len(history) < TRAFFIC_SPIKE_MIN_BASELINE_WINDOWS:
             return []
 
-        baseline = sum(history) / len(history)
         current = len(events)
-        if baseline <= 0 or current <= baseline * TRAFFIC_SPIKE_MULTIPLIER:
+        if current < TRAFFIC_SPIKE_MIN_ABSOLUTE:
+            return []
+
+        median = statistics.median(history)
+        if median <= 0:
+            return []
+        mad = statistics.median([abs(count - median) for count in history])
+        threshold = max(median + TRAFFIC_SPIKE_MAD_K * mad, median * TRAFFIC_SPIKE_MULTIPLIER)
+        if current <= threshold:
             return []
 
         return [
@@ -109,13 +127,13 @@ class StatisticalAnomalyProvider(InsightsProvider):
                 title="Traffic spike detected",
                 description=(
                     f"{current} requests in the last window vs. a baseline of "
-                    f"~{baseline:.0f} over the previous {len(history)} windows."
+                    f"~{median:.0f} over the previous {len(history)} windows."
                 ),
                 severity=AnomalySeverity.HIGH,
                 branch=branch,
                 generated_at=generated_at,
                 kind="traffic_spike",
-                params={"current": current, "baseline": round(baseline), "windows": len(history)},
+                params={"current": current, "baseline": round(median), "windows": len(history)},
             )
         ]
 

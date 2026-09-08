@@ -87,6 +87,66 @@ async def test_traffic_spike_not_flagged_for_ordinary_traffic(db_session: AsyncS
     assert not [a for a in anomalies if a.title == "Traffic spike detected"]
 
 
+async def test_traffic_spike_not_flagged_below_absolute_minimum(db_session: AsyncSession):
+    """A quiet branch (baseline ~2/window) seeing 20 requests is 10x its
+    median, but 20 requests is still nothing -- the absolute floor keeps it
+    from being alerted on."""
+    await _seed_minute_history(db_session, count=6, total_requests=2)
+    events = [_event() for _ in range(20)]
+
+    anomalies = await StatisticalAnomalyProvider().detect_anomalies(events, db_session)
+
+    assert not [a for a in anomalies if a.title == "Traffic spike detected"]
+
+
+async def test_traffic_spike_baseline_uses_median_so_a_prior_spike_does_not_mask(
+    db_session: AsyncSession,
+):
+    """History is five calm windows plus one earlier 800-request spike. The
+    mean of that is ~140 (so mean*3 would hide today's jump); the median is
+    10, so a 45-request window is correctly flagged."""
+    for i, total in enumerate([10, 10, 10, 10, 10, 800]):
+        db_session.add(
+            MinuteAggregate(
+                bucket_ts=WINDOW_START - timedelta(minutes=i + 1),
+                total_requests=total,
+                blocked_requests=0,
+                allowed_requests=total,
+                total_bytes=0,
+            )
+        )
+    await db_session.commit()
+    events = [_event() for _ in range(45)]
+
+    anomalies = await StatisticalAnomalyProvider().detect_anomalies(events, db_session)
+
+    spikes = [a for a in anomalies if a.title == "Traffic spike detected"]
+    assert len(spikes) == 1
+    assert spikes[0].params == {"current": 45, "baseline": 10, "windows": 6}
+
+
+async def test_traffic_spike_tolerates_a_normally_noisy_stream(db_session: AsyncSession):
+    """A stream that alternates 10 and 50 per window has a wide normal band
+    (median 30, MAD 20 -> threshold 130). A 100-request window is inside
+    that band and must not be flagged."""
+    for i, total in enumerate([10, 50] * 5):
+        db_session.add(
+            MinuteAggregate(
+                bucket_ts=WINDOW_START - timedelta(minutes=i + 1),
+                total_requests=total,
+                blocked_requests=0,
+                allowed_requests=total,
+                total_bytes=0,
+            )
+        )
+    await db_session.commit()
+    events = [_event() for _ in range(100)]
+
+    anomalies = await StatisticalAnomalyProvider().detect_anomalies(events, db_session)
+
+    assert not [a for a in anomalies if a.title == "Traffic spike detected"]
+
+
 async def test_new_blocked_domain_is_flagged(db_session: AsyncSession):
     events = [_event(domain="evil.example", blocked=True)]
 

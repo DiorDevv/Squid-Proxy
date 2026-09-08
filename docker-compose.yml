@@ -70,6 +70,9 @@ x-backend-common: &backend-common
     # backend/.env.example for how to generate one. Empty/unset stays
     # inert (archives written as plain gzip, matching prior behavior).
     ARCHIVE_ENCRYPTION_KEY: ${ARCHIVE_ENCRYPTION_KEY:-}
+    # Where the backend reads db-backup / db-offsite status JSONs from (the
+    # job_status_data volume, mounted ro below).
+    JOB_STATUS_DIR: /app/job_status
   volumes:
     - squid_log_data:/data/squid-logs
     # Bind-mounted (not a named volume, unlike the others here) so archived
@@ -83,6 +86,12 @@ x-backend-common: &backend-common
     - ./archives:/app/archives
     - ut1_blacklist_data:/app/ut1_blacklist_data
     - log_tailer_state:/app/log_tailer_state
+    # Read-only: the db-backup / db-offsite services (on their own isolated
+    # networks) write a small status JSON here that Settings -> System
+    # health surfaces. A shared *volume* doesn't bridge their networks --
+    # it's just a filesystem -- so this doesn't reopen anything the network
+    # segmentation closes.
+    - job_status_data:/app/job_status:ro
   depends_on:
     postgres:
       condition: service_healthy
@@ -210,6 +219,7 @@ services:
     cpus: "1"
     volumes:
       - db_backup_data:/backups
+      - job_status_data:/status
       - ./backend/scripts/backup_postgres_docker.sh:/backup_postgres_docker.sh:ro
     entrypoint: ["/bin/sh", "/backup_postgres_docker.sh"]
     networks:
@@ -266,6 +276,7 @@ services:
       # Read-only -- this service never writes to either source.
       - db_backup_data:/backups:ro
       - ./archives:/archives:ro
+      - job_status_data:/status
       - ./backend/scripts/offsite_sync_docker.sh:/offsite_sync_docker.sh:ro
       # Optional: mount a host directory holding a restic password file
       # and/or an rclone.conf, and point OFFSITE_RESTIC_PASSWORD_FILE /
@@ -333,3 +344,6 @@ volumes:
   db_backup_data:
   ut1_blacklist_data:
   log_tailer_state:
+  # Small status JSONs written by db-backup / db-offsite, read (ro) by the
+  # backend for Settings -> System health.
+  job_status_data:

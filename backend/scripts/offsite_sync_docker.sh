@@ -27,9 +27,42 @@ keep_monthly="${OFFSITE_KEEP_MONTHLY:-12}"
 # well before retention would rotate out the last good local backup.
 check_every="${OFFSITE_CHECK_EVERY:-7}"
 paths="${OFFSITE_PATHS:-/backups /archives}"
+# Machine-readable status for the backend's Settings -> System health page
+# (shared read-only volume, see docker-compose.yml).
+status_dir="${JOB_STATUS_DIR:-/status}"
 # Same fallback as app/services/ops_alerting.py: a single-webhook operator
 # sets only ALERT_WEBHOOK_URL and still gets these alerts.
 ops_webhook_url="${OPS_ALERT_WEBHOOK_URL:-${ALERT_WEBHOOK_URL:-}}"
+
+# offsite.json fields: enabled, last sync/check timestamps + outcomes,
+# last error, masked repo. Sync and check outcomes are tracked in files so
+# each write reflects the latest of both regardless of which just ran.
+_repo_masked() {
+  # keep the scheme + host, drop anything that could be a path/secret
+  printf '%s' "$repo" | sed -E 's#(^[a-z0-9+]+:[^/]*/[^/]+).*#\1/...#'
+}
+write_offsite_status() {
+  now=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+  mkdir -p "$status_dir" 2>/dev/null || return 0
+  ls_at=$(cat "$status_dir/.offsite_sync_at" 2>/dev/null || echo "")
+  ls_ok=$(cat "$status_dir/.offsite_sync_ok" 2>/dev/null || echo "")
+  lc_at=$(cat "$status_dir/.offsite_check_at" 2>/dev/null || echo "")
+  lc_ok=$(cat "$status_dir/.offsite_check_ok" 2>/dev/null || echo "")
+  err=$(cat "$status_dir/.offsite_error" 2>/dev/null | tr -d '"' || echo "")
+  {
+    printf '{"updated_at":"%s","enabled":true,"repo":"%s"' "$now" "$(_repo_masked)"
+    if [ -n "$ls_at" ]; then printf ',"last_sync_at":"%s","last_sync_ok":%s' "$ls_at" "${ls_ok:-false}"; else printf ',"last_sync_at":null,"last_sync_ok":null'; fi
+    if [ -n "$lc_at" ]; then printf ',"last_check_at":"%s","last_check_ok":%s' "$lc_at" "${lc_ok:-false}"; else printf ',"last_check_at":null,"last_check_ok":null'; fi
+    if [ -n "$err" ]; then printf ',"error":"%s"' "$err"; else printf ',"error":null'; fi
+    printf '}\n'
+  } > "$status_dir/offsite.json" 2>/dev/null || true
+}
+write_offsite_disabled_status() {
+  now=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+  mkdir -p "$status_dir" 2>/dev/null || return 0
+  printf '{"updated_at":"%s","enabled":false,"repo":null,"last_sync_at":null,"last_sync_ok":null,"last_check_at":null,"last_check_ok":null,"error":null}\n' \
+    "$now" > "$status_dir/offsite.json" 2>/dev/null || true
+}
 
 # restic reads these itself; accept the OFFSITE_-prefixed aliases too so
 # every off-site setting can live under one prefix in .env.
@@ -53,20 +86,25 @@ notify_operator_failure() {
     "$ops_webhook_url" || true
 }
 
+mkdir -p "$status_dir" 2>/dev/null || true
+
 if [ "${OFFSITE_ENABLED:-}" = "false" ]; then
   echo "OFFSITE_ENABLED=false -- db-offsite service idle by request"
+  write_offsite_disabled_status
   idle_forever
 fi
 
 if [ -z "$repo" ]; then
   echo "db-offsite: no OFFSITE_RESTIC_REPOSITORY set -- nothing to replicate." >&2
   echo "Set it (and a repo password) in .env, or set OFFSITE_ENABLED=false to silence this." >&2
+  write_offsite_disabled_status
   idle_forever
 fi
 
 if [ -z "$RESTIC_PASSWORD_FILE" ] && [ -z "$RESTIC_PASSWORD" ]; then
   echo "db-offsite: OFFSITE_RESTIC_REPOSITORY is set but no repo password is." >&2
   echo "Set OFFSITE_RESTIC_PASSWORD or OFFSITE_RESTIC_PASSWORD_FILE in .env." >&2
+  write_offsite_disabled_status
   idle_forever
 fi
 
@@ -84,28 +122,41 @@ fi
 cycle=0
 while true; do
   cycle=$((cycle + 1))
+  now=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 
   # shellcheck disable=SC2086  # $paths is a space-separated path list, split on purpose
   if restic backup --tag squid-watch $paths; then
     echo "Off-site backup complete: $paths"
+    printf '%s' "$now" > "$status_dir/.offsite_sync_at" 2>/dev/null
+    printf 'true' > "$status_dir/.offsite_sync_ok" 2>/dev/null
+    : > "$status_dir/.offsite_error" 2>/dev/null
     if ! restic forget --prune --tag squid-watch \
         --keep-daily "$keep_daily" --keep-weekly "$keep_weekly" --keep-monthly "$keep_monthly"; then
       echo "Off-site retention (restic forget) FAILED this cycle" >&2
+      printf 'restic forget --prune failed' > "$status_dir/.offsite_error" 2>/dev/null
       notify_operator_failure "Off-site retention (restic forget --prune) failed this cycle"
     fi
   else
     echo "Off-site backup FAILED this cycle -- will retry in ${interval_seconds}s" >&2
+    printf '%s' "$now" > "$status_dir/.offsite_sync_at" 2>/dev/null
+    printf 'false' > "$status_dir/.offsite_sync_ok" 2>/dev/null
+    printf 'restic backup failed this cycle' > "$status_dir/.offsite_error" 2>/dev/null
     notify_operator_failure "Off-site backup (restic) FAILED this cycle; will retry in ${interval_seconds}s"
   fi
 
   if [ "$check_every" -gt 0 ] && [ $((cycle % check_every)) -eq 0 ]; then
+    printf '%s' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "$status_dir/.offsite_check_at" 2>/dev/null
     if restic check; then
       echo "Off-site repository check passed"
+      printf 'true' > "$status_dir/.offsite_check_ok" 2>/dev/null
     else
       echo "Off-site repository check FAILED -- remote copy may not be restorable" >&2
+      printf 'false' > "$status_dir/.offsite_check_ok" 2>/dev/null
+      printf 'restic check failed -- remote copy may not be restorable' > "$status_dir/.offsite_error" 2>/dev/null
       notify_operator_failure "Off-site restic repository check FAILED -- remote copy may not be restorable"
     fi
   fi
 
+  write_offsite_status
   sleep "$interval_seconds"
 done

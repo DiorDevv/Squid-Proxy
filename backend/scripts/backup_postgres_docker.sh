@@ -35,9 +35,44 @@ wait_max_seconds="${BACKUP_WAIT_MAX_SECONDS:-300}"
 # at the same time every day regardless of restarts. Unset -> fall back to
 # a drift-corrected BACKUP_INTERVAL_SECONDS.
 backup_at_hour="${BACKUP_AT_HOUR:-}"
+# Where to drop a machine-readable status file the backend reads for
+# Settings -> System health (a shared read-only volume; see
+# docker-compose.yml). This container can't reach Postgres from the
+# backend's network and has no app package, so a file is how it reports.
+status_dir="${JOB_STATUS_DIR:-/status}"
 # Same fallback as app/services/ops_alerting.py's Python side: a
 # single-webhook operator sets only ALERT_WEBHOOK_URL and gets it here too.
 ops_webhook_url="${OPS_ALERT_WEBHOOK_URL:-${ALERT_WEBHOOK_URL:-}}"
+
+# Rewrite $status_dir/backup.json after every cycle. Args:
+#   $1 ok (true|false)  $2 error (empty on success)
+#   $3 last dump basename (empty unless this cycle produced one)
+#   $4 last dump size in bytes (empty unless known)
+# last_success_at is carried across cycles via a marker file so a failed
+# cycle's status still shows when the last good backup was.
+write_status() {
+  st_ok=$1; st_err=$2; st_dump=$3; st_bytes=$4
+  now=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+  mkdir -p "$status_dir" 2>/dev/null || return 0
+  [ "$st_ok" = "true" ] && printf '%s' "$now" > "$status_dir/.backup_last_success" 2>/dev/null
+  last_success=$(cat "$status_dir/.backup_last_success" 2>/dev/null || echo "")
+  disk=$(df -PB1 "$output_dir" 2>/dev/null | awk 'NR==2 {print $2 "," $4}')
+  disk_total=${disk%,*}
+  disk_free=${disk#*,}
+  # error strings here are our own controlled literals (no quotes/newlines);
+  # strip a stray double-quote defensively anyway.
+  st_err=$(printf '%s' "$st_err" | tr -d '"')
+  {
+    printf '{"updated_at":"%s","ok":%s' "$now" "$st_ok"
+    if [ -n "$last_success" ]; then printf ',"last_success_at":"%s"' "$last_success"; else printf ',"last_success_at":null'; fi
+    if [ -n "$st_dump" ]; then printf ',"last_dump":"%s"' "$st_dump"; else printf ',"last_dump":null'; fi
+    if [ -n "$st_bytes" ] && [ "$st_bytes" != "?" ]; then printf ',"last_dump_bytes":%s' "$st_bytes"; else printf ',"last_dump_bytes":null'; fi
+    printf ',"consecutive_failures":%s' "$consecutive_failures"
+    if [ -n "$st_err" ]; then printf ',"error":"%s"' "$st_err"; else printf ',"error":null'; fi
+    if [ -n "$disk_total" ]; then printf ',"disk_total_bytes":%s,"disk_free_bytes":%s' "$disk_total" "$disk_free"; else printf ',"disk_total_bytes":null,"disk_free_bytes":null'; fi
+    printf '}\n'
+  } > "$status_dir/backup.json" 2>/dev/null || true
+}
 
 # This container has no Python/app package (it's bare postgres:16-alpine),
 # so it can't import ops_alerting -- posts the same payload shape directly
@@ -122,6 +157,7 @@ while true; do
 
   if [ "$ok" -eq 1 ]; then
     consecutive_failures=0
+    write_status "true" "" "$(basename "$dest")" "$size"
     cycle_elapsed=$(( $(date -u +%s) - cycle_start ))
     nap=$(sleep_until_next "$cycle_elapsed")
     echo "Next backup in ${nap}s"
@@ -129,6 +165,7 @@ while true; do
   else
     consecutive_failures=$((consecutive_failures + 1))
     down_for=$(( consecutive_failures * retry_seconds ))
+    write_status "false" "$reason" "" ""
     echo "Database backup FAILED (${reason}); attempt #${consecutive_failures}, retrying in ${retry_seconds}s" >&2
     # Alert on the first failure, then roughly hourly while it stays broken
     # -- enough that it isn't forgotten, not so much it floods the channel.

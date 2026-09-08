@@ -118,6 +118,12 @@ class Settings(BaseSettings):
     # System health). Kept long enough to review a run of failures weeks
     # later, not indefinitely.
     RETENTION_DAYS_SYSTEM_EVENTS: int = 90
+    # Directory the db-backup / db-offsite jobs drop their status JSON in
+    # (backup.json / offsite.json), read for Settings -> System health.
+    # "" disables the backup/off-site panels (they show "no data"). Set by
+    # docker-compose.yml; unset for a bare-metal install unless the backup
+    # units are given a matching --status-dir.
+    JOB_STATUS_DIR: str = ""
     # How often the ring buffer flushes to DB aggregates. Lower = less
     # runway needed in RING_BUFFER_MAX_EVENTS above per flush cycle, at the
     # cost of more frequent (still bulk-upsert, see db_upsert.py) writes.

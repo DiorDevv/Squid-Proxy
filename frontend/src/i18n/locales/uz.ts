@@ -297,6 +297,9 @@ export const uz = {
   'analytics.nav.branches': 'Filiallar',
 
   'analytics.overview.squidHealth': 'Squid holati',
+  'analytics.overview.recentAnomalies': 'Soʻnggi anomaliyalar',
+  'analytics.overview.byBranch': 'Filiallar boʻyicha soʻrovlar',
+  'analytics.overview.branchDark': 'oraliqda trafik yoʻq',
 
   'analytics.traffic.resultCodes': 'Natija kodlari dinamikasi',
   'analytics.traffic.resultMix': 'Natija kodlari tarkibi',

@@ -294,6 +294,9 @@ export const ru = {
   'analytics.nav.branches': 'Филиалы',
 
   'analytics.overview.squidHealth': 'Состояние Squid',
+  'analytics.overview.recentAnomalies': 'Недавние аномалии',
+  'analytics.overview.byBranch': 'Запросы по филиалам',
+  'analytics.overview.branchDark': 'нет трафика за период',
 
   'analytics.traffic.resultCodes': 'Коды результата во времени',
   'analytics.traffic.resultMix': 'Состав кодов результата',

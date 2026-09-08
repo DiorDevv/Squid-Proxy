@@ -123,6 +123,16 @@ All notable changes to this project are documented here. Format loosely follows
 
 ### Changed
 
+- **Analytics → Overview gained two glances it was missing.** A **Recent
+  anomalies** panel (the 5 latest `AnomalyEvent`s, branch-scoped to the
+  page filter) — until now the landing view of the Analytics section gave
+  no hint that anything abnormal had happened; you had to already be on the
+  Dashboard. And, when more than one branch is configured, a **Requests by
+  branch** strip — the fastest place to spot a branch that has gone quiet
+  (0 requests in the window is flagged), which is exactly the failure that
+  went unnoticed for two days when one branch's log feed silently stopped.
+  `useRecentInsights` / `InsightsPanel` gained optional `limit` and
+  `branch`; the Dashboard's usage is unchanged.
 - **Analytics → Traffic trimmed to the signals that get acted on.** The tab
   had ~14 breakdowns; the HTTP-methods panel (CONNECT dominates on HTTPS,
   rarely actionable), the request-hierarchy panel (already auto-hidden on a

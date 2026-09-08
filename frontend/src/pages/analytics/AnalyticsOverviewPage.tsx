@@ -5,11 +5,13 @@ import { ComparisonCards } from '@/components/analytics/ComparisonCards'
 import { ConfigAdvisorPanel } from '@/components/analytics/ConfigAdvisorPanel'
 import { SquidHealthStrip } from '@/components/analytics/SquidHealthStrip'
 import { TopMoversList } from '@/components/analytics/TopMoversList'
+import { BranchMiniBar } from '@/components/analytics/BranchMiniBar'
+import { InsightsPanel } from '@/components/dashboard/InsightsPanel'
 import { cn } from '@/lib/utils'
 import { formatBytes, formatNumber } from '@/lib/format'
 import { CATEGORY_COLORS, CATEGORY_LABEL_KEYS, SENSITIVE_CATEGORIES } from '@/lib/categories'
 import { useRangeSearchParams } from '@/lib/filters-store'
-import { useAnalyticsOverview, useConfigAdvisor } from '@/hooks/useAnalytics'
+import { useAnalyticsOverview, useBranchBreakdown, useConfigAdvisor } from '@/hooks/useAnalytics'
 import { useTranslation } from '@/i18n'
 import type { DomainUsage } from '@/types/api'
 
@@ -40,8 +42,11 @@ export default function AnalyticsOverviewPage() {
   const rangeParams = useRangeSearchParams()
   const query = useAnalyticsOverview(rangeParams, true)
   const advisor = useConfigAdvisor(rangeParams, true)
+  const branches = useBranchBreakdown(rangeParams, true)
   const data = query.data
   const findings = advisor.data?.findings ?? []
+  const branchRows = branches.data?.rows ?? []
+  const selectedBranch = rangeParams.branch ?? null
 
   if (query.isError) {
     return <ErrorState message={query.error?.message} onRetry={() => query.refetch()} />
@@ -50,6 +55,30 @@ export default function AnalyticsOverviewPage() {
   return (
     <div className="flex flex-col gap-4">
       <ComparisonCards metrics={data?.metrics ?? []} loading={query.isLoading} />
+
+      <div
+        className={cn(
+          'grid grid-cols-1 gap-4',
+          branchRows.length > 1 && 'lg:grid-cols-[1fr_20rem]',
+        )}
+      >
+        <Panel title={t('analytics.overview.recentAnomalies')}>
+          <PanelErrorBoundary panelLabel={t('analytics.overview.recentAnomalies')}>
+            <InsightsPanel limit={5} branch={selectedBranch} />
+          </PanelErrorBoundary>
+        </Panel>
+        {branchRows.length > 1 && (
+          <Panel title={t('analytics.overview.byBranch')}>
+            <PanelErrorBoundary panelLabel={t('analytics.overview.byBranch')}>
+              {branches.isError ? (
+                <ErrorState message={branches.error?.message} onRetry={() => branches.refetch()} />
+              ) : (
+                <BranchMiniBar rows={branchRows} />
+              )}
+            </PanelErrorBoundary>
+          </Panel>
+        )}
+      </div>
 
       <Panel title={t('analytics.overview.squidHealth')}>
         <PanelErrorBoundary panelLabel={t('analytics.overview.squidHealth')}>

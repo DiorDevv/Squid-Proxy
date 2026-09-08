@@ -27,11 +27,16 @@ interface InsightsPanelProps {
    * (DashboardPage) highlight/scroll to the matching marker on the traffic
    * chart. Omit to keep rows non-interactive. */
   onSelectInsight?: (id: string) => void
+  /** How many to show (default 10). The Analytics Overview glance passes a
+   * smaller number. */
+  limit?: number
+  /** Scope to one branch's anomalies (default: all). */
+  branch?: string | null
 }
 
-export function InsightsPanel({ onSelectInsight }: InsightsPanelProps) {
+export function InsightsPanel({ onSelectInsight, limit = 10, branch = null }: InsightsPanelProps) {
   const { t } = useTranslation()
-  const { data, isLoading, isError, error, refetch } = useRecentInsights(10)
+  const { data, isLoading, isError, error, refetch } = useRecentInsights(limit, false, branch)
 
   if (isLoading) {
     return (

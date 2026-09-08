@@ -309,6 +309,9 @@ export const en = {
   'analytics.nav.branches': 'Branches',
 
   'analytics.overview.squidHealth': 'Squid health',
+  'analytics.overview.recentAnomalies': 'Recent anomalies',
+  'analytics.overview.byBranch': 'Requests by branch',
+  'analytics.overview.branchDark': 'no traffic in range',
 
   // Traffic & cache
   'analytics.traffic.resultCodes': 'Result codes over time',

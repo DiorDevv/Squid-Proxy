@@ -72,13 +72,11 @@ jobs:
       - run: npm run lint
       - run: npm run test
       - run: npm run build
-      # Same intent as the backend's pip-audit step. Non-blocking for now:
-      # the current tree carries high-severity advisories in dev-only
-      # tooling (undici via jsdom + the shadcn CLI) that need a triaged
-      # `npm audit fix` / dep bump first. Once that's clean, drop the
-      # `|| true` so a new advisory actually stops a merge.
+      # Same intent as the backend's pip-audit step: a high/critical
+      # advisory in the dependency tree fails the build. Moderate and below
+      # are still printed in the summary but don't block.
       - name: Dependency vulnerability scan
-        run: npm audit --audit-level=high || true
+        run: npm audit --audit-level=high
 
   e2e:
     # Runs the Playwright smoke suite against the real, wired-together app

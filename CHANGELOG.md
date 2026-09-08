@@ -145,12 +145,12 @@ All notable changes to this project are documented here. Format loosely follows
   are removed with them (the `http_`/`hierarchy_minute_aggregates` tables
   are still written, just not surfaced — a future view can read them).
 - **CI now runs a dependency vulnerability scan** (audit finding L5):
-  `pip-audit` on the backend (blocking — a known advisory in a real
-  dependency fails the build, rather than only surfacing as an unmerged
-  Dependabot PR) and `npm audit --audit-level=high` on the frontend
-  (non-blocking for now — the tree carries high-severity advisories in
-  dev-only tooling, `undici` via `jsdom` and the `shadcn` CLI, that need a
-  triaged `npm audit fix` first; then the `|| true` comes off).
+  `pip-audit` on the backend and `npm audit --audit-level=high` on the
+  frontend — a known advisory in a real dependency fails the build rather
+  than only surfacing as an unmerged Dependabot PR. The frontend's
+  pre-existing advisories (`undici` via `jsdom` and the `shadcn` CLI,
+  `postcss`, `qs`) were cleared with `npm audit fix` (transitive lockfile
+  bumps only, no direct-dependency changes).
 - **Baseline hardening from the project audit:**
   - Every API response now carries `X-Content-Type-Options: nosniff`,
     `Referrer-Policy: no-referrer`, `X-Frame-Options: DENY`, and

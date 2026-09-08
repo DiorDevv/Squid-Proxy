@@ -747,6 +747,16 @@ Every one of these already logged the failure and retried on its own schedule; t
 actually reaches a human instead of only whoever happens to be reading `docker logs`/`journalctl`
 at that moment. Off by default, same as `ALERT_WEBHOOK_URL`.
 
+Whether or not that webhook is set, every one of these failures is now also written to a
+`system_events` row (pruned after `RETENTION_DAYS_SYSTEM_EVENTS`, default 90) and surfaced —
+along with database size and 24h growth, disk free, per-branch ingestion (last event time,
+parse-failure rate, tailer liveness), each background job's health, and the backup / off-site
+status — at **Settings → System health** (`GET /api/system-health`, admin/auditor). The backup
+and off-site panels read `backup.json` / `offsite.json` that the `db-backup` / `db-offsite`
+jobs write to a shared volume (`JOB_STATUS_DIR`); they show "no data" until those have run. The
+backup is flagged stale once the last successful one is older than
+`SYSTEM_HEALTH_BACKUP_STALE_HOURS` (default 26).
+
 ## API surface
 
 All endpoints are under `/api`, JWT-protected except `/api/health`. See

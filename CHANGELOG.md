@@ -227,6 +227,17 @@ All notable changes to this project are documented here. Format loosely follows
 
 ### Added
 
+- **Settings → System health** (`GET /api/system-health`, admin/auditor).
+  One operational snapshot: backup status (last success, size, stale flag)
+  and off-site replication status from the jobs' own `backup.json` /
+  `offsite.json` (shared `JOB_STATUS_DIR` volume); database size + top
+  table sizes + `raw_events` window and 24h row growth; disk free; per-
+  branch ingestion (last event time, parse-failure rate, tailer liveness);
+  every background job's health (alive / last error / consecutive
+  failures); and the recent operational-failure log. Every
+  `notify_operator_failure()` now also persists a `system_events` row
+  (migration `c5d8e1f3a92b`, pruned after `RETENTION_DAYS_SYSTEM_EVENTS`),
+  so a failure is on the record even with no `OPS_ALERT_WEBHOOK_URL` set.
 - **The audit log is now tamper-evident** (audit finding M1). Every
   `audit_log_entries` row stores `entry_hash` — SHA-256 over its own
   immutable fields plus the previous entry's `entry_hash` — so any row

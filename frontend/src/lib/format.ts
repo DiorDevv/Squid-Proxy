@@ -49,6 +49,13 @@ export function toDatetimeLocalValue(date: Date): string {
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`
 }
 
+/** True if `iso` is null/absent or older than `maxAgeMs`. Date math lives
+ * here so callers don't trip the "no impure calls during render" rule. */
+export function isStale(iso: string | null | undefined, maxAgeMs: number): boolean {
+  if (!iso) return true
+  return Date.now() - new Date(iso).getTime() > maxAgeMs
+}
+
 export function formatRelativeTime(iso: string | null): string {
   if (!iso) return 'never'
   const diffMs = Date.now() - new Date(iso).getTime()

@@ -30,6 +30,7 @@ const SettingsGeneralPage = lazy(() => import('@/pages/settings/SettingsGeneralP
 const SettingsUsersPage = lazy(() => import('@/pages/settings/SettingsUsersPage'))
 const SettingsAuditPage = lazy(() => import('@/pages/settings/SettingsAuditPage'))
 const SettingsPolicyPage = lazy(() => import('@/pages/settings/SettingsPolicyPage'))
+const SettingsSystemHealthPage = lazy(() => import('@/pages/settings/SettingsSystemHealthPage'))
 const SettingsCategoriesPage = lazy(() => import('@/pages/settings/SettingsCategoriesPage'))
 const SettingsExportPage = lazy(() => import('@/pages/settings/SettingsExportPage'))
 const SettingsWatchlistPage = lazy(() => import('@/pages/settings/SettingsWatchlistPage'))
@@ -91,6 +92,7 @@ export default function App() {
                 {/* Read-only oversight: admin + auditor. */}
                 <Route path="audit" element={<SettingsAuditPage />} />
                 <Route path="policy" element={<SettingsPolicyPage />} />
+                <Route path="system-health" element={<SettingsSystemHealthPage />} />
                 {/* Everything mutable stays admin-only. */}
                 <Route element={<ProtectedRoute requiredRole="admin" />}>
                   <Route path="general" element={<SettingsGeneralPage />} />

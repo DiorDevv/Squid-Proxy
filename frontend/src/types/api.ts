@@ -579,3 +579,63 @@ export interface DataPolicy {
   archiving: ArchivingPolicy
   collected_fields: CollectedField[]
 }
+
+// --- System health (/api/system-health) ---
+
+export interface SystemHealthResponse {
+  generated_at: string
+  database: {
+    dialect: string
+    total_bytes: number | null
+    tables: { name: string; bytes: number }[]
+    raw_events_oldest: string | null
+    raw_events_newest: string | null
+    raw_events_row_count: number
+    raw_events_added_24h: number
+  }
+  disk: { path: string; total_bytes: number; free_bytes: number; used_pct: number } | null
+  ingestion: {
+    branches: {
+      branch: string
+      tailer_alive: boolean
+      lines_seen: number
+      lines_parsed: number
+      parse_failure_rate: number | null
+      last_event_at: string | null
+    }[]
+    aggregator_backlog_ratio: number
+    aggregator_events_likely_lost: boolean
+    unarchived_purge_branches: string[]
+  }
+  background_jobs: {
+    name: string
+    alive: boolean
+    last_run_at: string | null
+    last_error: string | null
+    last_error_at: string | null
+    consecutive_failures: number
+  }[]
+  backup: {
+    updated_at: string | null
+    ok: boolean | null
+    last_success_at: string | null
+    last_dump: string | null
+    last_dump_bytes: number | null
+    consecutive_failures: number | null
+    error: string | null
+    disk_total_bytes: number | null
+    disk_free_bytes: number | null
+    stale: boolean | null
+  } | null
+  offsite: {
+    updated_at: string | null
+    enabled: boolean | null
+    repo: string | null
+    last_sync_at: string | null
+    last_sync_ok: boolean | null
+    last_check_at: string | null
+    last_check_ok: boolean | null
+    error: string | null
+  } | null
+  recent_events: { created_at: string; source: string; severity: string; message: string }[]
+}

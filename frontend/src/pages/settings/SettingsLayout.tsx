@@ -10,6 +10,7 @@ const SETTINGS_NAV_ITEMS: { to: string; labelKey: TranslationKey; adminOnly: boo
   { to: 'users', labelKey: 'settings.nav.users', adminOnly: true },
   { to: 'audit', labelKey: 'settings.nav.audit', adminOnly: false },
   { to: 'policy', labelKey: 'settings.nav.policy', adminOnly: false },
+  { to: 'system-health', labelKey: 'settings.nav.systemHealth', adminOnly: false },
   { to: 'categories', labelKey: 'settings.nav.categories', adminOnly: true },
   { to: 'watchlist', labelKey: 'settings.nav.watchlist', adminOnly: true },
   { to: 'export', labelKey: 'settings.nav.export', adminOnly: true },

@@ -9,7 +9,7 @@ from app.schemas.analytics import (
     ActivityHeatmapResponse,
     AnalyticsOverview,
     BranchBreakdownResponse,
-    BranchRiskResponse,
+    BranchSignalsResponse,
     CategoryTrendResponse,
     RetentionInfo,
     TrendGranularity,
@@ -33,9 +33,7 @@ from app.services import (
     squid_ops_service,
 )
 
-router = APIRouter(
-    prefix="/api/analytics", tags=["analytics"], dependencies=[Depends(require_any_role)]
-)
+router = APIRouter(prefix="/api/analytics", tags=["analytics"], dependencies=[Depends(require_any_role)])
 
 
 @router.get("/overview", response_model=AnalyticsOverview)
@@ -44,9 +42,7 @@ async def read_overview(
     branch: str | None = Depends(resolve_branch),
     db: AsyncSession = Depends(get_db),
 ) -> AnalyticsOverview:
-    return await analytics_service.get_overview(
-        db, effective_range.since, effective_range.until, branch
-    )
+    return await analytics_service.get_overview(db, effective_range.since, effective_range.until, branch)
 
 
 @router.get("/category-trend", response_model=CategoryTrendResponse)
@@ -73,13 +69,13 @@ async def read_branch_breakdown(
     )
 
 
-@router.get("/branch-risk", response_model=BranchRiskResponse)
-async def read_branch_risk(
+@router.get("/branch-signals", response_model=BranchSignalsResponse)
+async def read_branch_signals(
     effective_range: EffectiveRange = Depends(resolve_range),
     branch: str | None = Depends(resolve_branch),
     db: AsyncSession = Depends(get_db),
-) -> BranchRiskResponse:
-    return await analytics_service.get_branch_risk(
+) -> BranchSignalsResponse:
+    return await analytics_service.get_branch_signals(
         db, effective_range.since, effective_range.until, branch
     )
 
@@ -149,9 +145,7 @@ async def read_new_entities(
     branch: str | None = Depends(resolve_branch),
     db: AsyncSession = Depends(get_db),
 ) -> NewEntitiesResponse:
-    return await squid_ops_service.get_new_entities(
-        db, effective_range.since, effective_range.until, branch
-    )
+    return await squid_ops_service.get_new_entities(db, effective_range.since, effective_range.until, branch)
 
 
 @router.get("/denials", response_model=DenialsResponse)

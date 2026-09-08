@@ -229,13 +229,6 @@ export interface AnomalyEvent {
 
 export type TrendGranularity = 'hour' | 'day'
 export type TrendMetric = 'bytes' | 'requests'
-export type RiskBand = 'low' | 'medium' | 'high'
-export type RiskSignalKey =
-  | 'blocked_ratio'
-  | 'sensitive_traffic'
-  | 'anomalies'
-  | 'quota_breaches'
-  | 'uncategorized_domains'
 
 export interface MetricDelta {
   metric: string
@@ -307,27 +300,21 @@ export interface BranchBreakdownResponse {
   rows: BranchBreakdownRow[]
 }
 
-export interface RiskSignal {
-  key: RiskSignalKey
-  raw_value: number
-  score: number
-  weight: number
-}
-
-export interface BranchRiskRow {
+export interface BranchSignalRow {
   branch: string
-  score: number
-  band: RiskBand
-  signals: RiskSignal[]
   total_requests: number
   blocked_requests: number
+  blocked_ratio: number
+  sensitive_traffic_share: number
   anomaly_count: number
+  quota_breach_count: number
+  uncategorized_domain_count: number
 }
 
-export interface BranchRiskResponse {
+export interface BranchSignalsResponse {
   since: string
   until: string
-  rows: BranchRiskRow[]
+  rows: BranchSignalRow[]
 }
 
 export interface HeatmapCell {

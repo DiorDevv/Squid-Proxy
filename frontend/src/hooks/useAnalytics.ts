@@ -7,7 +7,7 @@ import type {
   ActorLeaderboardResponse,
   AnalyticsOverview,
   BranchBreakdownResponse,
-  BranchRiskResponse,
+  BranchSignalsResponse,
   CategoryTrendResponse,
   DenialsResponse,
   ConfigAdvisorResponse,
@@ -55,11 +55,11 @@ export function useBranchBreakdown(rangeParams: RangeParams, live: boolean) {
   })
 }
 
-export function useBranchRisk(rangeParams: RangeParams, live: boolean) {
+export function useBranchSignals(rangeParams: RangeParams, live: boolean) {
   return useQuery({
-    queryKey: ['analytics-branch-risk', rangeParams],
+    queryKey: ['analytics-branch-signals', rangeParams],
     queryFn: () =>
-      apiFetch<BranchRiskResponse>('/api/analytics/branch-risk', { searchParams: rangeParams }),
+      apiFetch<BranchSignalsResponse>('/api/analytics/branch-signals', { searchParams: rangeParams }),
     refetchInterval: live ? false : POLLING_FALLBACK_INTERVAL_MS,
   })
 }

@@ -8,19 +8,10 @@ Everything here is computed on the fly from data that already exists
 
 from datetime import datetime
 from enum import Enum
-from typing import Literal, TypeAlias
 
 from pydantic import BaseModel
 
 from app.models.domain_category import DomainCategoryLabel
-
-RiskSignalKey: TypeAlias = Literal[
-    "blocked_ratio",
-    "sensitive_traffic",
-    "anomalies",
-    "quota_breaches",
-    "uncategorized_domains",
-]
 
 
 class TrendGranularity(str, Enum):
@@ -116,32 +107,27 @@ class BranchBreakdownResponse(BaseModel):
     rows: list[BranchBreakdownRow]
 
 
-class RiskSignal(BaseModel):
-    """One weighted input to a branch's composite risk score. `score` is
-    this signal's own contribution to the 0-100 composite (already
-    normalized and multiplied by `weight`), so the frontend can stack the
-    signals and have them sum to `BranchRiskRow.score`."""
+class BranchSignalRow(BaseModel):
+    """The raw per-branch signals that used to feed a composite "risk
+    score". The composite (and its arbitrary weights / bands) is gone --
+    these are shown side by side so an operator can sort by whichever one
+    matters to them and see which branch to look at first, without a made-up
+    number implying more precision than the inputs support."""
 
-    key: RiskSignalKey
-    raw_value: float
-    score: float
-    weight: float
-
-
-class BranchRiskRow(BaseModel):
     branch: str
-    score: float
-    band: Literal["low", "medium", "high"]
-    signals: list[RiskSignal]
     total_requests: int
     blocked_requests: int
+    blocked_ratio: float
+    sensitive_traffic_share: float
     anomaly_count: int
+    quota_breach_count: int
+    uncategorized_domain_count: int
 
 
-class BranchRiskResponse(BaseModel):
+class BranchSignalsResponse(BaseModel):
     since: datetime
     until: datetime
-    rows: list[BranchRiskRow]
+    rows: list[BranchSignalRow]
 
 
 class HeatmapCell(BaseModel):

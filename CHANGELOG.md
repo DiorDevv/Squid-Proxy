@@ -123,6 +123,15 @@ All notable changes to this project are documented here. Format loosely follows
 
 ### Changed
 
+- **Analytics → Branches: the 0–100 "risk score" is gone.** It was an
+  uncalibrated blend of five signals with arbitrary weights — the code
+  already carried a disclaimer saying not to report it as a number. The
+  Branches tab now shows those five signals raw (blocked ratio,
+  sensitive-traffic share, anomaly count, quota breaches,
+  uncategorized-domain count) in one sortable table, so you pick the lens
+  and there's no composite implying precision the inputs don't have.
+  `GET /api/analytics/branch-risk` → `branch-signals` (new shape); the
+  `RISK_MODEL` env var and `RiskModelConfig` are removed.
 - **Analytics → Overview gained two glances it was missing.** A **Recent
   anomalies** panel (the 5 latest `AnomalyEvent`s, branch-scoped to the
   page filter) — until now the landing view of the Analytics section gave

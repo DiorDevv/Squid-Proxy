@@ -2,8 +2,8 @@
 
 Like `report_service.py`, this reuses the queries the dashboard already
 runs (`stats_service`) and adds a few cross-cutting rollups on top --
-period-over-period comparison, per-branch breakdown, a composite per-branch
-risk score, and an hour x weekday activity heatmap. Nothing here writes,
+period-over-period comparison, per-branch breakdown, per-branch attention
+signals, and an hour x weekday activity heatmap. Nothing here writes,
 and there is no analytics-specific table: every number comes from
 `minute_aggregates`, `domain_minute_aggregates`, `anomaly_events` and
 `alert_settings`.
@@ -14,14 +14,13 @@ weekday/hour split in the heatmap.
 
 from collections import defaultdict
 from datetime import UTC, datetime, timedelta
-from typing import Literal
 
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.config import DEFAULT_BRANCH, RiskModelConfig, get_settings
+from app.core.config import DEFAULT_BRANCH, get_settings
 from app.models.alert_settings import AlertSettings
-from app.models.anomaly_event import AnomalyEvent, AnomalySeverity
+from app.models.anomaly_event import AnomalyEvent
 from app.models.domain_aggregate import DomainMinuteAggregate
 from app.models.domain_category import DomainCategoryLabel
 from app.models.minute_aggregate import MinuteAggregate
@@ -30,8 +29,8 @@ from app.schemas.analytics import (
     AnalyticsOverview,
     BranchBreakdownResponse,
     BranchBreakdownRow,
-    BranchRiskResponse,
-    BranchRiskRow,
+    BranchSignalRow,
+    BranchSignalsResponse,
     CategoryMover,
     CategoryTrendPoint,
     CategoryTrendResponse,
@@ -39,8 +38,6 @@ from app.schemas.analytics import (
     DomainUsage,
     HeatmapCell,
     MetricDelta,
-    RiskSignal,
-    RiskSignalKey,
     TrendGranularity,
     TrendMetric,
 )
@@ -52,29 +49,11 @@ from app.services.domain_category_service import get_overrides_map
 
 _QUOTA_ANOMALY_KIND = "client_quota_exceeded"
 
-# Per-severity points that feed the "anomalies" risk signal (see
-# _risk_signals). Chosen so a single CRITICAL alone (20) already lands the
-# signal near its own normalization ceiling (_ANOMALY_NORM_CEIL).
-_ANOMALY_SEVERITY_POINTS: dict[AnomalySeverity, int] = {
-    AnomalySeverity.LOW: 1,
-    AnomalySeverity.MEDIUM: 3,
-    AnomalySeverity.HIGH: 8,
-    AnomalySeverity.CRITICAL: 20,
-}
-
-# The risk-model weights, normalization ceilings and band thresholds live
-# in config.RiskModelConfig (env-overridable via RISK_MODEL) -- see
-# _risk_signals below for how they combine.
-
 
 def _pct_change(current: float, previous: float | None) -> float | None:
     if previous is None or previous == 0:
         return None
     return (current - previous) / previous * 100
-
-
-def _clamp01(value: float) -> float:
-    return max(0.0, min(1.0, value))
 
 
 def _branches_in_scope(branch: str | None) -> list[str]:
@@ -116,11 +95,7 @@ async def _active_client_count(
     session: AsyncSession, since: datetime, until: datetime, branch: str | None
 ) -> int:
     combined = client_bucket_rows(since, until, branch=branch)
-    return int(
-        (
-            await session.execute(select(func.count(func.distinct(combined.c.client_ip))))
-        ).scalar_one()
-    )
+    return int((await session.execute(select(func.count(func.distinct(combined.c.client_ip))))).scalar_one())
 
 
 async def get_overview(
@@ -176,9 +151,7 @@ async def get_overview(
         for item in by_category[:8]
     ]
 
-    prev_by_category = await stats_service.get_usage_by_category(
-        session, prev_since, prev_until, branch
-    )
+    prev_by_category = await stats_service.get_usage_by_category(session, prev_since, prev_until, branch)
     cur_cat_bytes = {c.category: c.total_bytes for c in by_category}
     prev_cat_bytes = {c.category: c.total_bytes for c in prev_by_category}
     movers = [
@@ -186,9 +159,7 @@ async def get_overview(
             category=category,
             current_bytes=cur_cat_bytes.get(category, 0),
             previous_bytes=prev_cat_bytes.get(category, 0),
-            pct_change=_pct_change(
-                cur_cat_bytes.get(category, 0), prev_cat_bytes.get(category) or None
-            ),
+            pct_change=_pct_change(cur_cat_bytes.get(category, 0), prev_cat_bytes.get(category) or None),
         )
         for category in cur_cat_bytes.keys() | prev_cat_bytes.keys()
     ]
@@ -295,8 +266,7 @@ async def get_category_trend(
         totals[category.value] += value
 
     ordered_categories = [
-        DomainCategoryLabel(name)
-        for name, _ in sorted(totals.items(), key=lambda kv: kv[1], reverse=True)
+        DomainCategoryLabel(name) for name, _ in sorted(totals.items(), key=lambda kv: kv[1], reverse=True)
     ]
     drop = _drop_in_progress_bucket(list(buckets), effective_granularity)
     points = [
@@ -392,9 +362,7 @@ async def _branch_alert_inputs(
     existing = {
         row.branch: row
         for row in (
-            await session.execute(
-                select(AlertSettings).where(AlertSettings.branch.in_(branches))
-            )
+            await session.execute(select(AlertSettings).where(AlertSettings.branch.in_(branches)))
         ).scalars()
     }
     sensitive: dict[str, set[DomainCategoryLabel]] = {}
@@ -440,30 +408,28 @@ async def _branch_category_bytes(
 
 async def _branch_anomaly_stats(
     session: AsyncSession, since: datetime, until: datetime, branches: list[str]
-) -> dict[str, tuple[float, int, int]]:
-    """Per-branch (severity-weighted points, total count, quota-breach
-    count) in one query grouped by (branch, severity, kind)."""
+) -> dict[str, tuple[int, int]]:
+    """Per-branch (total anomaly count, quota-breach count) in one query
+    grouped by (branch, kind)."""
     rows = (
         await session.execute(
-            select(AnomalyEvent.branch, AnomalyEvent.severity, AnomalyEvent.kind, func.count())
+            select(AnomalyEvent.branch, AnomalyEvent.kind, func.count())
             .where(
                 AnomalyEvent.generated_at >= since,
                 AnomalyEvent.generated_at <= until,
                 AnomalyEvent.branch.in_(branches),
             )
-            .group_by(AnomalyEvent.branch, AnomalyEvent.severity, AnomalyEvent.kind)
+            .group_by(AnomalyEvent.branch, AnomalyEvent.kind)
         )
     ).all()
-    points: dict[str, float] = {b: 0.0 for b in branches}
     counts: dict[str, int] = {b: 0 for b in branches}
     quota: dict[str, int] = {b: 0 for b in branches}
-    for branch, severity, kind, n in rows:
+    for branch, kind, n in rows:
         count = int(n)
-        points[branch] += _ANOMALY_SEVERITY_POINTS.get(severity, 1) * count
         counts[branch] += count
         if kind == _QUOTA_ANOMALY_KIND:
             quota[branch] += count
-    return {b: (points[b], counts[b], quota[b]) for b in branches}
+    return {b: (counts[b], quota[b]) for b in branches}
 
 
 async def _branch_uncategorized_counts(
@@ -505,78 +471,27 @@ async def _branch_uncategorized_counts(
     return result
 
 
-def _safe_div(numerator: float, ceil: float) -> float:
-    return _clamp01(numerator / ceil) if ceil > 0 else (1.0 if numerator > 0 else 0.0)
-
-
-def _risk_signals(
-    blocked_ratio: float,
-    sensitive_share: float,
-    anomaly_points: float,
-    quota_breaches: int,
-    uncategorized_domains: int,
-    model: RiskModelConfig,
-) -> tuple[list[RiskSignal], float, Literal["low", "medium", "high"]]:
-    """Combine the five raw signals into a 0-100 composite plus per-signal
-    contributions, using the weights/ceilings from `model` (see
-    config.RiskModelConfig). Each signal's `score` is its own already-
-    weighted contribution, so the five sum (modulo rounding and the 0-100
-    clamp) to the composite."""
-    spec: list[tuple[RiskSignalKey, float, float, float]] = [
-        ("blocked_ratio", blocked_ratio, model.weight_blocked_ratio, model.blocked_ratio_ceil),
-        ("sensitive_traffic", sensitive_share, model.weight_sensitive_traffic, model.sensitive_share_ceil),
-        ("anomalies", anomaly_points, model.weight_anomalies, model.anomaly_points_ceil),
-        ("quota_breaches", float(quota_breaches), model.weight_quota_breaches, model.quota_breach_ceil),
-        (
-            "uncategorized_domains",
-            float(uncategorized_domains),
-            model.weight_uncategorized_domains,
-            model.uncategorized_domains_ceil,
-        ),
-    ]
-    signals: list[RiskSignal] = []
-    composite = 0.0
-    for key, raw_value, weight, ceil in spec:
-        contribution = _safe_div(raw_value, ceil) * weight * 100
-        composite += contribution
-        signals.append(
-            RiskSignal(
-                key=key, raw_value=round(raw_value, 4), score=round(contribution, 2), weight=weight
-            )
-        )
-    composite = max(0.0, min(100.0, composite))
-    band: Literal["low", "medium", "high"]
-    if composite >= model.band_high:
-        band = "high"
-    elif composite >= model.band_medium:
-        band = "medium"
-    else:
-        band = "low"
-    return signals, round(composite, 2), band
-
-
-async def get_branch_risk(
+async def get_branch_signals(
     session: AsyncSession, since: datetime, until: datetime, branch: str | None
-) -> BranchRiskResponse:
-    """Composite 0-100 risk score per in-scope branch. Runs a fixed handful
-    of grouped queries (totals, alert inputs, category bytes, anomaly
-    stats, uncategorized-domain counts) regardless of branch count, rather
-    than a per-branch query loop."""
+) -> BranchSignalsResponse:
+    """The raw per-branch attention signals -- blocked ratio, sensitive
+    traffic share, anomaly count, quota breaches, uncategorized-domain count
+    -- side by side, with no composite score or band. Runs a fixed handful
+    of grouped queries regardless of branch count, not a per-branch loop.
+    Sorted by blocked ratio then anomaly count so the branch most likely to
+    need a look is first; the frontend table is re-sortable by any column."""
     branches = _branches_in_scope(branch)
-    model = get_settings().RISK_MODEL
 
     totals = await _branch_minute_totals(session, since, until, branches)
     overrides = await get_overrides_map(session)
     sensitive_by_branch, thresholds = await _branch_alert_inputs(session, branches)
     category_bytes = await _branch_category_bytes(session, since, until, branches, overrides)
     anomaly_stats = await _branch_anomaly_stats(session, since, until, branches)
-    uncategorized = await _branch_uncategorized_counts(
-        session, since, until, branches, thresholds, overrides
-    )
+    uncategorized = await _branch_uncategorized_counts(session, since, until, branches, thresholds, overrides)
 
-    rows: list[BranchRiskRow] = []
+    rows: list[BranchSignalRow] = []
     for b in branches:
-        total, blocked, _allowed, total_bytes = totals[b]
+        total, blocked, _allowed, _total_bytes = totals[b]
         blocked_ratio = (blocked / total) if total else 0.0
 
         sensitive = sensitive_by_branch[b]
@@ -588,34 +503,25 @@ async def get_branch_risk(
             # ratio on an HTTPS-heavy deployment.
             categorized_bytes = sum(category_bytes[b].values())
             if categorized_bytes:
-                sensitive_bytes = sum(
-                    v for cat, v in category_bytes[b].items() if cat in sensitive
-                )
+                sensitive_bytes = sum(v for cat, v in category_bytes[b].items() if cat in sensitive)
                 sensitive_share = sensitive_bytes / categorized_bytes
 
-        anomaly_points, anomaly_count, quota_breaches = anomaly_stats[b]
+        anomaly_count, quota_breaches = anomaly_stats[b]
 
-        signals, score, band = _risk_signals(
-            blocked_ratio,
-            sensitive_share,
-            anomaly_points,
-            quota_breaches,
-            uncategorized[b],
-            model,
-        )
         rows.append(
-            BranchRiskRow(
+            BranchSignalRow(
                 branch=b,
-                score=score,
-                band=band,
-                signals=signals,
                 total_requests=total,
                 blocked_requests=blocked,
+                blocked_ratio=round(blocked_ratio, 4),
+                sensitive_traffic_share=round(sensitive_share, 4),
                 anomaly_count=anomaly_count,
+                quota_breach_count=quota_breaches,
+                uncategorized_domain_count=uncategorized[b],
             )
         )
-    rows.sort(key=lambda r: r.score, reverse=True)
-    return BranchRiskResponse(since=since, until=until, rows=rows)
+    rows.sort(key=lambda r: (r.blocked_ratio, r.anomaly_count), reverse=True)
+    return BranchSignalsResponse(since=since, until=until, rows=rows)
 
 
 async def get_activity_heatmap(
@@ -655,9 +561,7 @@ async def get_activity_heatmap(
         local = bucket_ts + shift
         grid[(local.weekday(), local.hour)] += value
 
-    cells = [
-        HeatmapCell(weekday=wd, hour=hr, value=value) for (wd, hr), value in sorted(grid.items())
-    ]
+    cells = [HeatmapCell(weekday=wd, hour=hr, value=value) for (wd, hr), value in sorted(grid.items())]
     max_value = max((c.value for c in cells), default=0)
     return ActivityHeatmapResponse(
         blocked_only=blocked_only,

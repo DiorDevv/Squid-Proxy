@@ -11,7 +11,7 @@ ENDPOINTS = [
     "/api/analytics/overview",
     "/api/analytics/category-trend",
     "/api/analytics/branch-breakdown",
-    "/api/analytics/branch-risk",
+    "/api/analytics/branch-signals",
     "/api/analytics/activity-heatmap",
     "/api/analytics/result-codes",
     "/api/analytics/response-time",
@@ -81,10 +81,10 @@ async def test_branch_scoped_admin_only_sees_own_branch(
     rows = breakdown.json()["rows"]
     assert [r["branch"] for r in rows] == ["branch-a"]
 
-    risk = await app_client.get(
-        "/api/analytics/branch-risk", headers=auth_headers(branch_a_admin_token)
+    signals = await app_client.get(
+        "/api/analytics/branch-signals", headers=auth_headers(branch_a_admin_token)
     )
-    assert [r["branch"] for r in risk.json()["rows"]] == ["branch-a"]
+    assert [r["branch"] for r in signals.json()["rows"]] == ["branch-a"]
 
 
 async def test_branch_scoped_admin_cannot_request_other_branch(

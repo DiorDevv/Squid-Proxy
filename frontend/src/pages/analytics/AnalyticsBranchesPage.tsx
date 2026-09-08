@@ -2,19 +2,19 @@ import { Panel } from '@/components/common/Panel'
 import { PanelErrorBoundary } from '@/components/common/PanelErrorBoundary'
 import { ErrorState } from '@/components/common/ErrorState'
 import { BranchComparisonChart } from '@/components/analytics/BranchComparisonChart'
-import { BranchRiskTable } from '@/components/analytics/BranchRiskTable'
+import { BranchSignalsTable } from '@/components/analytics/BranchSignalsTable'
 import { IngestHealthPanel } from '@/components/analytics/IngestHealthPanel'
 import { cn } from '@/lib/utils'
 import { formatBytes, formatNumber } from '@/lib/format'
 import { useRangeSearchParams } from '@/lib/filters-store'
-import { useBranchBreakdown, useBranchRisk, useIngestHealth } from '@/hooks/useAnalytics'
+import { useBranchBreakdown, useBranchSignals, useIngestHealth } from '@/hooks/useAnalytics'
 import { useTranslation } from '@/i18n'
 
 export default function AnalyticsBranchesPage() {
   const { t } = useTranslation()
   const rangeParams = useRangeSearchParams()
   const breakdown = useBranchBreakdown(rangeParams, true)
-  const risk = useBranchRisk(rangeParams, true)
+  const signals = useBranchSignals(rangeParams, true)
   const ingest = useIngestHealth(true)
 
   const rows = breakdown.data?.rows ?? []
@@ -31,15 +31,15 @@ export default function AnalyticsBranchesPage() {
         </PanelErrorBoundary>
       </Panel>
 
-      <Panel title={t('analytics.branches.riskTitle')} action={<span className="text-xs text-muted-foreground">{t('analytics.branches.riskHint')}</span>}>
-        <PanelErrorBoundary panelLabel={t('analytics.branches.riskTitle')}>
-          {risk.isError ? (
-            <ErrorState message={risk.error?.message} onRetry={() => risk.refetch()} />
+      <Panel
+        title={t('analytics.branches.signalsTitle')}
+        action={<span className="text-xs text-muted-foreground">{t('analytics.branches.signalsHint')}</span>}
+      >
+        <PanelErrorBoundary panelLabel={t('analytics.branches.signalsTitle')}>
+          {signals.isError ? (
+            <ErrorState message={signals.error?.message} onRetry={() => signals.refetch()} />
           ) : (
-            <div className="flex flex-col gap-2">
-              <BranchRiskTable rows={risk.data?.rows ?? []} loading={risk.isLoading} />
-              <p className="text-xs text-muted-foreground">{t('analytics.branches.riskDisclaimer')}</p>
-            </div>
+            <BranchSignalsTable rows={signals.data?.rows ?? []} loading={signals.isLoading} />
           )}
         </PanelErrorBoundary>
       </Panel>

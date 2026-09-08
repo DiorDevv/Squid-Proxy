@@ -5,7 +5,7 @@ from datetime import UTC, datetime, timedelta
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.config import LogSource, RiskModelConfig, Settings
+from app.core.config import LogSource, Settings
 from app.models.alert_settings import AlertSettings
 from app.models.anomaly_event import AnomalyEvent, AnomalySeverity
 from app.models.domain_aggregate import DomainMinuteAggregate
@@ -133,7 +133,7 @@ async def test_branch_breakdown_sorts_and_scopes(db_session: AsyncSession, monke
     assert [r.branch for r in scoped.rows] == ["warehouse"]
 
 
-async def test_branch_risk_high_blocked_ratio_and_anomalies_raise_score(db_session: AsyncSession):
+async def test_branch_signals_report_raw_blocked_ratio_and_anomaly_count(db_session: AsyncSession):
     now = datetime.now(UTC).replace(second=0, microsecond=0)
     since = now - timedelta(hours=1)
     db_session.add_all(
@@ -151,33 +151,54 @@ async def test_branch_risk_high_blocked_ratio_and_anomalies_raise_score(db_sessi
     )
     await db_session.commit()
 
-    result = await analytics_service.get_branch_risk(db_session, since, now, branch=None)
+    result = await analytics_service.get_branch_signals(db_session, since, now, branch=None)
     row = result.rows[0]
     assert row.branch == "default"
-    assert row.band in ("medium", "high")
-    assert row.score > 40
+    assert row.blocked_ratio == 0.6
     assert row.anomaly_count == 1
-    keys = {s.key for s in row.signals}
-    assert keys == {
-        "blocked_ratio",
-        "sensitive_traffic",
-        "anomalies",
-        "quota_breaches",
-        "uncategorized_domains",
-    }
-    # signal contributions sum (approximately) to the composite score
-    assert abs(sum(s.score for s in row.signals) - row.score) < 0.05
+    assert row.quota_breach_count == 1  # the anomaly's kind is client_quota_exceeded
+    assert row.uncategorized_domain_count == 0
+    assert row.sensitive_traffic_share == 0.0
+    # no composite score / band on the row any more
+    assert not hasattr(row, "score")
+    assert not hasattr(row, "band")
 
 
-async def test_branch_risk_quiet_branch_is_low(db_session: AsyncSession):
+async def test_branch_signals_quiet_branch_is_all_zeros(db_session: AsyncSession):
     now = datetime.now(UTC).replace(second=0, microsecond=0)
     since = now - timedelta(hours=1)
     db_session.add(_minute(bucket_ts=since + timedelta(minutes=1), total_requests=100, blocked_requests=1, allowed_requests=99))
     await db_session.commit()
 
-    result = await analytics_service.get_branch_risk(db_session, since, now, branch=None)
-    assert result.rows[0].band == "low"
-    assert result.rows[0].score < 40
+    result = await analytics_service.get_branch_signals(db_session, since, now, branch=None)
+    row = result.rows[0]
+    assert row.blocked_ratio == 0.01
+    assert row.anomaly_count == 0
+    assert row.quota_breach_count == 0
+    assert row.uncategorized_domain_count == 0
+
+
+async def test_branch_signals_sorted_worst_blocked_ratio_first(db_session: AsyncSession, monkeypatch):
+    monkeypatch.setattr(
+        analytics_service,
+        "get_settings",
+        lambda: Settings(
+            LOG_SOURCES=[LogSource(branch="a", path="/x/a.log"), LogSource(branch="b", path="/x/b.log")]
+        ),
+    )
+    now = datetime.now(UTC).replace(second=0, microsecond=0)
+    since = now - timedelta(hours=1)
+    bucket = since + timedelta(minutes=1)
+    db_session.add_all(
+        [
+            _minute(bucket_ts=bucket, branch="a", total_requests=100, blocked_requests=5, allowed_requests=95),
+            _minute(bucket_ts=bucket, branch="b", total_requests=100, blocked_requests=40, allowed_requests=60),
+        ]
+    )
+    await db_session.commit()
+
+    result = await analytics_service.get_branch_signals(db_session, since, now, branch=None)
+    assert [r.branch for r in result.rows] == ["b", "a"]
 
 
 async def test_activity_heatmap_buckets_by_weekday_and_hour(db_session: AsyncSession):
@@ -254,39 +275,7 @@ async def test_category_trend_coarsens_hour_to_day_past_bucket_cap(
     assert all(point.bucket_ts.hour == 0 for point in trend.points)
 
 
-async def test_branch_risk_weights_are_config_overridable(db_session: AsyncSession, monkeypatch):
-    now = datetime.now(UTC).replace(second=0, microsecond=0)
-    since = now - timedelta(hours=1)
-    db_session.add(
-        _minute(
-            bucket_ts=since + timedelta(minutes=1),
-            branch="default",
-            total_requests=100,
-            blocked_requests=40,
-            allowed_requests=60,
-        )
-    )
-    await db_session.commit()
-
-    # blocked_ratio = 0.40, which is exactly the default ceiling -> that
-    # signal normalizes to 1.0. With only its weight (0.30) it contributes
-    # 30 pts. Doubling the ceiling halves the contribution to ~15.
-    base = await analytics_service.get_branch_risk(db_session, since, now, branch=None)
-    base_blocked = next(s for s in base.rows[0].signals if s.key == "blocked_ratio")
-    assert round(base_blocked.score) == 30
-
-    monkeypatch.setattr(
-        analytics_service,
-        "get_settings",
-        lambda: Settings(RISK_MODEL=RiskModelConfig(blocked_ratio_ceil=0.80)),
-    )
-    tuned = await analytics_service.get_branch_risk(db_session, since, now, branch=None)
-    tuned_blocked = next(s for s in tuned.rows[0].signals if s.key == "blocked_ratio")
-    assert round(tuned_blocked.score) == 15
-    assert tuned.rows[0].score < base.rows[0].score
-
-
-async def test_branch_risk_batched_inputs_are_per_branch(db_session: AsyncSession, monkeypatch):
+async def test_branch_signals_batched_inputs_are_per_branch(db_session: AsyncSession, monkeypatch):
     """Two branches with different sensitive-category config: the batched
     per-branch queries must not bleed one branch's settings into another."""
     monkeypatch.setattr(
@@ -315,9 +304,7 @@ async def test_branch_risk_batched_inputs_are_per_branch(db_session: AsyncSessio
     )
     await db_session.commit()
 
-    result = await analytics_service.get_branch_risk(db_session, since, now, branch=None)
+    result = await analytics_service.get_branch_signals(db_session, since, now, branch=None)
     by_branch = {r.branch: r for r in result.rows}
-    hq_sensitive = next(s for s in by_branch["hq"].signals if s.key == "sensitive_traffic")
-    wh_sensitive = next(s for s in by_branch["warehouse"].signals if s.key == "sensitive_traffic")
-    assert hq_sensitive.raw_value > 0  # hq: gambling counts, 6000/10000 = 0.6 share
-    assert wh_sensitive.raw_value == 0  # warehouse: gambling not marked sensitive
+    assert by_branch["hq"].sensitive_traffic_share > 0  # gambling counts, 6000/10000 = 0.6 share
+    assert by_branch["warehouse"].sensitive_traffic_share == 0  # gambling not marked sensitive here

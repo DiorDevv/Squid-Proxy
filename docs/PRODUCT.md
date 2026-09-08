@@ -40,7 +40,7 @@ actually serve. This document picks the side the foundation already chose.
 | Area | New status |
 | --- | --- |
 | "NOC" / live-console framing | Reframe as **Review**. Live view stays for triage; it is not the identity. |
-| Branch **risk score** | A triage hint in a table. Stop adding signals. Never show a bare "score: 42" as a headline number — an unvalidated composite reads as authoritative and isn't. |
+| Branch **risk score** | Resolved: the composite score and its bands were removed. The Branches tab now shows the raw signals (blocked ratio, sensitive share, anomaly count, quota breaches, uncategorized domains) side by side in a sortable table — a triage lens, no made-up number. Don't reintroduce a composite. |
 | **Config advisor** | Useful but orthogonal (it tunes `squid.conf`, not the record). One panel, parked. No expansion. |
 | Analytics tab sprawl / "interesting charts" | Freeze. Every new chart must answer an evidence question, not be a visualisation. |
 | Anomaly / alerting depth | Keep what exists. Not a headline capability. |

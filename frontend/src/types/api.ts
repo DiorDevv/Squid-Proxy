@@ -580,6 +580,19 @@ export interface DataPolicy {
   collected_fields: CollectedField[]
 }
 
+// --- Retention settings (/api/retention-settings) ---
+
+export interface RetentionSettingsOut {
+  raw_events_days: number
+  halt_purge_if_archive_lag_days: number | null
+  updated_at: string
+}
+
+export interface UpdateRetentionSettingsBody {
+  raw_events_days: number
+  halt_purge_if_archive_lag_days: number | null
+}
+
 // --- System health (/api/system-health) ---
 
 export interface SystemHealthResponse {

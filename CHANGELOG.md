@@ -123,6 +123,16 @@ All notable changes to this project are documented here. Format loosely follows
 
 ### Changed
 
+- **The `raw_events` retention window is now admin-tunable** at **Settings →
+  Retention** (`GET/PUT /api/retention-settings`, admin only), instead of
+  needing a redeploy. `RETENTION_DAYS_RAW_EVENTS` seeds it once; after that
+  the DB row wins. Lowering it confirms first (the next purge permanently
+  deletes the now-out-of-window rows). The same page adds
+  `halt_purge_if_archive_lag_days` (the L9 audit fix): when set,
+  `RetentionJob` skips the `raw_events` purge for any cycle where the
+  freshest archive across all branches is older than that, and alerts —
+  so a broken archiving job can't silently take per-request detail down
+  with it. Off by default. The other retention windows stay env-only.
 - **Analytics → Branches: the 0–100 "risk score" is gone.** It was an
   uncalibrated blend of five signals with arbitrary weights — the code
   already carried a disclaimer saying not to report it as a number. The

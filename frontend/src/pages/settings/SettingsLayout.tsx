@@ -14,6 +14,7 @@ const SETTINGS_NAV_ITEMS: { to: string; labelKey: TranslationKey; adminOnly: boo
   { to: 'categories', labelKey: 'settings.nav.categories', adminOnly: true },
   { to: 'watchlist', labelKey: 'settings.nav.watchlist', adminOnly: true },
   { to: 'export', labelKey: 'settings.nav.export', adminOnly: true },
+  { to: 'retention', labelKey: 'settings.nav.retention', adminOnly: true },
 ]
 
 // Only an unrestricted admin (branch === null) may link the global

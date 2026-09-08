@@ -306,7 +306,7 @@ Key ones to know:
 | `LOG_FILE_PATH` | Path to the Squid `access.log` to tail — must be written in the `squid` logformat, see above |
 | `DATABASE_URL` | `sqlite+aiosqlite:///...` (default) or `postgresql+asyncpg://...` |
 | `JWT_SECRET` | Signs access tokens — must be set to a real secret in any non-dev environment |
-| `RETENTION_DAYS_RAW_EVENTS` / `RETENTION_DAYS_AGGREGATES` | How long raw vs. aggregated data is kept |
+| `RETENTION_DAYS_RAW_EVENTS` / `RETENTION_DAYS_AGGREGATES` | How long raw vs. aggregated data is kept. `RETENTION_DAYS_RAW_EVENTS` only **seeds** the initial value — once an admin saves at **Settings → Retention** (`GET/PUT /api/retention-settings`), the DB row is authoritative and this env var is inert. That page also holds the `halt_purge_if_archive_lag_days` guard: when set, the `raw_events` purge is skipped for any cycle where archiving is more than that many days behind (so a broken archive job can't quietly delete per-request detail — leave off on a bounded-disk install). |
 | `RETENTION_DAYS_OPS_AGGREGATES` | How long the Analytics per-minute operational aggregates (result codes, HTTP, hierarchy, per-user category) are kept — shorter (default 90d) than the core aggregates |
 | `ADMIN_EMAIL` / `ADMIN_PASSWORD` | First-boot admin bootstrap (only used if the `users` table is empty) |
 | `METRICS_ALLOWED_IPS` | JSON array of IPs/CIDRs allowed to scrape `/metrics` — empty (default) means no IP restriction; `/api/health` stays open regardless |

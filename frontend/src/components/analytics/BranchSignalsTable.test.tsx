@@ -1,4 +1,4 @@
-import { render, screen, within } from '@testing-library/react'
+import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it } from 'vitest'
 import { BranchSignalsTable } from '@/components/analytics/BranchSignalsTable'
@@ -27,6 +27,14 @@ const ROWS: BranchSignalRow[] = [
   },
 ]
 
+/** Branch names in body-row order (header row dropped). */
+function branchOrder(): string[] {
+  return screen
+    .getAllByRole('row')
+    .slice(1)
+    .map((r) => r.querySelector('td')?.textContent ?? '')
+}
+
 describe('BranchSignalsTable', () => {
   it('shows a skeleton while loading', () => {
     const { container } = render(<BranchSignalsTable rows={[]} loading />)
@@ -38,20 +46,18 @@ describe('BranchSignalsTable', () => {
     expect(screen.getByText('No branch traffic in this range.')).toBeInTheDocument()
   })
 
-  it('defaults to worst blocked ratio first and has no score/band column', () => {
+  it('defaults to worst blocked ratio first and has no score/band', () => {
     render(<BranchSignalsTable rows={ROWS} />)
-    const bodyRows = screen.getAllByRole('row').slice(1) // drop header
-    expect(within(bodyRows[0]).getByText('noisy')).toBeInTheDocument()
-    expect(within(bodyRows[1]).getByText('quiet')).toBeInTheDocument()
+    expect(branchOrder()).toEqual(['noisy', 'quiet'])
     expect(screen.queryByText(/risk/i)).not.toBeInTheDocument()
     expect(screen.getByText('40.0%')).toBeInTheDocument()
   })
 
-  it('re-sorts when a column header is clicked', async () => {
+  it('re-sorts ascending by branch name when that header is clicked', async () => {
     render(<BranchSignalsTable rows={ROWS} />)
     await userEvent.click(screen.getByText('Branch'))
-    const bodyRows = screen.getAllByRole('row').slice(1)
-    // ascending by branch name: noisy before quiet
-    expect(within(bodyRows[0]).getByText('noisy')).toBeInTheDocument()
+    expect(branchOrder()).toEqual(['noisy', 'quiet'])
+    await userEvent.click(screen.getByText('Branch'))
+    expect(branchOrder()).toEqual(['quiet', 'noisy'])
   })
 })

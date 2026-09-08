@@ -306,6 +306,7 @@ def create_app() -> FastAPI:
         insights,
         policy,
         reports,
+        retention_settings,
         subject_access,
         summary,
         system_health,
@@ -332,6 +333,7 @@ def create_app() -> FastAPI:
     app.include_router(alert_settings.router)
     app.include_router(analytics.router)
     app.include_router(reports.router)
+    app.include_router(retention_settings.router)
     app.include_router(watchlist.router)
     app.include_router(subject_access.router)
     app.include_router(system_health.router)

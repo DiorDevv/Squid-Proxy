@@ -30,6 +30,7 @@ from app.services import (
     analytics_service,
     audit_service,
     config_advisor_service,
+    retention_settings_service,
     squid_ops_service,
 )
 
@@ -161,10 +162,11 @@ async def read_denials(
 
 
 @router.get("/retention", response_model=RetentionInfo)
-async def read_retention() -> RetentionInfo:
+async def read_retention(db: AsyncSession = Depends(get_db)) -> RetentionInfo:
     settings = get_settings()
+    retention = await retention_settings_service.get_settings_row(db)
     return RetentionInfo(
-        raw_event_days=settings.RETENTION_DAYS_RAW_EVENTS,
+        raw_event_days=retention.raw_events_days,
         aggregate_days=settings.RETENTION_DAYS_AGGREGATES,
         ops_aggregate_days=settings.RETENTION_DAYS_OPS_AGGREGATES,
     )

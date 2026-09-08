@@ -54,6 +54,10 @@ class AuditAction(str, enum.Enum):
     # dossier is a deliberate, occasional act (unlike paging through a
     # client's activity), so every one is worth its own record.
     SUBJECT_DOSSIER_EXPORTED = "subject_dossier_exported"
+    # An admin changed a data-retention window (raw_events days, or the
+    # halt-on-archive-lag guard) at Settings -> Retention -- see
+    # app/services/retention_settings_service.py.
+    RETENTION_SETTINGS_UPDATED = "retention_settings_updated"
 
 
 class AuditLogEntry(Base):
@@ -72,9 +76,7 @@ class AuditLogEntry(Base):
     __tablename__ = "audit_log_entries"
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
-    created_at: Mapped[datetime] = mapped_column(
-        UTCDateTime, index=True, default=lambda: datetime.now(UTC)
-    )
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime, index=True, default=lambda: datetime.now(UTC))
     action: Mapped[AuditAction] = mapped_column(Enum(AuditAction), index=True)
     # None means the action wasn't confined to one branch -- either the
     # affected resource has no branch dimension at all (domain categories,

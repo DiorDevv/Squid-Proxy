@@ -32,9 +32,11 @@ from app.models.ops_aggregate import (
 from app.models.raw_event import RawEvent
 from app.models.refresh_token import RefreshToken
 from app.models.system_event import SystemEvent
+from app.services import retention_settings_service
 from app.services.db_upsert import bulk_upsert_sum, declared_table
 from app.services.export_job_service import purge_old_jobs
 from app.services.interval_job import IntervalJob
+from app.services.ops_alerting import notify_operator_failure
 from app.services.report_service import send_unarchived_purge_warning
 
 logger = logging.getLogger(__name__)
@@ -74,19 +76,24 @@ class RetentionJob(IntervalJob):
     async def run(self) -> None:
         settings = get_settings()
         now = datetime.now(UTC)
-        raw_cutoff = now - timedelta(days=settings.RETENTION_DAYS_RAW_EVENTS)
         aggregate_cutoff = now - timedelta(days=settings.RETENTION_DAYS_AGGREGATES)
         ops_cutoff = now - timedelta(days=settings.RETENTION_DAYS_OPS_AGGREGATES)
         rollup_cutoff = now - timedelta(hours=settings.CLIENT_ROLLUP_AFTER_HOURS)
 
         async with AsyncSessionLocal() as session:
+            retention = await retention_settings_service.get_settings_row(session)
+            raw_cutoff = now - timedelta(days=retention.raw_events_days)
+
             await self._rollup_client_minutes_to_hourly(session, rollup_cutoff)
 
             # Checked *before* the delete below, against the data that
-            # delete is about to remove -- purging still happens either way
-            # (retention has to stay bounded regardless of whether anyone's
-            # archiving), this only decides whether to warn about it.
+            # delete is about to remove -- this decides whether to warn
+            # about it (and, if halt_purge_if_archive_lag_days is set,
+            # whether to skip the raw_events purge entirely this cycle).
             unarchived_branches = await self._find_unarchived_branches(session, settings, raw_cutoff)
+            halt_raw_purge = await self._archiving_too_far_behind(
+                session, now, retention.halt_purge_if_archive_lag_days
+            )
             await session.commit()
 
         # Its own batched, multi-transaction pass -- see
@@ -97,7 +104,22 @@ class RetentionJob(IntervalJob):
         # below doesn't weaken the "purge eventually catches up" guarantee,
         # it just means a crash between the two leaves a bit more raw_events
         # data than aggregates for one extra cycle, not any inconsistency.
-        raw_deleted = await self._delete_raw_events_before(raw_cutoff)
+        if halt_raw_purge:
+            raw_deleted = 0
+            logger.warning(
+                "raw_events purge skipped -- archiving is more than %d days behind "
+                "(halt_purge_if_archive_lag_days). Per-request detail is NOT being "
+                "deleted until archiving catches up.",
+                retention.halt_purge_if_archive_lag_days,
+            )
+            await notify_operator_failure(
+                "retention",
+                f"raw_events purge halted: archiving is >{retention.halt_purge_if_archive_lag_days} "
+                "days behind. Detail is piling up in the live DB (disk risk) but not being lost -- "
+                "fix archiving, then it resumes automatically.",
+            )
+        else:
+            raw_deleted = await self._delete_raw_events_before(raw_cutoff)
 
         async with AsyncSessionLocal() as session:
             await session.execute(delete(MinuteAggregate).where(MinuteAggregate.bucket_ts < aggregate_cutoff))
@@ -214,6 +236,23 @@ class RetentionJob(IntervalJob):
             if archived_until is None or archived_until < raw_cutoff:
                 unarchived.append(source.branch)
         return unarchived
+
+    async def _archiving_too_far_behind(
+        self, session: AsyncSession, now: datetime, lag_days: int | None
+    ) -> bool:
+        """True if halt_purge_if_archive_lag_days is set and the freshest
+        successful archive across all branches is older than that. A global
+        (not per-branch) check: archiving being that far behind is a
+        system-wide problem, and _delete_raw_events_before purges by
+        timestamp, not per branch."""
+        if lag_days is None:
+            return False
+        newest = (await session.execute(select(func.max(ArchiveRun.archived_until)))).scalar_one_or_none()
+        if newest is None:
+            return True  # archiving has never run
+        if newest.tzinfo is None:
+            newest = newest.replace(tzinfo=UTC)
+        return newest < now - timedelta(days=lag_days)
 
     async def _rollup_client_minutes_to_hourly(self, session: AsyncSession, rollup_cutoff: datetime) -> None:
         """Compress client_minute_aggregates rows older than rollup_cutoff

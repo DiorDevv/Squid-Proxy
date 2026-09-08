@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends
+from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import require_admin_or_auditor
+from app.api.deps import get_db, require_admin_or_auditor
 from app.core.config import get_settings
 from app.schemas.policy import (
     ArchivingPolicy,
@@ -8,6 +9,7 @@ from app.schemas.policy import (
     DataPolicyResponse,
     RetentionWindows,
 )
+from app.services import retention_settings_service
 
 router = APIRouter(prefix="/api", tags=["policy"], dependencies=[Depends(require_admin_or_auditor)])
 
@@ -36,13 +38,14 @@ _COLLECTED_FIELDS = [
 
 
 @router.get("/policy", response_model=DataPolicyResponse)
-async def read_data_policy() -> DataPolicyResponse:
+async def read_data_policy(db: AsyncSession = Depends(get_db)) -> DataPolicyResponse:
     s = get_settings()
+    retention = await retention_settings_service.get_settings_row(db)
     return DataPolicyResponse(
         purpose=s.DATA_PROCESSING_PURPOSE,
         controller=s.DATA_CONTROLLER,
         retention=RetentionWindows(
-            raw_events_days=s.RETENTION_DAYS_RAW_EVENTS,
+            raw_events_days=retention.raw_events_days,
             aggregates_days=s.RETENTION_DAYS_AGGREGATES,
             ops_aggregates_days=s.RETENTION_DAYS_OPS_AGGREGATES,
             archives_days=s.ARCHIVE_KEEP_DAYS,

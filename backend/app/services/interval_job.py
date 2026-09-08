@@ -13,6 +13,7 @@ import asyncio
 import logging
 import random
 from abc import ABC, abstractmethod
+from datetime import UTC, datetime
 
 from app.services.ops_alerting import notify_operator_failure
 
@@ -48,6 +49,15 @@ class IntervalJob(ABC):
         self.interval_seconds = interval_seconds
         self._task: asyncio.Task | None = None
         self._stop_event = asyncio.Event()
+        # Lightweight health, surfaced by GET /api/system-health.
+        self.last_run_at: datetime | None = None
+        self.last_error: str | None = None
+        self.last_error_at: datetime | None = None
+        self.consecutive_failures: int = 0
+
+    @property
+    def is_alive(self) -> bool:
+        return self._task is not None and not self._task.done()
 
     def start(self) -> None:
         if self.run_immediately_on_start:
@@ -84,9 +94,15 @@ class IntervalJob(ABC):
         """A single bad run must never permanently stop this job -- a
         transient failure (DB hiccup, network blip) should only cost this
         one interval, not take the whole job down for good."""
+        self.last_run_at = datetime.now(UTC)
         try:
             await self.run()
-        except Exception:
+            self.last_error = None
+            self.consecutive_failures = 0
+        except Exception as exc:
+            self.last_error = f"{type(exc).__name__}: {exc}"[:500]
+            self.last_error_at = datetime.now(UTC)
+            self.consecutive_failures += 1
             logger.exception(self.failure_log_message)
             await notify_operator_failure(self.failure_source_tag, self.failure_log_message)
 

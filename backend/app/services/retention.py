@@ -31,6 +31,7 @@ from app.models.ops_aggregate import (
 )
 from app.models.raw_event import RawEvent
 from app.models.refresh_token import RefreshToken
+from app.models.system_event import SystemEvent
 from app.services.db_upsert import bulk_upsert_sum, declared_table
 from app.services.export_job_service import purge_old_jobs
 from app.services.interval_job import IntervalJob
@@ -99,18 +100,12 @@ class RetentionJob(IntervalJob):
         raw_deleted = await self._delete_raw_events_before(raw_cutoff)
 
         async with AsyncSessionLocal() as session:
+            await session.execute(delete(MinuteAggregate).where(MinuteAggregate.bucket_ts < aggregate_cutoff))
             await session.execute(
-                delete(MinuteAggregate).where(MinuteAggregate.bucket_ts < aggregate_cutoff)
+                delete(DomainMinuteAggregate).where(DomainMinuteAggregate.bucket_ts < aggregate_cutoff)
             )
             await session.execute(
-                delete(DomainMinuteAggregate).where(
-                    DomainMinuteAggregate.bucket_ts < aggregate_cutoff
-                )
-            )
-            await session.execute(
-                delete(ClientMinuteAggregate).where(
-                    ClientMinuteAggregate.bucket_ts < aggregate_cutoff
-                )
+                delete(ClientMinuteAggregate).where(ClientMinuteAggregate.bucket_ts < aggregate_cutoff)
             )
             await session.execute(
                 delete(ClientCategoryMinuteAggregate).where(
@@ -126,27 +121,27 @@ class RetentionJob(IntervalJob):
             # days by the UI. The response-time histogram lives on
             # minute_aggregates itself and ages out with it above.
             await session.execute(
-                delete(ResultCodeMinuteAggregate).where(
-                    ResultCodeMinuteAggregate.bucket_ts < ops_cutoff
-                )
+                delete(ResultCodeMinuteAggregate).where(ResultCodeMinuteAggregate.bucket_ts < ops_cutoff)
             )
             await session.execute(
                 delete(HttpMinuteAggregate).where(HttpMinuteAggregate.bucket_ts < ops_cutoff)
             )
             await session.execute(
-                delete(HierarchyMinuteAggregate).where(
-                    HierarchyMinuteAggregate.bucket_ts < ops_cutoff
-                )
+                delete(HierarchyMinuteAggregate).where(HierarchyMinuteAggregate.bucket_ts < ops_cutoff)
             )
             await session.execute(
-                delete(UserCategoryMinuteAggregate).where(
-                    UserCategoryMinuteAggregate.bucket_ts < ops_cutoff
-                )
+                delete(UserCategoryMinuteAggregate).where(UserCategoryMinuteAggregate.bucket_ts < ops_cutoff)
             )
             # Revoked/rotated tokens are kept until their natural expiry (a
             # theft-detection signal, see api/routes/auth.py:refresh), then
             # purged here so the table doesn't grow unbounded.
             await session.execute(delete(RefreshToken).where(RefreshToken.expires_at < now))
+            # Operational-failure history (Settings -> System health).
+            await session.execute(
+                delete(SystemEvent).where(
+                    SystemEvent.created_at < now - timedelta(days=settings.RETENTION_DAYS_SYSTEM_EVENTS)
+                )
+            )
             # Export job result files (see api/routes/export.py's POST
             # /export/jobs) are meant to be downloaded soon after they
             # finish, not kept indefinitely -- purge alongside everything
@@ -186,8 +181,10 @@ class RetentionJob(IntervalJob):
         total_deleted = 0
         while True:
             async with AsyncSessionLocal() as session:
-                batch_ids = select(RawEvent.id).where(RawEvent.timestamp < cutoff).limit(
-                    _RAW_EVENTS_DELETE_BATCH_SIZE
+                batch_ids = (
+                    select(RawEvent.id)
+                    .where(RawEvent.timestamp < cutoff)
+                    .limit(_RAW_EVENTS_DELETE_BATCH_SIZE)
                 )
                 result = await session.execute(delete(RawEvent).where(RawEvent.id.in_(batch_ids)))
                 await session.commit()
@@ -218,9 +215,7 @@ class RetentionJob(IntervalJob):
                 unarchived.append(source.branch)
         return unarchived
 
-    async def _rollup_client_minutes_to_hourly(
-        self, session: AsyncSession, rollup_cutoff: datetime
-    ) -> None:
+    async def _rollup_client_minutes_to_hourly(self, session: AsyncSession, rollup_cutoff: datetime) -> None:
         """Compress client_minute_aggregates rows older than rollup_cutoff
         into client_hourly_aggregates, then delete the source minute rows.
 
@@ -233,10 +228,14 @@ class RetentionJob(IntervalJob):
         in this codebase.
         """
         rows = (
-            await session.execute(
-                select(ClientMinuteAggregate).where(ClientMinuteAggregate.bucket_ts < rollup_cutoff)
+            (
+                await session.execute(
+                    select(ClientMinuteAggregate).where(ClientMinuteAggregate.bucket_ts < rollup_cutoff)
+                )
             )
-        ).scalars().all()
+            .scalars()
+            .all()
+        )
         if not rows:
             return
 

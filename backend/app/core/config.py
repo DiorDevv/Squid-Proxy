@@ -114,6 +114,10 @@ class Settings(BaseSettings):
     # days, so these get a shorter window of their own rather than riding
     # the 400-day RETENTION_DAYS_AGGREGATES.
     RETENTION_DAYS_OPS_AGGREGATES: int = 90
+    # Operational-failure history (system_events, shown at Settings ->
+    # System health). Kept long enough to review a run of failures weeks
+    # later, not indefinitely.
+    RETENTION_DAYS_SYSTEM_EVENTS: int = 90
     # How often the ring buffer flushes to DB aggregates. Lower = less
     # runway needed in RING_BUFFER_MAX_EVENTS above per flush cycle, at the
     # cost of more frequent (still bulk-upsert, see db_upsert.py) writes.

@@ -6,7 +6,6 @@ from datetime import UTC, datetime, timedelta
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.models.client_aggregate import ClientMinuteAggregate
-from app.models.client_category_aggregate import ClientCategoryMinuteAggregate
 from app.models.domain_aggregate import DomainMinuteAggregate
 from app.models.domain_category import DomainCategoryLabel
 from app.models.minute_aggregate import MinuteAggregate
@@ -15,6 +14,7 @@ from app.models.ops_aggregate import (
     ResultCodeMinuteAggregate,
     UserCategoryMinuteAggregate,
 )
+from app.models.raw_event import RawEvent
 from app.schemas.analytics import TrendGranularity
 from app.services import squid_ops_service
 from app.services.aggregator import Aggregator
@@ -245,19 +245,28 @@ async def test_new_entities_reports_first_seen_within_window(db_session: AsyncSe
 
 
 async def test_actor_detail_reads_category_split_and_hourly(db_session: AsyncSession):
+    # Request/blocked/bytes/hourly still come from the client aggregate;
+    # the category split and the domains under each category come from
+    # raw_events (same pull, so they reconcile).
+    db_session.add(
+        ClientMinuteAggregate(
+            bucket_ts=BUCKET, client_ip="10.0.0.1", branch="default", user="alice",
+            request_count=50, blocked_count=5, total_bytes=3000,
+        )
+    )
     db_session.add_all(
         [
-            ClientMinuteAggregate(
-                bucket_ts=BUCKET, client_ip="10.0.0.1", branch="default", user="alice",
-                request_count=50, blocked_count=5, total_bytes=3000,
+            RawEvent(
+                timestamp=BUCKET, duration_ms=1, client_ip="10.0.0.1", user="alice",
+                action="TCP_MISS", status_code=200, bytes=2000, method="GET",
+                url="http://facebook.com/", domain="facebook.com",
+                hierarchy=None, peer=None, content_type=None, blocked=False,
             ),
-            ClientCategoryMinuteAggregate(
-                bucket_ts=BUCKET, client_ip="10.0.0.1", branch="default",
-                category=DomainCategoryLabel.SOCIAL_MEDIA, request_count=30, total_bytes=2000,
-            ),
-            UserCategoryMinuteAggregate(
-                bucket_ts=BUCKET, branch="default", user="alice",
-                category=DomainCategoryLabel.SOCIAL_MEDIA, request_count=30, total_bytes=2000,
+            RawEvent(
+                timestamp=BUCKET, duration_ms=1, client_ip="10.0.0.1", user="alice",
+                action="TCP_MISS", status_code=200, bytes=500, method="GET",
+                url="http://instagram.com/", domain="instagram.com",
+                hierarchy=None, peer=None, content_type=None, blocked=False,
             ),
         ]
     )
@@ -268,9 +277,18 @@ async def test_actor_detail_reads_category_split_and_hourly(db_session: AsyncSes
     )
     assert detail.request_count == 50
     assert detail.blocked_count == 5
-    assert detail.categories[0].category == DomainCategoryLabel.SOCIAL_MEDIA
     assert sum(detail.hourly) == 50
     assert len(detail.hourly) == 24
+
+    assert detail.categories, "expected the raw_events to produce a category split"
+    top = detail.categories[0]
+    # a category's totals reconcile with the domains listed under it
+    assert top.total_bytes == sum(d.total_bytes for d in top.domains)
+    assert top.request_count == sum(d.request_count for d in top.domains)
+    assert all(d.category == top.category for d in top.domains)
+    # every domain the actor hit is placed under exactly one category
+    listed = [d.domain for c in detail.categories for d in c.domains]
+    assert sorted(listed) == ["facebook.com", "instagram.com"]
 
 
 def test_build_ingest_health_reshapes_health_snapshot():

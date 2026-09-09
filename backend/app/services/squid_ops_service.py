@@ -55,6 +55,10 @@ from app.services.domain_category_service import get_overrides_map
 
 _NEW_ENTITY_CAP = 50
 _ACTOR_TOP_DOMAINS = 10
+# Pulled for the category -> domains drill-down in the actor sheet. Higher
+# than _ACTOR_TOP_DOMAINS so each category has a few domains under it, not
+# just the actor's single busiest overall.
+_ACTOR_CATEGORY_DOMAIN_LIMIT = 40
 
 # (lower_ms, upper_ms | None, histogram column) in band order -- mirrors
 # aggregator._add_duration.
@@ -429,38 +433,46 @@ async def get_actor_detail(
     for bucket_ts, count in hourly_rows:
         hourly[bucket_ts.hour] += int(count)
 
-    # category split
-    cat_model, cat_actor_col = _category_model_and_actor_col(is_user)
-    cat_conditions: list[Any] = [
-        cat_model.bucket_ts >= since,
-        cat_model.bucket_ts <= until,
-        cat_actor_col == actor,
-    ]
-    if branch is not None:
-        cat_conditions.append(cat_model.branch == branch)
-    cat_rows = (
-        await session.execute(
-            select(
-                cat_model.category,
-                func.sum(cat_model.request_count),
-                func.sum(cat_model.total_bytes),
-            )
-            .where(*cat_conditions)
-            .group_by(cat_model.category)
-        )
-    ).all()
+    # Category split + the domains behind each category, both derived from
+    # the same raw_events pull so a category's total always reconciles with
+    # the domains shown under it. (This replaces a separate query against
+    # the client/user category aggregate, which covered a longer window but
+    # couldn't be broken down to domains -- see _ACTOR_CATEGORY_DOMAIN_LIMIT
+    # and the note in schemas.squid_ops.ActorCategorySlice.)
+    overrides = await get_overrides_map(session)
+    scored_domains = await _actor_domains(
+        session,
+        actor,
+        is_user,
+        since,
+        until,
+        branch,
+        blocked_only=False,
+        overrides=overrides,
+        limit=_ACTOR_CATEGORY_DOMAIN_LIMIT,
+    )
+    by_category: dict[DomainCategoryLabel, list[ActorDomainRow]] = defaultdict(list)
+    for row in scored_domains:
+        by_category[row.category].append(row)
     categories = sorted(
         (
-            ActorCategorySlice(category=c, request_count=int(rc), total_bytes=int(tb))
-            for c, rc, tb in cat_rows
+            ActorCategorySlice(
+                category=category,
+                request_count=sum(d.request_count for d in domains),
+                total_bytes=sum(d.total_bytes for d in domains),
+                domains=sorted(domains, key=lambda d: d.total_bytes, reverse=True),
+            )
+            for category, domains in by_category.items()
         ),
         key=lambda s: s.total_bytes,
         reverse=True,
     )
 
-    top_domains = await _actor_domains(session, actor, is_user, since, until, branch, blocked_only=False)
+    top_domains = sorted(scored_domains, key=lambda d: d.request_count, reverse=True)[
+        :_ACTOR_TOP_DOMAINS
+    ]
     denied_domains = await _actor_domains(
-        session, actor, is_user, since, until, branch, blocked_only=True
+        session, actor, is_user, since, until, branch, blocked_only=True, overrides=overrides
     )
 
     return ActorDetailResponse(
@@ -486,10 +498,15 @@ async def _actor_domains(
     until: datetime,
     branch: str | None,
     blocked_only: bool,
+    *,
+    overrides: dict[str, DomainCategoryLabel],
+    limit: int = _ACTOR_TOP_DOMAINS,
 ) -> list[ActorDomainRow]:
     """Top domains for one actor -- the one place "who" reaches into
     raw_events (indexed on client_ip and on user), bounded to a single
-    actor and the selected range."""
+    actor and the selected range. Each domain is resolved to its effective
+    category here so the caller can group by it; `overrides` is passed in so
+    the admin-override map is loaded once per request, not per call."""
     actor_col = RawEvent.user if is_user else RawEvent.client_ip
     conditions = [
         RawEvent.timestamp >= since,
@@ -512,12 +529,13 @@ async def _actor_domains(
             .where(*conditions)
             .group_by(RawEvent.domain)
             .order_by(func.count().desc())
-            .limit(_ACTOR_TOP_DOMAINS)
+            .limit(limit)
         )
     ).all()
     return [
         ActorDomainRow(
             domain=domain or "",
+            category=effective_category(domain or "", overrides),
             request_count=int(count),
             blocked_count=int(blocked or 0),
             total_bytes=int(byte_total),
@@ -673,19 +691,28 @@ async def get_denials(
     overrides = await get_overrides_map(session)
     top_domains = [
         ActorDomainRow(
-            domain=domain, request_count=0, blocked_count=int(blocked), total_bytes=int(tb)
+            domain=domain,
+            category=effective_category(domain, overrides),
+            request_count=0,
+            blocked_count=int(blocked),
+            total_bytes=int(tb),
         )
         for domain, blocked, tb in dom_rows
     ]
-    cat_totals: dict[DomainCategoryLabel, list[int]] = defaultdict(lambda: [0, 0])
-    for domain, blocked, tb in dom_rows:
-        cat = effective_category(domain, overrides)
-        cat_totals[cat][0] += int(blocked)
-        cat_totals[cat][1] += int(tb)
+    by_cat: dict[DomainCategoryLabel, list[ActorDomainRow]] = defaultdict(list)
+    for row in top_domains:
+        by_cat[row.category].append(row)
     top_categories = sorted(
         (
-            ActorCategorySlice(category=c, request_count=v[0], total_bytes=v[1])
-            for c, v in cat_totals.items()
+            ActorCategorySlice(
+                category=category,
+                # request_count carries the blocked count here (this is the
+                # Blocks view) -- kept as-is for the existing ordering.
+                request_count=sum(d.blocked_count for d in rows),
+                total_bytes=sum(d.total_bytes for d in rows),
+                domains=sorted(rows, key=lambda d: d.blocked_count, reverse=True),
+            )
+            for category, rows in by_cat.items()
         ),
         key=lambda s: s.request_count,
         reverse=True,

@@ -7,6 +7,13 @@ All notable changes to this project are documented here. Format loosely follows
 
 ### Changed
 
+- **Analytics → Who: the actor sheet's category list now drills down to
+  domains.** Picking an IP showed a flat "top categories" list and a
+  separate "top domains" list with no link between them. Each category row
+  now expands to the domains under it (requests, bytes, a blocked marker),
+  and the category totals are derived from that same set so they reconcile.
+  Both come from `raw_events`, so the breakdown is bounded by the raw-event
+  retention window (the sheet's domain list already was).
 - **Anomaly detection is less noisy and harder to fool.** Traffic-spike
   detection now compares the window against the *median* + MAD of the last 30
   minute-buckets (was mean × 3 of the last 10) and needs at least 25 requests

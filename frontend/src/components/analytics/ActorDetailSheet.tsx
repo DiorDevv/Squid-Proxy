@@ -2,7 +2,7 @@ import { toast } from 'sonner'
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from '@/components/ui/sheet'
 import { Button } from '@/components/ui/button'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
-import { ShieldQuestion } from 'lucide-react'
+import { ChevronRight, ShieldQuestion } from 'lucide-react'
 import { formatBytes, formatDateTime, formatNumber } from '@/lib/format'
 import { CATEGORY_COLORS, CATEGORY_LABEL_KEYS } from '@/lib/categories'
 import { downloadSubjectDossier } from '@/lib/api-client'
@@ -121,31 +121,48 @@ export function ActorDetailSheet({ actor, rangeParams, onOpenChange }: ActorDeta
                   {t('analytics.overview.topCategories')}
                 </h3>
                 <ul className="flex flex-col divide-y divide-border">
-                  {data.categories.slice(0, 6).map((c) => (
-                    <li key={c.category} className="flex items-center gap-2 py-1.5 text-sm">
-                      <span
-                        className="h-2 w-2 shrink-0 rounded-full"
-                        style={{ backgroundColor: CATEGORY_COLORS[c.category] }}
-                        aria-hidden="true"
-                      />
-                      <span className="min-w-0 flex-1 truncate">{t(CATEGORY_LABEL_KEYS[c.category])}</span>
-                      <span className="font-data text-xs text-muted-foreground">{formatBytes(c.total_bytes)}</span>
-                    </li>
-                  ))}
-                </ul>
-              </section>
-
-              <section>
-                <h3 className="mb-1.5 text-xs font-semibold uppercase text-muted-foreground">
-                  {t('analytics.overview.topDomains')}
-                </h3>
-                <ul className="flex flex-col divide-y divide-border">
-                  {data.top_domains.slice(0, 8).map((d) => (
-                    <li key={d.domain} className="flex items-center gap-2 py-1.5 text-sm">
-                      <span className="font-data min-w-0 flex-1 truncate">{d.domain}</span>
-                      <span className="font-data text-xs text-muted-foreground">
-                        {formatNumber(d.request_count)}
-                      </span>
+                  {data.categories.slice(0, 8).map((c) => (
+                    <li key={c.category}>
+                      <details className="group">
+                        <summary className="flex cursor-pointer list-none items-center gap-2 py-1.5 text-sm [&::-webkit-details-marker]:hidden">
+                          <ChevronRight
+                            className="h-3.5 w-3.5 shrink-0 text-muted-foreground transition-transform group-open:rotate-90"
+                            aria-hidden="true"
+                          />
+                          <span
+                            className="h-2 w-2 shrink-0 rounded-full"
+                            style={{ backgroundColor: CATEGORY_COLORS[c.category] }}
+                            aria-hidden="true"
+                          />
+                          <span className="min-w-0 flex-1 truncate">
+                            {t(CATEGORY_LABEL_KEYS[c.category])}
+                          </span>
+                          <span className="font-data text-xs text-muted-foreground">
+                            {formatNumber(c.request_count)}
+                          </span>
+                          <span className="font-data text-xs text-muted-foreground">
+                            {formatBytes(c.total_bytes)}
+                          </span>
+                        </summary>
+                        <ul className="mb-1 ml-[6px] flex flex-col divide-y divide-border/40 border-l border-border pl-4">
+                          {c.domains.map((d) => (
+                            <li key={d.domain} className="flex items-center gap-2 py-1 text-xs">
+                              <span className="font-data min-w-0 flex-1 truncate">{d.domain}</span>
+                              {d.blocked_count > 0 && (
+                                <span className="font-data text-[11px] text-destructive">
+                                  {formatNumber(d.blocked_count)} ✕
+                                </span>
+                              )}
+                              <span className="font-data text-[11px] text-muted-foreground">
+                                {formatNumber(d.request_count)}
+                              </span>
+                              <span className="font-data text-[11px] text-muted-foreground">
+                                {formatBytes(d.total_bytes)}
+                              </span>
+                            </li>
+                          ))}
+                        </ul>
+                      </details>
                     </li>
                   ))}
                 </ul>

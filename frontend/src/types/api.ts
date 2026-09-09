@@ -393,17 +393,20 @@ export interface ActorLeaderboardResponse {
   unattributed_requests: number
 }
 
+export interface ActorDomainRow {
+  domain: string
+  category: DomainCategoryLabel
+  request_count: number
+  blocked_count: number
+  total_bytes: number
+}
+
 export interface ActorCategorySlice {
   category: DomainCategoryLabel
   request_count: number
   total_bytes: number
-}
-
-export interface ActorDomainRow {
-  domain: string
-  request_count: number
-  blocked_count: number
-  total_bytes: number
+  /** The actor's domains that resolved to this category, biggest first. */
+  domains: ActorDomainRow[]
 }
 
 export interface ActorDetailResponse {

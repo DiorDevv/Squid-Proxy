@@ -88,17 +88,22 @@ class ActorLeaderboardResponse(BaseModel):
     unattributed_requests: int = 0
 
 
+class ActorDomainRow(BaseModel):
+    domain: str
+    category: DomainCategoryLabel
+    request_count: int
+    blocked_count: int
+    total_bytes: int
+
+
 class ActorCategorySlice(BaseModel):
     category: DomainCategoryLabel
     request_count: int
     total_bytes: int
-
-
-class ActorDomainRow(BaseModel):
-    domain: str
-    request_count: int
-    blocked_count: int
-    total_bytes: int
+    # The actor's domains that resolved to this category, biggest first --
+    # lets "why is News their top category" be answered without a second
+    # request. Bounded by _ACTOR_CATEGORY_DOMAIN_LIMIT across all categories.
+    domains: list[ActorDomainRow]
 
 
 class ActorDetailResponse(BaseModel):

@@ -20,6 +20,17 @@ seconds, and the %Sh/%<A (hierarchy/peer) and %[un (user) fields in the
 opposite order. Lines in that shape are rewritten into the native 10-field
 layout before the per-field parsing below, which is otherwise unchanged.
 
+Some boxes also run an 11-field variant that logs BOTH byte counts --
+request bytes received from the client and reply bytes sent to it --
+right after %Ss/%03>Hs:
+
+    %ts.%03tu  %6tr  %>a  %Ss/%03>Hs  %>st  %<st  %rm  %ru  %[un  %Sh/%<A  %mt
+
+The extra %>st column is pulled out into ParsedEvent.bytes_received and the
+line collapsed back to the native 10-field shape; `bytes` stays %<st (reply
+to client) exactly as on the 10-field format, so existing byte stats keep
+their meaning. On the plain format bytes_received is None.
+
 Malformed lines must never raise: unparseable lines are logged at WARNING
 and skipped (return None) so the tailer can keep processing the stream.
 """
@@ -91,6 +102,10 @@ class ParsedEvent:
     # by the caller (LogTailer knows its own configured branch; the parser
     # itself has no notion of "which file" and just forwards this through.
     branch: str
+    # %>st -- bytes received from the client (upload) -- when the log uses
+    # the 11-field two-size variant; None on the standard single-size
+    # format. `bytes` above always stays %<st (bytes sent to the client).
+    bytes_received: int | None = None
 
 
 # Widest value the integer columns (raw_events.bytes / .duration_ms, both
@@ -100,6 +115,14 @@ class ParsedEvent:
 # corrupt/absurd numeric token can't become a row that fails every
 # aggregator flush batch forever (see raw_event.py's column comment).
 _MAX_DB_BIGINT = 2**63 - 1
+
+
+def _is_uint(token: str) -> bool:
+    """Quiet predicate: token is a bare non-negative integer. Used to tell
+    the 11-field two-size logformat (a numeric %>st where a method would
+    sit) apart from a 10-field line whose content-type contains a space
+    (also 11 tokens after a plain split). Methods are never all-digits."""
+    return token.isdigit()
 
 
 def _parse_int(raw: str, field_name: str, line: str) -> int:
@@ -281,6 +304,30 @@ def parse_line(line: str, branch: str = DEFAULT_BRANCH) -> ParsedEvent | None:
 
     stripped = _normalize_alt_format(stripped)
     tokens = stripped.split()
+
+    # 11-field two-size variant: %>st and %<st both logged, right after
+    # %Ss/%03>Hs. Recognised by a bare-integer token where the method
+    # (GET/CONNECT/...) would otherwise sit -- tokens[3] holds action/status
+    # and tokens[4]/tokens[5] are both integers. Pull %>st (request bytes)
+    # out into bytes_received and drop that column so the rest of this
+    # function sees the ordinary 10-field layout; `bytes` then stays %<st
+    # (reply bytes), unchanged from the plain format. A 12-token line (this
+    # variant with a spaced content-type) collapses to 11 and falls through
+    # to the lenient handling below exactly as before.
+    bytes_received: int | None = None
+    if (
+        len(tokens) >= EXPECTED_FIELD_COUNT + 1
+        and "/" in tokens[3]
+        and _is_uint(tokens[4])
+        and _is_uint(tokens[5])
+    ):
+        bytes_received = _parse_int(tokens[4], "bytes_received", stripped)
+        tokens = tokens[:4] + tokens[5:]
+        # Keep `stripped` in step: the lenient re-split below works off it,
+        # not off `tokens`, so a two-size line whose content-type contains a
+        # space still needs the %>st column gone from the string too.
+        stripped = " ".join(tokens)
+
     if len(tokens) != EXPECTED_FIELD_COUNT:
         # Not the expected shape under a plain split. The most common real
         # cause is a content-type value with an embedded space (e.g. "text/
@@ -389,4 +436,5 @@ def parse_line(line: str, branch: str = DEFAULT_BRANCH) -> ParsedEvent | None:
         content_type=_truncate_opt(content_type, _MAX_CONTENT_TYPE_LEN),
         blocked=blocked,
         branch=branch,
+        bytes_received=bytes_received,
     )

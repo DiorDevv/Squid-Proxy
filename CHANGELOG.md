@@ -7,6 +7,12 @@ All notable changes to this project are documented here. Format loosely follows
 
 ### Changed
 
+- **Analytics → Traffic & Blocks: category rows drill down to domains.**
+  Under the category-traffic chart, each category now lists its total for
+  the range and expands to the domains that make it up (requests, bytes,
+  blocked marker), fetched only when opened. The Blocks tab's "Top
+  categories" panel expands the same way, to the blocked domains in each
+  category. No new endpoint — `/api/top-domains?category=` already existed.
 - **Analytics → Who: the actor sheet's category list now drills down to
   domains.** Picking an IP showed a flat "top categories" list and a
   separate "top domains" list with no link between them. Each category row

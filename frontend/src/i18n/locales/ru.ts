@@ -390,6 +390,8 @@ export const ru = {
   'analytics.trend.granularityHour': 'По часам',
   'analytics.trend.granularityDay': 'По дням',
   'analytics.trend.coarsenedNote': 'Период слишком широкий для почасовой детализации — показаны дни.',
+  'analytics.trend.byCategory': 'По категориям',
+  'analytics.trend.noDomainsInCategory': 'Нет доменов в этой категории за выбранный период.',
   'analytics.opsRetentionNote': '«Трафик и кэш» и «Блокировки» хранят поминутную детализацию только {{days}} дней — часть периода до этого не показана.',
 
   'analytics.movers.empty': 'Пока нечего сравнивать.',

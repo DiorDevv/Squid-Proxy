@@ -393,6 +393,8 @@ export const uz = {
   'analytics.trend.granularityHour': 'Soatlik',
   'analytics.trend.granularityDay': 'Kunlik',
   'analytics.trend.coarsenedNote': 'Oraliq soatlik uchun juda keng — kunlik ko‘rsatilmoqda.',
+  'analytics.trend.byCategory': 'Kategoriya bo‘yicha',
+  'analytics.trend.noDomainsInCategory': 'Bu oraliqda ushbu kategoriyada domen yo‘q.',
   'analytics.opsRetentionNote': '«Trafik & kesh» va «Bloklar» daqiqalik tafsilotni faqat {{days}} kun saqlaydi — oraliqning undan oldingi qismi ko‘rsatilmagan.',
 
   'analytics.movers.empty': 'Hozircha solishtirishga oʻzgarish yoʻq.',

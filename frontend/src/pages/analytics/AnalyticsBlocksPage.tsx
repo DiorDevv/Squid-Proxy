@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { ChevronRight } from 'lucide-react'
 import { Panel } from '@/components/common/Panel'
 import { PanelErrorBoundary } from '@/components/common/PanelErrorBoundary'
 import { ErrorState } from '@/components/common/ErrorState'
@@ -9,10 +10,11 @@ import { OpsRetentionNote } from '@/components/analytics/OpsRetentionNote'
 import { formatBytes, formatNumber } from '@/lib/format'
 import { CATEGORY_COLORS, CATEGORY_LABEL_KEYS } from '@/lib/categories'
 import { DENIAL_REASON_COLORS } from '@/lib/ops-colors'
+import { cn } from '@/lib/utils'
 import { useRangeSearchParams } from '@/lib/filters-store'
 import { useDenials } from '@/hooks/useAnalytics'
 import { useTranslation } from '@/i18n'
-import type { TrendGranularity } from '@/types/api'
+import type { ActorCategorySlice, TrendGranularity } from '@/types/api'
 
 const REASON_LABEL_KEYS = {
   acl_denied: 'analytics.blocks.aclDenied',
@@ -109,18 +111,7 @@ export default function AnalyticsBlocksPage() {
             ) : (
               <ul className="flex flex-col divide-y divide-border">
                 {(d?.top_categories ?? []).map((c) => (
-                  <li key={c.category} className="flex items-center gap-2 py-1.5 text-sm">
-                    <span
-                      className="h-2 w-2 shrink-0 rounded-full"
-                      style={{ backgroundColor: CATEGORY_COLORS[c.category] }}
-                      aria-hidden="true"
-                    />
-                    <span className="min-w-0 flex-1 truncate">{t(CATEGORY_LABEL_KEYS[c.category])}</span>
-                    <span className="font-data text-xs text-muted-foreground">{formatNumber(c.request_count)}</span>
-                    <span className="font-data text-xs text-muted-foreground opacity-60">
-                      {formatBytes(c.total_bytes)}
-                    </span>
-                  </li>
+                  <BlockedCategoryRow key={c.category} slice={c} />
                 ))}
               </ul>
             )}
@@ -145,5 +136,51 @@ export default function AnalyticsBlocksPage() {
         </Panel>
       </div>
     </div>
+  )
+}
+
+/** One row of the Blocks "Top categories" panel -- expands to the blocked
+ * domains that fell under this category (already in the denials response,
+ * no extra request). */
+function BlockedCategoryRow({ slice }: { slice: ActorCategorySlice }) {
+  const { t } = useTranslation()
+  const [open, setOpen] = useState(false)
+  return (
+    <li>
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        className="flex w-full items-center gap-2 py-1.5 text-sm"
+        aria-expanded={open}
+      >
+        <ChevronRight
+          className={cn(
+            'h-3.5 w-3.5 shrink-0 text-muted-foreground transition-transform',
+            open && 'rotate-90',
+          )}
+          aria-hidden="true"
+        />
+        <span
+          className="h-2 w-2 shrink-0 rounded-full"
+          style={{ backgroundColor: CATEGORY_COLORS[slice.category] }}
+          aria-hidden="true"
+        />
+        <span className="min-w-0 flex-1 truncate text-left">{t(CATEGORY_LABEL_KEYS[slice.category])}</span>
+        <span className="font-data text-xs text-muted-foreground">{formatNumber(slice.request_count)}</span>
+        <span className="font-data text-xs text-muted-foreground opacity-60">{formatBytes(slice.total_bytes)}</span>
+      </button>
+      {open && slice.domains.length > 0 && (
+        <ul className="mb-1 ml-[6px] flex flex-col divide-y divide-border/40 border-l border-border pl-4">
+          {slice.domains.map((dom) => (
+            <li key={dom.domain} className="flex items-center gap-2 py-1 text-xs">
+              <span className="font-data min-w-0 flex-1 truncate text-destructive">{dom.domain}</span>
+              <span className="font-data text-[11px] text-muted-foreground">
+                {formatNumber(dom.blocked_count)}
+              </span>
+            </li>
+          ))}
+        </ul>
+      )}
+    </li>
   )
 }

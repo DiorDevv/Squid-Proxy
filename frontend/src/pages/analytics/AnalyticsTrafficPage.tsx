@@ -6,6 +6,7 @@ import { BreakdownBars } from '@/components/analytics/BreakdownBars'
 import { StackedAreaOverTime } from '@/components/analytics/StackedAreaOverTime'
 import { ResponseTimeChart } from '@/components/analytics/ResponseTimeChart'
 import { CategoryTrendChart } from '@/components/analytics/CategoryTrendChart'
+import { CategoryBreakdownList } from '@/components/analytics/CategoryBreakdownList'
 import { ActivityHeatmap } from '@/components/analytics/ActivityHeatmap'
 import { MiniStat } from '@/components/analytics/MiniStat'
 import { Toggle } from '@/components/analytics/Toggle'
@@ -68,7 +69,10 @@ export default function AnalyticsTrafficPage() {
           {trend.isError ? (
             <ErrorState message={trend.error?.message} onRetry={() => trend.refetch()} />
           ) : (
-            <CategoryTrendChart data={trend.data} loading={trend.isLoading} />
+            <div className="flex flex-col gap-4">
+              <CategoryTrendChart data={trend.data} loading={trend.isLoading} />
+              {trend.data && <CategoryBreakdownList data={trend.data} rangeParams={rangeParams} />}
+            </div>
           )}
         </PanelErrorBoundary>
       </Panel>

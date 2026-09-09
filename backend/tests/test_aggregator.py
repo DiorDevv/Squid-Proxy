@@ -72,6 +72,46 @@ async def test_flush_writes_minute_domain_and_client_aggregates(db_engine, monke
         assert raw_count == 3
 
 
+def two_size_line(domain: str, recv: int, sent: int, client_ip: str = "10.0.0.5") -> str:
+    # ... TCP_MISS/200 <%>st> <%<st> GET http://domain/ alice HIER_DIRECT/1.2.3.4 text/html
+    # user "alice" matches squid_line() so mixed lines land in one client bucket.
+    return (
+        f"1737100800.123 45 {client_ip} TCP_MISS/200 {recv} {sent} GET "
+        f"http://{domain}/ alice HIER_DIRECT/1.2.3.4 text/html"
+    )
+
+
+async def test_flush_carries_bytes_received_to_raw_and_aggregates(db_engine, monkeypatch):
+    session_factory = async_sessionmaker(db_engine, expire_on_commit=False, class_=AsyncSession)
+    import app.services.aggregator as aggregator_module
+
+    monkeypatch.setattr(aggregator_module, "AsyncSessionLocal", session_factory)
+
+    ring_buffer = RingBuffer(max_events=100)
+    ring_buffer.append(parse_line(two_size_line("up.example", recv=900, sent=100)))
+    ring_buffer.append(parse_line(two_size_line("up.example", recv=100, sent=50)))
+    # a plain single-size line mixed in -- contributes 0 to bytes_received
+    ring_buffer.append(parse_line(squid_line("up.example")))
+
+    await Aggregator(ring_buffer=ring_buffer, interval_seconds=60).flush()
+
+    async with session_factory() as session:
+        minute_row = (await session.execute(select(MinuteAggregate))).scalar_one()
+        assert minute_row.bytes_received == 1000          # 900 + 100 + 0
+        assert minute_row.total_bytes == 100 + 50 + 1024  # %<st still the download
+
+        domain_row = (await session.execute(select(DomainMinuteAggregate))).scalar_one()
+        assert domain_row.bytes_received == 1000
+
+        client_row = (await session.execute(select(ClientMinuteAggregate))).scalar_one()
+        assert client_row.bytes_received == 1000
+
+        raw = {r.bytes: r.bytes_received for r in (await session.execute(select(RawEvent))).scalars()}
+        assert raw[100] == 900
+        assert raw[50] == 100
+        assert raw[1024] is None  # plain line -> no upload value recorded
+
+
 async def test_flush_tracks_cache_hit_and_miss_counts_on_minute_aggregate(db_engine, monkeypatch):
     session_factory = async_sessionmaker(db_engine, expire_on_commit=False, class_=AsyncSession)
     import app.services.aggregator as aggregator_module

@@ -30,3 +30,5 @@ class DomainMinuteAggregate(Base):
     request_count: Mapped[int] = mapped_column(Integer, default=0)
     blocked_count: Mapped[int] = mapped_column(Integer, default=0)
     total_bytes: Mapped[int] = mapped_column(BigInteger, default=0)
+    # %>st -- bytes received from clients (upload); %<st is total_bytes above.
+    bytes_received: Mapped[int] = mapped_column(BigInteger, default=0)

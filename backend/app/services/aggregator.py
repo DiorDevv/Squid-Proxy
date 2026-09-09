@@ -51,6 +51,7 @@ class _MinuteTotals:
     blocked: int = 0
     allowed: int = 0
     bytes_: int = 0
+    bytes_recv: int = 0
     hit: int = 0
     miss: int = 0
     # Response-time histogram (see MinuteAggregate's perf columns) -- six
@@ -70,6 +71,7 @@ class _DomainTotals:
     count: int = 0
     blocked: int = 0
     bytes_: int = 0
+    bytes_recv: int = 0
 
 
 @dataclass
@@ -77,6 +79,7 @@ class _ClientTotals:
     count: int = 0
     blocked: int = 0
     bytes_: int = 0
+    bytes_recv: int = 0
 
 
 @dataclass
@@ -431,9 +434,12 @@ class Aggregator:
             ev = stored.event
             bucket = self._bucket(ev.timestamp)
 
+            recv = ev.bytes_received or 0
+
             mb = minute_buckets[(bucket, ev.branch)]
             mb.total += 1
             mb.bytes_ += ev.bytes
+            mb.bytes_recv += recv
             if ev.blocked:
                 mb.blocked += 1
             else:
@@ -460,6 +466,7 @@ class Aggregator:
                 db = domain_buckets[(bucket, ev.domain, ev.branch)]
                 db.count += 1
                 db.bytes_ += ev.bytes
+                db.bytes_recv += recv
                 if ev.blocked:
                     db.blocked += 1
 
@@ -475,6 +482,7 @@ class Aggregator:
             cb = client_buckets[(bucket, ev.client_ip, ev.branch, ev.user)]
             cb.count += 1
             cb.bytes_ += ev.bytes
+            cb.bytes_recv += recv
             if ev.blocked:
                 cb.blocked += 1
 
@@ -487,6 +495,7 @@ class Aggregator:
                     "action": ev.action,
                     "status_code": ev.status_code,
                     "bytes": ev.bytes,
+                    "bytes_received": ev.bytes_received,
                     "method": ev.method,
                     "url": ev.url,
                     "domain": ev.domain,
@@ -544,6 +553,7 @@ class Aggregator:
                 "blocked_requests": totals.blocked,
                 "allowed_requests": totals.allowed,
                 "total_bytes": totals.bytes_,
+                "bytes_received": totals.bytes_recv,
                 "hit_requests": totals.hit,
                 "miss_requests": totals.miss,
                 "duration_sum_ms": totals.dur_sum,
@@ -566,6 +576,7 @@ class Aggregator:
                 "blocked_requests",
                 "allowed_requests",
                 "total_bytes",
+                "bytes_received",
                 "hit_requests",
                 "miss_requests",
                 "duration_sum_ms",
@@ -713,6 +724,7 @@ class Aggregator:
                 "request_count": totals.count,
                 "blocked_count": totals.blocked,
                 "total_bytes": totals.bytes_,
+                "bytes_received": totals.bytes_recv,
             }
             for (bucket, domain, branch), totals in domain_buckets.items()
         ]
@@ -725,7 +737,7 @@ class Aggregator:
                 DomainMinuteAggregate.domain,
                 DomainMinuteAggregate.branch,
             ],
-            sum_columns=["request_count", "blocked_count", "total_bytes"],
+            sum_columns=["request_count", "blocked_count", "total_bytes", "bytes_received"],
         )
 
     async def _bulk_upsert_category(
@@ -777,6 +789,7 @@ class Aggregator:
                 "request_count": totals.count,
                 "blocked_count": totals.blocked,
                 "total_bytes": totals.bytes_,
+                "bytes_received": totals.bytes_recv,
             }
             for (bucket, client_ip, branch, user), totals in client_buckets.items()
         ]
@@ -798,5 +811,5 @@ class Aggregator:
                 ClientMinuteAggregate.branch,
                 func.coalesce(ClientMinuteAggregate.user, literal_column("''")),
             ],
-            sum_columns=["request_count", "blocked_count", "total_bytes"],
+            sum_columns=["request_count", "blocked_count", "total_bytes", "bytes_received"],
         )

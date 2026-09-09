@@ -279,7 +279,7 @@ class RetentionJob(IntervalJob):
             return
 
         hourly_totals: dict[tuple[datetime, str, str, str | None], dict[str, int]] = defaultdict(
-            lambda: {"request_count": 0, "blocked_count": 0, "total_bytes": 0}
+            lambda: {"request_count": 0, "blocked_count": 0, "total_bytes": 0, "bytes_received": 0}
         )
         for row in rows:
             hour_bucket = row.bucket_ts.replace(minute=0, second=0, microsecond=0)
@@ -287,6 +287,7 @@ class RetentionJob(IntervalJob):
             totals["request_count"] += row.request_count
             totals["blocked_count"] += row.blocked_count
             totals["total_bytes"] += row.total_bytes
+            totals["bytes_received"] += row.bytes_received
 
         hourly_rows = [
             {"bucket_ts": bucket_ts, "client_ip": client_ip, "branch": branch, "user": user, **totals}
@@ -302,7 +303,7 @@ class RetentionJob(IntervalJob):
                 ClientHourlyAggregate.branch,
                 func.coalesce(ClientHourlyAggregate.user, literal_column("''")),
             ],
-            sum_columns=["request_count", "blocked_count", "total_bytes"],
+            sum_columns=["request_count", "blocked_count", "total_bytes", "bytes_received"],
         )
         await session.execute(
             delete(ClientMinuteAggregate).where(ClientMinuteAggregate.bucket_ts < rollup_cutoff)

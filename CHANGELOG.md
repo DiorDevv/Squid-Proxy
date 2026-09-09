@@ -5,6 +5,18 @@ All notable changes to this project are documented here. Format loosely follows
 
 ## [Unreleased]
 
+### Added
+
+- **Upload vs download, per client IP.** When a proxy box logs the 11-field
+  two-size Squid `logformat` (`%>st` request bytes then `%<st` reply bytes),
+  the parser now reads both — `%>st` into a new `raw_events.bytes_received`
+  and the byte aggregates' `bytes_received` column, `%<st` staying
+  `total_bytes` as before. Analytics → Who gains an **Uploaded** column
+  (sortable, so "top uploaders" is one click), the actor sheet shows
+  downloaded and uploaded side by side, and each domain in the category
+  drill-down carries its upload total. Branches on the single-size format
+  read as 0 uploaded, unchanged. Migration `f2a7c4e9b183`.
+
 ### Changed
 
 - **Analytics → Traffic & Blocks: category rows drill down to domains.**

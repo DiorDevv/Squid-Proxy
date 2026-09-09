@@ -377,6 +377,8 @@ export const uz = {
   'analytics.metric.blocked': 'Bloklangan',
   'analytics.metric.allowed': 'Ruxsat berilgan',
   'analytics.metric.dataTransferred': 'Uzatilgan maʼlumot',
+  'analytics.metric.downloaded': 'Yuklab olindi',
+  'analytics.metric.uploaded': 'Yuklandi',
   'analytics.metric.activeClients': 'Faol mijozlar',
   'analytics.metric.blockedRatio': 'Bloklanganlar ulushi',
   'analytics.metric.cacheHitRate': 'Kesh samaradorligi',

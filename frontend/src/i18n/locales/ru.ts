@@ -374,6 +374,8 @@ export const ru = {
   'analytics.metric.blocked': 'Заблокировано',
   'analytics.metric.allowed': 'Разрешено',
   'analytics.metric.dataTransferred': 'Передано данных',
+  'analytics.metric.downloaded': 'Скачано',
+  'analytics.metric.uploaded': 'Загружено',
   'analytics.metric.activeClients': 'Активные клиенты',
   'analytics.metric.blockedRatio': 'Доля блокировок',
   'analytics.metric.cacheHitRate': 'Попадания в кэш',

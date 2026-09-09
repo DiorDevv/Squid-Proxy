@@ -72,7 +72,8 @@ class ActorRow(BaseModel):
     request_count: int
     blocked_count: int
     blocked_ratio: float
-    total_bytes: int
+    total_bytes: int          # %<st -- downloaded
+    bytes_received: int       # %>st -- uploaded (0 on branches whose log omits it)
     top_category: DomainCategoryLabel | None
 
 
@@ -93,13 +94,15 @@ class ActorDomainRow(BaseModel):
     category: DomainCategoryLabel
     request_count: int
     blocked_count: int
-    total_bytes: int
+    total_bytes: int          # %<st -- downloaded
+    bytes_received: int       # %>st -- uploaded
 
 
 class ActorCategorySlice(BaseModel):
     category: DomainCategoryLabel
     request_count: int
-    total_bytes: int
+    total_bytes: int          # %<st -- downloaded
+    bytes_received: int       # %>st -- uploaded
     # The actor's domains that resolved to this category, biggest first --
     # lets "why is News their top category" be answered without a second
     # request. Bounded by _ACTOR_CATEGORY_DOMAIN_LIMIT across all categories.
@@ -113,7 +116,8 @@ class ActorDetailResponse(BaseModel):
     last_seen: datetime | None
     request_count: int
     blocked_count: int
-    total_bytes: int
+    total_bytes: int          # %<st -- downloaded
+    bytes_received: int       # %>st -- uploaded
     categories: list[ActorCategorySlice]
     top_domains: list[ActorDomainRow]
     denied_domains: list[ActorDomainRow]

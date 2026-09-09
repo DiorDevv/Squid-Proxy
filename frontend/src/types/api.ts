@@ -383,6 +383,8 @@ export interface ActorRow {
   blocked_count: number
   blocked_ratio: number
   total_bytes: number
+  /** %>st -- uploaded; 0 on branches whose Squid log omits it. */
+  bytes_received: number
   top_category: DomainCategoryLabel | null
 }
 
@@ -399,12 +401,14 @@ export interface ActorDomainRow {
   request_count: number
   blocked_count: number
   total_bytes: number
+  bytes_received: number
 }
 
 export interface ActorCategorySlice {
   category: DomainCategoryLabel
   request_count: number
   total_bytes: number
+  bytes_received: number
   /** The actor's domains that resolved to this category, biggest first. */
   domains: ActorDomainRow[]
 }
@@ -417,6 +421,7 @@ export interface ActorDetailResponse {
   request_count: number
   blocked_count: number
   total_bytes: number
+  bytes_received: number
   categories: ActorCategorySlice[]
   top_domains: ActorDomainRow[]
   denied_domains: ActorDomainRow[]

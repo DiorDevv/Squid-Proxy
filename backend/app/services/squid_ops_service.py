@@ -277,6 +277,7 @@ async def get_response_time(
 _SORTABLE = {
     "requests": "request_count",
     "bytes": "total_bytes",
+    "uploaded": "bytes_received",
     "blocked": "blocked_count",
 }
 
@@ -309,6 +310,7 @@ async def get_actor_leaderboard(
     order_col = {
         "request_count": func.sum(combined.c.request_count),
         "total_bytes": func.sum(combined.c.total_bytes),
+        "bytes_received": func.sum(combined.c.bytes_received),
         "blocked_count": func.sum(combined.c.blocked_count),
     }[_SORTABLE.get(sort, "request_count")]
 
@@ -322,6 +324,7 @@ async def get_actor_leaderboard(
                 func.sum(combined.c.request_count),
                 func.sum(combined.c.blocked_count),
                 func.sum(combined.c.total_bytes),
+                func.sum(combined.c.bytes_received),
             )
             .where(*conditions)
             .group_by(actor_col)
@@ -352,9 +355,10 @@ async def get_actor_leaderboard(
             blocked_count=int(blocked),
             blocked_ratio=(int(blocked) / int(req)) if req else 0.0,
             total_bytes=int(byte_total),
+            bytes_received=int(recv_total or 0),
             top_category=top_category.get(actor),
         )
-        for actor, req, blocked, byte_total in rows
+        for actor, req, blocked, byte_total, recv_total in rows
     ]
     return ActorLeaderboardResponse(
         actor_kind="user" if is_user else "client_ip",
@@ -414,12 +418,13 @@ async def get_actor_detail(
                 func.coalesce(func.sum(combined.c.request_count), 0),
                 func.coalesce(func.sum(combined.c.blocked_count), 0),
                 func.coalesce(func.sum(combined.c.total_bytes), 0),
+                func.coalesce(func.sum(combined.c.bytes_received), 0),
                 func.min(combined.c.bucket_ts),
                 func.max(combined.c.bucket_ts),
             ).where(actor_col == actor)
         )
     ).one()
-    req_total, blocked_total, byte_total, first_seen, last_seen = totals_row
+    req_total, blocked_total, byte_total, recv_total, first_seen, last_seen = totals_row
 
     # hourly (0-23, UTC)
     hourly_rows = (
@@ -460,6 +465,7 @@ async def get_actor_detail(
                 category=category,
                 request_count=sum(d.request_count for d in domains),
                 total_bytes=sum(d.total_bytes for d in domains),
+                bytes_received=sum(d.bytes_received for d in domains),
                 domains=sorted(domains, key=lambda d: d.total_bytes, reverse=True),
             )
             for category, domains in by_category.items()
@@ -483,6 +489,7 @@ async def get_actor_detail(
         request_count=int(req_total),
         blocked_count=int(blocked_total),
         total_bytes=int(byte_total),
+        bytes_received=int(recv_total),
         categories=categories,
         top_domains=top_domains,
         denied_domains=denied_domains,
@@ -525,6 +532,7 @@ async def _actor_domains(
                 func.count(),
                 func.coalesce(func.sum(case((RawEvent.blocked.is_(True), 1), else_=0)), 0),
                 func.coalesce(func.sum(RawEvent.bytes), 0),
+                func.coalesce(func.sum(RawEvent.bytes_received), 0),
             )
             .where(*conditions)
             .group_by(RawEvent.domain)
@@ -539,8 +547,9 @@ async def _actor_domains(
             request_count=int(count),
             blocked_count=int(blocked or 0),
             total_bytes=int(byte_total),
+            bytes_received=int(recv_total or 0),
         )
-        for domain, count, blocked, byte_total in rows
+        for domain, count, blocked, byte_total, recv_total in rows
     ]
 
 
@@ -680,6 +689,7 @@ async def get_denials(
                 DomainMinuteAggregate.domain,
                 func.sum(DomainMinuteAggregate.blocked_count),
                 func.sum(DomainMinuteAggregate.total_bytes),
+                func.sum(DomainMinuteAggregate.bytes_received),
             )
             .where(*dom_conditions)
             .group_by(DomainMinuteAggregate.domain)
@@ -696,8 +706,9 @@ async def get_denials(
             request_count=0,
             blocked_count=int(blocked),
             total_bytes=int(tb),
+            bytes_received=int(recv or 0),
         )
-        for domain, blocked, tb in dom_rows
+        for domain, blocked, tb, recv in dom_rows
     ]
     by_cat: dict[DomainCategoryLabel, list[ActorDomainRow]] = defaultdict(list)
     for row in top_domains:
@@ -710,6 +721,7 @@ async def get_denials(
                 # Blocks view) -- kept as-is for the existing ordering.
                 request_count=sum(d.blocked_count for d in rows),
                 total_bytes=sum(d.total_bytes for d in rows),
+                bytes_received=sum(d.bytes_received for d in rows),
                 domains=sorted(rows, key=lambda d: d.blocked_count, reverse=True),
             )
             for category, rows in by_cat.items()
@@ -731,6 +743,7 @@ async def get_denials(
                 func.sum(combined.c.request_count),
                 func.sum(combined.c.blocked_count),
                 func.sum(combined.c.total_bytes),
+                func.sum(combined.c.bytes_received),
             )
             .where(*actor_conditions)
             .group_by(actor_col)
@@ -747,9 +760,10 @@ async def get_denials(
             blocked_count=int(blocked),
             blocked_ratio=(int(blocked) / int(req)) if req else 0.0,
             total_bytes=int(tb),
+            bytes_received=int(recv or 0),
             top_category=None,
         )
-        for actor, req, blocked, tb in actor_rows
+        for actor, req, blocked, tb, recv in actor_rows
     ]
 
     return DenialsResponse(

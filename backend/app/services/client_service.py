@@ -77,6 +77,7 @@ def client_bucket_rows(
             model.request_count.label("request_count"),
             model.blocked_count.label("blocked_count"),
             model.total_bytes.label("total_bytes"),
+            model.bytes_received.label("bytes_received"),
             model.bucket_ts.label("bucket_ts"),
         ).where(*conditions)
 

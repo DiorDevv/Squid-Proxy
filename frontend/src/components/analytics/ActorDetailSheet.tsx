@@ -67,7 +67,7 @@ export function ActorDetailSheet({ actor, rangeParams, onOpenChange }: ActorDeta
             <div className="h-40 animate-pulse rounded bg-muted" />
           ) : data ? (
             <>
-              <div className="grid grid-cols-3 gap-2 text-sm">
+              <div className="grid grid-cols-2 gap-2 text-sm sm:grid-cols-4">
                 <div className="flex flex-col">
                   <span className="text-[11px] uppercase text-muted-foreground">
                     {t('analytics.metric.totalRequests')}
@@ -84,9 +84,17 @@ export function ActorDetailSheet({ actor, rangeParams, onOpenChange }: ActorDeta
                 </div>
                 <div className="flex flex-col">
                   <span className="text-[11px] uppercase text-muted-foreground">
-                    {t('analytics.metric.dataTransferred')}
+                    {t('analytics.metric.downloaded')}
                   </span>
                   <span className="font-data font-semibold">{formatBytes(data.total_bytes)}</span>
+                </div>
+                <div className="flex flex-col">
+                  <span className="text-[11px] uppercase text-muted-foreground">
+                    {t('analytics.metric.uploaded')}
+                  </span>
+                  <span className="font-data font-semibold">
+                    {data.bytes_received > 0 ? formatBytes(data.bytes_received) : '—'}
+                  </span>
                 </div>
               </div>
 
@@ -142,6 +150,9 @@ export function ActorDetailSheet({ actor, rangeParams, onOpenChange }: ActorDeta
                           </span>
                           <span className="font-data text-xs text-muted-foreground">
                             {formatBytes(c.total_bytes)}
+                            {c.bytes_received > 0 && (
+                              <span className="text-info"> ↑{formatBytes(c.bytes_received)}</span>
+                            )}
                           </span>
                         </summary>
                         <ul className="mb-1 ml-[6px] flex flex-col divide-y divide-border/40 border-l border-border pl-4">
@@ -158,6 +169,9 @@ export function ActorDetailSheet({ actor, rangeParams, onOpenChange }: ActorDeta
                               </span>
                               <span className="font-data text-[11px] text-muted-foreground">
                                 {formatBytes(d.total_bytes)}
+                                {d.bytes_received > 0 && (
+                                  <span className="text-info"> ↑{formatBytes(d.bytes_received)}</span>
+                                )}
                               </span>
                             </li>
                           ))}

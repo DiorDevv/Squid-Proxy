@@ -12,6 +12,7 @@ const ROWS: ActorRow[] = [
     blocked_count: 45,
     blocked_ratio: 0.45,
     total_bytes: 5000,
+    bytes_received: 800,
     top_category: 'video_streaming',
   },
 ]
@@ -64,5 +65,22 @@ describe('ActorLeaderboard', () => {
     )
     await user.click(screen.getByRole('button', { name: /Blocked/ }))
     expect(onSortChange).toHaveBeenCalledWith('blocked')
+  })
+
+  it('shows uploaded bytes and sorts by them', async () => {
+    const onSortChange = vi.fn()
+    const user = userEvent.setup()
+    render(
+      <ActorLeaderboard
+        rows={ROWS}
+        actorKind="user"
+        sort="requests"
+        onSortChange={onSortChange}
+        onSelect={() => {}}
+      />,
+    )
+    expect(screen.getByText('800 B')).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: /Uploaded/ }))
+    expect(onSortChange).toHaveBeenCalledWith('uploaded')
   })
 })

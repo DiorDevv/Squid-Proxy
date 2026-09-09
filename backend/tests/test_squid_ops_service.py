@@ -129,6 +129,34 @@ async def test_actor_leaderboard_prefers_users_and_reports_top_category(db_sessi
     assert alice.top_category == DomainCategoryLabel.VIDEO_STREAMING
 
 
+async def test_actor_leaderboard_sorts_by_uploaded_bytes(db_session: AsyncSession):
+    db_session.add_all(
+        [
+            ClientMinuteAggregate(
+                bucket_ts=BUCKET, client_ip="10.0.0.1", branch="default", user=None,
+                request_count=100, blocked_count=0, total_bytes=9_000_000, bytes_received=1_000,
+            ),
+            ClientMinuteAggregate(
+                bucket_ts=BUCKET, client_ip="10.0.0.2", branch="default", user=None,
+                request_count=20, blocked_count=0, total_bytes=200_000, bytes_received=8_000_000,
+            ),
+        ]
+    )
+    await db_session.commit()
+
+    by_up = await squid_ops_service.get_actor_leaderboard(
+        db_session, SINCE, NOW, branch=None, limit=25, sort="uploaded"
+    )
+    assert [r.actor for r in by_up.rows] == ["10.0.0.2", "10.0.0.1"]
+    assert by_up.rows[0].bytes_received == 8_000_000
+    assert by_up.rows[0].total_bytes == 200_000
+
+    by_down = await squid_ops_service.get_actor_leaderboard(
+        db_session, SINCE, NOW, branch=None, limit=25, sort="bytes"
+    )
+    assert [r.actor for r in by_down.rows] == ["10.0.0.1", "10.0.0.2"]
+
+
 async def test_actor_leaderboard_falls_back_to_client_ip_without_auth(db_session: AsyncSession):
     db_session.add(
         ClientMinuteAggregate(
@@ -251,20 +279,20 @@ async def test_actor_detail_reads_category_split_and_hourly(db_session: AsyncSes
     db_session.add(
         ClientMinuteAggregate(
             bucket_ts=BUCKET, client_ip="10.0.0.1", branch="default", user="alice",
-            request_count=50, blocked_count=5, total_bytes=3000,
+            request_count=50, blocked_count=5, total_bytes=3000, bytes_received=700,
         )
     )
     db_session.add_all(
         [
             RawEvent(
                 timestamp=BUCKET, duration_ms=1, client_ip="10.0.0.1", user="alice",
-                action="TCP_MISS", status_code=200, bytes=2000, method="GET",
+                action="TCP_MISS", status_code=200, bytes=2000, bytes_received=400, method="GET",
                 url="http://facebook.com/", domain="facebook.com",
                 hierarchy=None, peer=None, content_type=None, blocked=False,
             ),
             RawEvent(
                 timestamp=BUCKET, duration_ms=1, client_ip="10.0.0.1", user="alice",
-                action="TCP_MISS", status_code=200, bytes=500, method="GET",
+                action="TCP_MISS", status_code=200, bytes=500, bytes_received=300, method="GET",
                 url="http://instagram.com/", domain="instagram.com",
                 hierarchy=None, peer=None, content_type=None, blocked=False,
             ),
@@ -277,8 +305,15 @@ async def test_actor_detail_reads_category_split_and_hourly(db_session: AsyncSes
     )
     assert detail.request_count == 50
     assert detail.blocked_count == 5
+    assert detail.bytes_received == 700          # from the client aggregate
     assert sum(detail.hourly) == 50
     assert len(detail.hourly) == 24
+
+    # per-domain upload comes from raw_events and rolls up into its category
+    listed_up = {d.domain: d.bytes_received for c in detail.categories for d in c.domains}
+    assert listed_up == {"facebook.com": 400, "instagram.com": 300}
+    top = detail.categories[0]
+    assert top.bytes_received == sum(d.bytes_received for d in top.domains)
 
     assert detail.categories, "expected the raw_events to produce a category split"
     top = detail.categories[0]

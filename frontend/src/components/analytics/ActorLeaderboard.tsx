@@ -18,7 +18,8 @@ const COLS: { key: string; labelKey: TranslationKey; sortable: boolean; align?: 
   { key: 'requests', labelKey: 'analytics.metric.totalRequests', sortable: true, align: 'right' },
   { key: 'blocked', labelKey: 'analytics.metric.blocked', sortable: true, align: 'right' },
   { key: 'blocked_ratio', labelKey: 'analytics.who.colBlockedPct', sortable: false, align: 'right' },
-  { key: 'bytes', labelKey: 'analytics.metric.dataTransferred', sortable: true, align: 'right' },
+  { key: 'bytes', labelKey: 'analytics.metric.downloaded', sortable: true, align: 'right' },
+  { key: 'uploaded', labelKey: 'analytics.metric.uploaded', sortable: true, align: 'right' },
   { key: 'top_category', labelKey: 'analytics.who.colTopCategory', sortable: false },
 ]
 
@@ -45,7 +46,7 @@ export function ActorLeaderboard({
 
   return (
     <div className="overflow-x-auto">
-      <table className="w-full min-w-[640px] text-sm">
+      <table className="w-full min-w-[720px] text-sm">
         <thead>
           <tr className="border-b border-border text-left text-xs text-muted-foreground">
             {COLS.map((col) => (
@@ -97,6 +98,9 @@ export function ActorLeaderboard({
                   {ratioPct.toFixed(1)}%
                 </td>
                 <td className="font-data py-2 pr-3 text-right">{formatBytes(row.total_bytes)}</td>
+                <td className="font-data py-2 pr-3 text-right">
+                  {row.bytes_received > 0 ? formatBytes(row.bytes_received) : '—'}
+                </td>
                 <td className="py-2 pr-3">
                   {row.top_category ? (
                     <span className="inline-flex items-center gap-1.5">

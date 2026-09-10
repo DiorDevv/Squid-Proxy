@@ -13,6 +13,10 @@ from app.models.raw_event import RawEvent
 from app.schemas.common import Page
 from app.schemas.events import EventDetail
 
+# Above this many search matches, /api/events reports the total as the cap
+# rather than paying for an exact COUNT(*) over the whole match set.
+_SEARCH_COUNT_CAP = 10_000
+
 
 def build_event_conditions(
     since: datetime,
@@ -41,15 +45,19 @@ def build_event_conditions(
         conditions.append(RawEvent.branch == branch)
     if search and search.strip():
         needle = f"%{search.strip()}%"
+        # Every column here has a GIN trigram index (migration c9e4b7a15d02)
+        # so the ILIKE is index-assisted rather than a seq scan -- at ~60M
+        # rows that's the difference between instant and tens of seconds.
+        # `url` is intentionally not in this set: it's the full-URL Text
+        # column, far the most expensive to trigram, and neither the events
+        # nor the blocked search advertises URL matching. `peer` is the
+        # resolved server / upstream proxy IP -- lets an admin paste a bare
+        # IP from a firewall/IDS alert and see which clients reached it.
         conditions.append(
             or_(
                 RawEvent.client_ip.ilike(needle),
                 RawEvent.domain.ilike(needle),
-                RawEvent.url.ilike(needle),
                 RawEvent.user.ilike(needle),
-                # `peer` is the resolved server (or upstream proxy) address
-                # Squid actually connected to -- lets an admin paste a bare
-                # IP from a firewall/IDS alert and see which users reached it.
                 RawEvent.peer.ilike(needle),
             )
         )
@@ -105,8 +113,20 @@ async def get_events(
     )
     rows = (await session.execute(query)).scalars().all()
 
-    count_query = select(func.count()).select_from(RawEvent).where(*conditions)
-    total = (await session.execute(count_query)).scalar_one()
+    if search and search.strip():
+        # A free-text search that matches a large fraction of the table
+        # still makes an exact COUNT(*) walk every match. Cap it: past
+        # _SEARCH_COUNT_CAP the total is reported as the cap (the UI reads
+        # it as "at least this many") and the term is too broad to page
+        # through anyway.
+        capped = (
+            select(RawEvent.id).where(*conditions).limit(_SEARCH_COUNT_CAP).subquery()
+        )
+        total = (await session.execute(select(func.count()).select_from(capped))).scalar_one()
+    else:
+        total = (
+            await session.execute(select(func.count()).select_from(RawEvent).where(*conditions))
+        ).scalar_one()
 
     items = [EventDetail.from_raw_event(row) for row in rows]
     return Page(items=items, total=total, limit=limit, offset=offset)

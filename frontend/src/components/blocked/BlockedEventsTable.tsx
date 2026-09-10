@@ -54,15 +54,26 @@ export function BlockedEventsTable({
       {
         accessorKey: 'user',
         header: t('blocked.columnUser'),
-        cell: ({ getValue }) => (
-          <span className="font-data text-muted-foreground">{getValue<string | null>() ?? '—'}</span>
-        ),
+        cell: ({ getValue }) => {
+          const v = getValue<string | null>()
+          return (
+            <span
+              className="font-data block max-w-[12rem] truncate text-muted-foreground"
+              title={v ?? undefined}
+            >
+              {v ?? '—'}
+            </span>
+          )
+        },
       },
       {
         id: 'target',
         header: t('blocked.columnDomain'),
         cell: ({ row }) => (
-          <span className="font-data text-foreground" title={row.original.url}>
+          <span
+            className="font-data block max-w-[22rem] truncate text-foreground"
+            title={row.original.url}
+          >
             {row.original.domain ?? row.original.url}
           </span>
         ),

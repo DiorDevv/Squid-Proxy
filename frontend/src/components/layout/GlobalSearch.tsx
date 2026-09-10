@@ -126,7 +126,7 @@ export function GlobalSearch() {
                           className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left transition-colors hover:bg-secondary/60"
                         >
                           <Globe className="h-3.5 w-3.5 shrink-0 text-muted-foreground" aria-hidden="true" />
-                          <span className="truncate text-sm text-foreground">{domain.domain}</span>
+                          <span className="min-w-0 flex-1 truncate text-sm text-foreground">{domain.domain}</span>
                         </button>
                       </li>
                     ))}

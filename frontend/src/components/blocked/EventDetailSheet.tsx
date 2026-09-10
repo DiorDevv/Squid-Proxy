@@ -33,7 +33,7 @@ export function EventDetailSheet({ event, onOpenChange }: EventDetailSheetProps)
       <SheetContent>
         <SheetHeader>
           <SheetTitle>{t('blocked.detailTitle')}</SheetTitle>
-          <SheetDescription>{event?.url}</SheetDescription>
+          <SheetDescription className="break-all">{event?.url}</SheetDescription>
         </SheetHeader>
         {event && (
           <div className="flex flex-col px-4 pb-4">

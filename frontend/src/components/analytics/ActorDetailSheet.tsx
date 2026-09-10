@@ -30,8 +30,8 @@ export function ActorDetailSheet({ actor, rangeParams, onOpenChange }: ActorDeta
       <SheetContent className="w-full sm:max-w-lg">
         <SheetHeader>
           <div className="flex items-start justify-between gap-2">
-            <div>
-              <SheetTitle className="font-data">{actor?.actor}</SheetTitle>
+            <div className="min-w-0">
+              <SheetTitle className="font-data break-all">{actor?.actor}</SheetTitle>
               <SheetDescription>
                 {actor?.is_user ? t('analytics.who.colUser') : t('analytics.who.colClientIp')}
               </SheetDescription>

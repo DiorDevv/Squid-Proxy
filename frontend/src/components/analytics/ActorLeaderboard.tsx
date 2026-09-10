@@ -86,7 +86,14 @@ export function ActorLeaderboard({
                 onClick={() => onSelect(row)}
                 className="cursor-pointer border-b border-border/50 transition-colors hover:bg-secondary/40"
               >
-                <td className="font-data py-2 pr-3 font-medium text-foreground">{row.actor}</td>
+                <td className="py-2 pr-3">
+                  <span
+                    className="font-data block max-w-[16rem] truncate font-medium text-foreground"
+                    title={row.actor}
+                  >
+                    {row.actor}
+                  </span>
+                </td>
                 <td className="font-data py-2 pr-3 text-right">{formatNumber(row.request_count)}</td>
                 <td className="font-data py-2 pr-3 text-right">{formatNumber(row.blocked_count)}</td>
                 <td

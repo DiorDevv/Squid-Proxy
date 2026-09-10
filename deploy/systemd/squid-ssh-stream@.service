@@ -16,6 +16,14 @@
 # where "no gaps in the audit trail" matters, deploy/rsyslog/ is the more
 # robust choice. Use this when simplicity matters more than that guarantee.
 #
+# `Restart=always` only fires on an actual process *exit*. An ssh pipe can
+# also wedge without exiting -- a half-open TCP connection that still
+# answers ServerAlive, a remote `tail` that died, a stall right at log
+# rotation -- and then the local file just stops growing until someone
+# runs `systemctl restart` by hand. Install the watchdog
+# (deploy/systemd/squid-ssh-stream-watchdog.{sh,service,timer}, step 6
+# below) to catch that automatically.
+#
 # Install (repeat per branch, %i = branch tag, matching this branch's
 # LOG_SOURCES entry exactly):
 #
@@ -61,6 +69,14 @@
 #      rotates LOCAL_LOG_PATH otherwise, and it grows unbounded (same
 #      problem deploy/rsyslog/squid-branches.logrotate solves for the
 #      rsyslog+TLS method). See that file's own header for the command.
+#
+#   6. Install the watchdog so a wedged stream restarts itself instead of
+#      silently stopping until noticed:
+#        sudo cp deploy/systemd/squid-ssh-stream-watchdog.sh /usr/local/bin/
+#        sudo chmod +x /usr/local/bin/squid-ssh-stream-watchdog.sh
+#        sudo cp deploy/systemd/squid-ssh-stream-watchdog.{service,timer} /etc/systemd/system/
+#        sudo systemctl daemon-reload
+#        sudo systemctl enable --now squid-ssh-stream-watchdog.timer
 
 [Unit]
 Description=SSH-pulled Squid access.log stream for branch %i

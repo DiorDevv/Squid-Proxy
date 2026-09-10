@@ -1,0 +1,15 @@
+# Runs squid-ssh-stream-watchdog.sh once. Driven by the matching .timer.
+# See squid-ssh-stream-watchdog.sh's header for install steps.
+
+[Unit]
+Description=Restart wedged squid-ssh-stream instances (local log stopped growing)
+After=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/squid-ssh-stream-watchdog.sh
+# Needs to call `systemctl restart squid-ssh-stream@...`, so it runs as
+# root. It only reads /etc/squid-ssh-stream/*.env and restarts units.
+NoNewPrivileges=true
+ProtectHome=read-only
+PrivateTmp=true

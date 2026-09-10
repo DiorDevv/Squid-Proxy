@@ -22,13 +22,15 @@ All notable changes to this project are documented here. Format loosely follows
 - **Free-text search is index-backed now.** The Events, Blocked, Clients and
   Domains search boxes all filter with `ILIKE '%term%'`, which no btree index
   can serve — at tens of millions of `raw_events` rows a single search
-  seq-scanned for tens of seconds. Migration `c9e4b7a15d02` adds `pg_trgm`
-  GIN indexes on the searched columns (built `CONCURRENTLY`, so `alembic
-  upgrade head` returns immediately and search speeds up once the build
-  finishes). The events search no longer matches the full URL path (only
-  domain / user / client IP / server IP — as the placeholder already said),
-  and a search matching more than 10,000 events reports the count as
-  "10,000" rather than paying for an exact `COUNT(*)`.
+  seq-scanned for tens of seconds. Migration `c9e4b7a15d02` enables `pg_trgm`
+  (fast, safe on startup); the GIN trigram indexes on the searched columns
+  are built out-of-band, while the app runs, by
+  `backend/scripts/build_search_indexes.sh` — run it once on an existing
+  database (a fresh one has no rows, so it's instant). The events search no
+  longer matches the full URL path (only domain / user / client IP / server
+  IP — as the placeholder already said), and a search matching more than
+  10,000 events reports the count as "10,000" rather than paying for an
+  exact `COUNT(*)`.
 - **Analytics → Traffic & Blocks: category rows drill down to domains.**
   Under the category-traffic chart, each category now lists its total for
   the range and expands to the domains that make it up (requests, bytes,

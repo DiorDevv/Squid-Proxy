@@ -45,9 +45,10 @@ def build_event_conditions(
         conditions.append(RawEvent.branch == branch)
     if search and search.strip():
         needle = f"%{search.strip()}%"
-        # Every column here has a GIN trigram index (migration c9e4b7a15d02)
-        # so the ILIKE is index-assisted rather than a seq scan -- at ~60M
-        # rows that's the difference between instant and tens of seconds.
+        # Every column here gets a GIN trigram index from
+        # scripts/build_search_indexes.sql so the ILIKE is index-assisted
+        # rather than a seq scan -- at ~60M rows that's the difference
+        # between instant and tens of seconds.
         # `url` is intentionally not in this set: it's the full-URL Text
         # column, far the most expensive to trigram, and neither the events
         # nor the blocked search advertises URL matching. `peer` is the

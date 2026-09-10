@@ -248,8 +248,14 @@ export function ExportJobsPanel() {
             job.category && job.category,
             job.columns && `${job.columns.length} cols`,
           ].filter(Boolean)
+          const label = parts.join(', ')
           return parts.length > 0 ? (
-            <span className="font-data text-xs text-muted-foreground">{parts.join(', ')}</span>
+            <span
+              className="font-data block max-w-[18rem] truncate text-xs text-muted-foreground"
+              title={label}
+            >
+              {label}
+            </span>
           ) : (
             <span className="text-muted-foreground">—</span>
           )

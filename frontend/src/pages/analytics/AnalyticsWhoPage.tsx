@@ -13,17 +13,22 @@ import type { ActorRow } from '@/types/api'
 function NewList({ titleKey, items, total }: { titleKey: TranslationKey; items: string[]; total: number }) {
   const { t } = useTranslation()
   return (
-    <div className="flex flex-col gap-1.5">
-      <div className="flex items-baseline justify-between">
-        <h3 className="text-xs font-semibold uppercase text-muted-foreground">{t(titleKey)}</h3>
-        <span className="font-data text-xs text-muted-foreground">{formatNumber(total)}</span>
+    <div className="flex min-w-0 flex-col gap-1.5">
+      <div className="flex items-baseline justify-between gap-2">
+        <h3
+          className="min-w-0 truncate text-xs font-semibold uppercase text-muted-foreground"
+          title={t(titleKey)}
+        >
+          {t(titleKey)}
+        </h3>
+        <span className="font-data shrink-0 text-xs text-muted-foreground">{formatNumber(total)}</span>
       </div>
       {items.length === 0 ? (
         <p className="text-xs text-muted-foreground">{t('analytics.who.noneNew')}</p>
       ) : (
         <ul className="scrollbar-thin flex max-h-48 flex-col gap-0.5 overflow-y-auto">
           {items.map((v) => (
-            <li key={v} className="font-data truncate text-sm text-foreground">
+            <li key={v} className="font-data truncate text-sm text-foreground" title={v}>
               {v}
             </li>
           ))}

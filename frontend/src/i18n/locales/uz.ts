@@ -484,7 +484,7 @@ export const uz = {
   'retentionSettings.haltTitle': 'Arxivlash ortda qolganda himoya',
   'retentionSettings.haltEnableLabel': 'Arxivlash ortda qolsa raw_events tozalashini toʻxtatish',
   'retentionSettings.haltDaysLabel': 'Shundan koʻp ortda (kun)',
-  'retentionSettings.haltDescription': 'Yoqilganda, retention job barcha filiallar boʻyicha eng soʻnggi muvaffaqiyatli arxiv shu kundan eski boʻlgan har qanday siklda raw_events tozalashini oʻtkazib yuboradi va operatorga ogohlantirish yuboradi. Arxivlash buzilgan paytda har soʻrov detali yoʻqolmaydi, balki jonli bazada yigʻiladi (disk xavfi); arxivlash quvib yetgach tozalash avtomatik davom etadi. Diski cheklangan oʻrnatishda oʻchiq qoldiring.',
+  'retentionSettings.haltDescription': 'Yoqilganda, retention job barcha filiallar boʻyicha eng soʻnggi muvaffaqiyatli arxiv shu kundan eski boʻlgan har qanday siklda raw_events tozalashini oʻtkazib yuboradi va operatorga ogohlantirish yuboradi. Arxivlash buzilgan paytda har soʻrov detali yoʻqolmaydi, balki jonli bazada yigʻiladi (disk xavfi); arxivlash quvib yetgach tozalash avtomatik davom etadi. Agar arxivlash hali biror marta ham tugamagan boʻlsa, bu ham orqada qolish hisoblanadi — shuning uchun buni faqat arxivlash ishlayotganda yoqing. Diski cheklangan oʻrnatishda oʻchiq qoldiring.',
   'retentionSettings.saved': 'Saqlash sozlamalari saqlandi.',
   'retentionSettings.confirmTitle': 'Saqlash oynasini qisqartirasizmi?',
   'retentionSettings.confirmBody': 'Bu har soʻrov detali oynasini {{from}} dan {{to}} kunga kamaytiradi. Keyingi retention tozalash {{to}} kundan eski barcha raw_events qatorlarini butunlay oʻchiradi. Buni qaytarib boʻlmaydi.',

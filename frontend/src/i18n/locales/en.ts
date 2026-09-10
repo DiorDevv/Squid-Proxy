@@ -501,7 +501,7 @@ export const en = {
   'retentionSettings.haltTitle': 'Archiving safety guard',
   'retentionSettings.haltEnableLabel': 'Halt the raw_events purge when archiving falls behind',
   'retentionSettings.haltDaysLabel': 'Behind by more than (days)',
-  'retentionSettings.haltDescription': 'When on, the retention job skips the raw_events purge for any cycle where the most recent successful archive across all branches is older than this many days, and raises an operator alert. Per-request detail piles up in the live database (a disk risk) rather than being lost while archiving is broken; the purge resumes automatically once archiving catches up. Leave off on a bounded-disk deployment.',
+  'retentionSettings.haltDescription': 'When on, the retention job skips the raw_events purge for any cycle where the most recent successful archive across all branches is older than this many days, and raises an operator alert. Per-request detail piles up in the live database (a disk risk) rather than being lost while archiving is broken; the purge resumes automatically once archiving catches up. If archiving has never completed a run yet, that counts as behind too — so turn this on only once archiving is working. Leave off on a bounded-disk deployment.',
   'retentionSettings.saved': 'Retention settings saved.',
   'retentionSettings.confirmTitle': 'Shorten the retention window?',
   'retentionSettings.confirmBody': 'This lowers the per-request detail window from {{from}} to {{to}} days. The next retention purge will permanently delete every raw_events row older than {{to}} days. This cannot be undone.',

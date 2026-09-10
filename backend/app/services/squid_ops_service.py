@@ -55,9 +55,10 @@ from app.services.domain_category_service import get_overrides_map
 
 _NEW_ENTITY_CAP = 50
 _ACTOR_TOP_DOMAINS = 10
-# Pulled for the category -> domains drill-down in the actor sheet. Higher
-# than _ACTOR_TOP_DOMAINS so each category has a few domains under it, not
-# just the actor's single busiest overall.
+# The domain sample shown under each category in the actor sheet. Category
+# request/byte totals are exact (from the per-category aggregate); this only
+# bounds how many of the actor's busiest domains are listed beneath them, so
+# it need not be large.
 _ACTOR_CATEGORY_DOMAIN_LIMIT = 40
 
 # (lower_ms, upper_ms | None, histogram column) in band order -- mirrors
@@ -438,12 +439,13 @@ async def get_actor_detail(
     for bucket_ts, count in hourly_rows:
         hourly[bucket_ts.hour] += int(count)
 
-    # Category split + the domains behind each category, both derived from
-    # the same raw_events pull so a category's total always reconciles with
-    # the domains shown under it. (This replaces a separate query against
-    # the client/user category aggregate, which covered a longer window but
-    # couldn't be broken down to domains -- see _ACTOR_CATEGORY_DOMAIN_LIMIT
-    # and the note in schemas.squid_ops.ActorCategorySlice.)
+    # Per-category request/byte totals come from the pre-aggregated
+    # per-category table -- exact for the whole selected range. The domains
+    # listed under each category are the actor's busiest few from raw_events
+    # (bounded by _ACTOR_CATEGORY_DOMAIN_LIMIT and the raw-event retention
+    # window): a sample, not a set that sums to the category total.
+    # bytes_received isn't carried on the per-category aggregate, so a
+    # category's upload figure is summed from its sampled domains.
     overrides = await get_overrides_map(session)
     scored_domains = await _actor_domains(
         session,
@@ -456,19 +458,43 @@ async def get_actor_detail(
         overrides=overrides,
         limit=_ACTOR_CATEGORY_DOMAIN_LIMIT,
     )
-    by_category: dict[DomainCategoryLabel, list[ActorDomainRow]] = defaultdict(list)
+    domains_by_category: dict[DomainCategoryLabel, list[ActorDomainRow]] = defaultdict(list)
     for row in scored_domains:
-        by_category[row.category].append(row)
+        domains_by_category[row.category].append(row)
+
+    cat_model, cat_actor_col = _category_model_and_actor_col(is_user)
+    cat_conditions: list[Any] = [
+        cat_model.bucket_ts >= since,
+        cat_model.bucket_ts <= until,
+        cat_actor_col == actor,
+    ]
+    if branch is not None:
+        cat_conditions.append(cat_model.branch == branch)
+    cat_rows = (
+        await session.execute(
+            select(
+                cat_model.category,
+                func.sum(cat_model.request_count),
+                func.sum(cat_model.total_bytes),
+            )
+            .where(*cat_conditions)
+            .group_by(cat_model.category)
+        )
+    ).all()
     categories = sorted(
         (
             ActorCategorySlice(
                 category=category,
-                request_count=sum(d.request_count for d in domains),
-                total_bytes=sum(d.total_bytes for d in domains),
-                bytes_received=sum(d.bytes_received for d in domains),
-                domains=sorted(domains, key=lambda d: d.total_bytes, reverse=True),
+                request_count=int(rc),
+                total_bytes=int(tb),
+                bytes_received=sum(d.bytes_received for d in domains_by_category.get(category, [])),
+                domains=sorted(
+                    domains_by_category.get(category, []),
+                    key=lambda d: d.total_bytes,
+                    reverse=True,
+                ),
             )
-            for category, domains in by_category.items()
+            for category, rc, tb in cat_rows
         ),
         key=lambda s: s.total_bytes,
         reverse=True,

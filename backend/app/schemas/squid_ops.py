@@ -100,12 +100,15 @@ class ActorDomainRow(BaseModel):
 
 class ActorCategorySlice(BaseModel):
     category: DomainCategoryLabel
+    # request_count / total_bytes are exact for the range (per-category
+    # aggregate). bytes_received is summed from `domains` below.
     request_count: int
     total_bytes: int          # %<st -- downloaded
     bytes_received: int       # %>st -- uploaded
-    # The actor's domains that resolved to this category, biggest first --
-    # lets "why is News their top category" be answered without a second
-    # request. Bounded by _ACTOR_CATEGORY_DOMAIN_LIMIT across all categories.
+    # A sample of the actor's busiest domains that resolved to this category
+    # (from raw_events, bounded by _ACTOR_CATEGORY_DOMAIN_LIMIT and the
+    # raw-event retention window) -- it does NOT necessarily sum to
+    # request_count / total_bytes above.
     domains: list[ActorDomainRow]
 
 

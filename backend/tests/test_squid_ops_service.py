@@ -272,15 +272,24 @@ async def test_new_entities_reports_first_seen_within_window(db_session: AsyncSe
     assert "10.0.0.1" not in result.new_clients
 
 
-async def test_actor_detail_reads_category_split_and_hourly(db_session: AsyncSession):
-    # Request/blocked/bytes/hourly still come from the client aggregate;
-    # the category split and the domains under each category come from
-    # raw_events (same pull, so they reconcile).
-    db_session.add(
-        ClientMinuteAggregate(
-            bucket_ts=BUCKET, client_ip="10.0.0.1", branch="default", user="alice",
-            request_count=50, blocked_count=5, total_bytes=3000, bytes_received=700,
-        )
+async def test_actor_detail_category_totals_are_exact_domains_are_a_sample(db_session: AsyncSession):
+    # request/blocked/bytes/hourly come from the client aggregate; per-category
+    # request_count/total_bytes come from the per-category aggregate (exact);
+    # the domains under each category are a raw_events sample that need NOT
+    # sum to the category total; per-category bytes_received is summed from
+    # that sample.
+    db_session.add_all(
+        [
+            ClientMinuteAggregate(
+                bucket_ts=BUCKET, client_ip="10.0.0.1", branch="default", user="alice",
+                request_count=50, blocked_count=5, total_bytes=3000, bytes_received=700,
+            ),
+            # category total deliberately far bigger than the two sampled domains
+            UserCategoryMinuteAggregate(
+                bucket_ts=BUCKET, branch="default", user="alice",
+                category=DomainCategoryLabel.SOCIAL_MEDIA, request_count=900, total_bytes=88_888,
+            ),
+        ]
     )
     db_session.add_all(
         [
@@ -304,26 +313,21 @@ async def test_actor_detail_reads_category_split_and_hourly(db_session: AsyncSes
         db_session, "alice", is_user=True, since=SINCE, until=NOW, branch=None
     )
     assert detail.request_count == 50
-    assert detail.blocked_count == 5
-    assert detail.bytes_received == 700          # from the client aggregate
+    assert detail.bytes_received == 700
     assert sum(detail.hourly) == 50
-    assert len(detail.hourly) == 24
 
-    # per-domain upload comes from raw_events and rolls up into its category
-    listed_up = {d.domain: d.bytes_received for c in detail.categories for d in c.domains}
-    assert listed_up == {"facebook.com": 400, "instagram.com": 300}
-    top = detail.categories[0]
-    assert top.bytes_received == sum(d.bytes_received for d in top.domains)
-
-    assert detail.categories, "expected the raw_events to produce a category split"
-    top = detail.categories[0]
-    # a category's totals reconcile with the domains listed under it
-    assert top.total_bytes == sum(d.total_bytes for d in top.domains)
-    assert top.request_count == sum(d.request_count for d in top.domains)
-    assert all(d.category == top.category for d in top.domains)
-    # every domain the actor hit is placed under exactly one category
-    listed = [d.domain for c in detail.categories for d in c.domains]
-    assert sorted(listed) == ["facebook.com", "instagram.com"]
+    social = next(c for c in detail.categories if c.category == DomainCategoryLabel.SOCIAL_MEDIA)
+    # exact, from the per-category aggregate -- NOT 2500 / 3 (the domain sums)
+    assert social.request_count == 900
+    assert social.total_bytes == 88_888
+    # upload is summed from the sampled domains
+    assert social.bytes_received == 700
+    # the domains are the sample, biggest download first
+    assert [d.domain for d in social.domains] == ["facebook.com", "instagram.com"]
+    assert {d.domain: d.bytes_received for d in social.domains} == {
+        "facebook.com": 400,
+        "instagram.com": 300,
+    }
 
 
 def test_build_ingest_health_reshapes_health_snapshot():

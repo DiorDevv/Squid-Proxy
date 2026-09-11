@@ -432,8 +432,9 @@ async def get_branch_category_breakdown(
     """What each branch's traffic is actually going to, by category -- one
     query over domain_minute_aggregates grouped by (branch, domain), each
     domain resolved to its effective category and summed in Python (same
-    shape as _branch_category_bytes, plus request_count so the frontend can
-    show share-of-requests as well as share-of-bytes)."""
+    shape as _branch_category_bytes, plus request_count/bytes_received so
+    the frontend can show share-of-requests and upload alongside
+    share-of-bytes-downloaded)."""
     branches = _branches_in_scope(branch)
     overrides = await get_overrides_map(session)
     rows = (
@@ -443,6 +444,7 @@ async def get_branch_category_breakdown(
                 DomainMinuteAggregate.domain,
                 func.sum(DomainMinuteAggregate.request_count),
                 func.sum(DomainMinuteAggregate.total_bytes),
+                func.sum(DomainMinuteAggregate.bytes_received),
             )
             .where(
                 DomainMinuteAggregate.bucket_ts >= since,
@@ -453,21 +455,27 @@ async def get_branch_category_breakdown(
         )
     ).all()
 
-    # branch -> category -> [requests, bytes]
+    # branch -> category -> [requests, bytes, bytes_received]
     totals: dict[str, dict[DomainCategoryLabel, list[int]]] = {
-        b: defaultdict(lambda: [0, 0]) for b in branches
+        b: defaultdict(lambda: [0, 0, 0]) for b in branches
     }
-    for branch_name, domain, request_count, total_bytes in rows:
+    for branch_name, domain, request_count, total_bytes, bytes_received in rows:
         cell = totals[branch_name][effective_category(domain, overrides)]
         cell[0] += int(request_count)
         cell[1] += int(total_bytes)
+        cell[2] += int(bytes_received or 0)
 
     series = [
         BranchCategoryBreakdownSeries(
             branch=b,
             categories=sorted(
                 (
-                    BranchCategoryUsage(category=category, request_count=vals[0], total_bytes=vals[1])
+                    BranchCategoryUsage(
+                        category=category,
+                        request_count=vals[0],
+                        total_bytes=vals[1],
+                        bytes_received=vals[2],
+                    )
                     for category, vals in totals[b].items()
                 ),
                 key=lambda c: c.total_bytes,

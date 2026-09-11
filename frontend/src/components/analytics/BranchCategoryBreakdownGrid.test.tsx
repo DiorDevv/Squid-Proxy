@@ -8,8 +8,8 @@ const DATA: BranchCategoryBreakdownResponse = {
     {
       branch: 'hq',
       categories: [
-        { category: 'video_streaming', request_count: 100, total_bytes: 90_000 },
-        { category: 'work_tools', request_count: 40, total_bytes: 1_000 },
+        { category: 'video_streaming', request_count: 100, total_bytes: 90_000, bytes_received: 3_000 },
+        { category: 'work_tools', request_count: 40, total_bytes: 1_000, bytes_received: 0 },
       ],
     },
     {
@@ -42,5 +42,13 @@ describe('BranchCategoryBreakdownGrid', () => {
     expect(screen.getByText('Video streaming')).toBeInTheDocument()
     expect(screen.getByText('Work tools')).toBeInTheDocument()
     expect(screen.getByText('87.9 KB')).toBeInTheDocument()
+  })
+
+  it('shows uploaded bytes alongside downloaded, when present', () => {
+    render(<BranchCategoryBreakdownGrid data={DATA} />)
+    // video_streaming has bytes_received=3_000 -> shown with an upload arrow
+    expect(screen.getByText('↑2.9 KB')).toBeInTheDocument()
+    // work_tools has bytes_received=0 -> no upload annotation for that row
+    expect(screen.queryByText('↑0 B')).not.toBeInTheDocument()
   })
 })

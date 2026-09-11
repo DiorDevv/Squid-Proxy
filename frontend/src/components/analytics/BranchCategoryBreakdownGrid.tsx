@@ -66,6 +66,9 @@ export function BranchCategoryBreakdownGrid({ data, loading }: BranchCategoryBre
                       </span>
                       <span className="font-data shrink-0 text-muted-foreground">
                         {formatBytes(usage.total_bytes)}
+                        {usage.bytes_received > 0 && (
+                          <span className="text-info"> ↑{formatBytes(usage.bytes_received)}</span>
+                        )}
                       </span>
                     </div>
                     <div className="h-1.5 w-full overflow-hidden rounded-full bg-muted">

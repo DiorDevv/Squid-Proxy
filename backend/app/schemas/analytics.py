@@ -154,6 +154,7 @@ class BranchCategoryUsage(BaseModel):
     category: DomainCategoryLabel
     request_count: int
     total_bytes: int
+    bytes_received: int
 
 
 class BranchCategoryBreakdownSeries(BaseModel):

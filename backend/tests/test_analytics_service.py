@@ -294,9 +294,11 @@ async def test_branch_category_breakdown_splits_and_sorts_by_bytes(db_session: A
         [
             DomainMinuteAggregate(
                 bucket_ts=bucket, branch="hq", domain="youtube.com", request_count=10, total_bytes=90_000,
+                bytes_received=3_000,
             ),
             DomainMinuteAggregate(
                 bucket_ts=bucket, branch="hq", domain="github.com", request_count=40, total_bytes=1_000,
+                bytes_received=7_000,
             ),
             DomainMinuteAggregate(
                 bucket_ts=bucket, branch="warehouse", domain="github.com", request_count=5, total_bytes=500,
@@ -314,7 +316,10 @@ async def test_branch_category_breakdown_splits_and_sorts_by_bytes(db_session: A
     hq_categories = {c.category: c for c in by_branch["hq"].categories}
     assert hq_categories[DomainCategoryLabel.VIDEO_STREAMING].request_count == 10
     assert hq_categories[DomainCategoryLabel.VIDEO_STREAMING].total_bytes == 90_000
+    assert hq_categories[DomainCategoryLabel.VIDEO_STREAMING].bytes_received == 3_000
     assert hq_categories[DomainCategoryLabel.WORK_TOOLS].request_count == 40
+    assert hq_categories[DomainCategoryLabel.WORK_TOOLS].bytes_received == 7_000
+    assert by_branch["warehouse"].categories[0].bytes_received == 0  # no bytes_received seeded there
     # sorted by total_bytes descending -- video_streaming (90k) before work_tools (1k)
     assert [c.category for c in by_branch["hq"].categories][:2] == [
         DomainCategoryLabel.VIDEO_STREAMING,

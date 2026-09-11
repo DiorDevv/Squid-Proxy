@@ -365,6 +365,7 @@ export interface BranchCategoryUsage {
   category: DomainCategoryLabel
   request_count: number
   total_bytes: number
+  bytes_received: number
 }
 
 export interface BranchCategoryBreakdownSeries {

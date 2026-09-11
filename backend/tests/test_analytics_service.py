@@ -201,6 +201,78 @@ async def test_branch_signals_sorted_worst_blocked_ratio_first(db_session: Async
     assert [r.branch for r in result.rows] == ["b", "a"]
 
 
+async def test_branch_trend_splits_series_per_branch_including_a_quiet_one(
+    db_session: AsyncSession, monkeypatch
+):
+    monkeypatch.setattr(
+        analytics_service,
+        "get_settings",
+        lambda: Settings(
+            LOG_SOURCES=[
+                LogSource(branch="hq", path="/x/hq.log"),
+                LogSource(branch="warehouse", path="/x/wh.log"),
+            ]
+        ),
+    )
+    now = datetime.now(UTC).replace(minute=0, second=0, microsecond=0) - timedelta(hours=2)
+    since = now - timedelta(hours=1)
+    bucket = since + timedelta(minutes=1)
+    db_session.add_all(
+        [
+            _minute(bucket_ts=bucket, branch="hq", total_requests=100, blocked_requests=10, allowed_requests=90),
+            _minute(
+                bucket_ts=bucket + timedelta(minutes=30),
+                branch="hq",
+                total_requests=50,
+                blocked_requests=0,
+                allowed_requests=50,
+            ),
+            # "warehouse" is a configured branch with zero traffic in this
+            # window -- it must still appear, with an empty series, not be
+            # dropped or error out.
+        ]
+    )
+    await db_session.commit()
+
+    trend = await analytics_service.get_branch_trend(
+        db_session, since, now, TrendGranularity.HOUR, branch=None
+    )
+    by_branch = {s.branch: s for s in trend.series}
+    assert set(by_branch) == {"hq", "warehouse"}
+    assert by_branch["warehouse"].points == []
+    hq_points = by_branch["hq"].points
+    assert len(hq_points) == 1  # both hq rows fall in the same hour bucket
+    assert hq_points[0].total_requests == 150
+    assert hq_points[0].blocked_requests == 10
+    assert hq_points[0].allowed_requests == 140
+
+    # A branch-scoped caller only ever gets their own series.
+    scoped = await analytics_service.get_branch_trend(
+        db_session, since, now, TrendGranularity.HOUR, branch="hq"
+    )
+    assert [s.branch for s in scoped.series] == ["hq"]
+
+
+async def test_branch_trend_drops_the_in_progress_bucket(db_session: AsyncSession):
+    now = datetime.now(UTC)
+    current_hour = now.replace(minute=0, second=0, microsecond=0)
+    prev_hour = current_hour - timedelta(hours=1)
+    db_session.add_all(
+        [
+            _minute(bucket_ts=prev_hour + timedelta(minutes=10), branch="default", total_requests=20, allowed_requests=20),
+            _minute(bucket_ts=current_hour + timedelta(minutes=1), branch="default", total_requests=1, allowed_requests=1),
+        ]
+    )
+    await db_session.commit()
+
+    trend = await analytics_service.get_branch_trend(
+        db_session, prev_hour - timedelta(hours=1), now, TrendGranularity.HOUR, branch=None
+    )
+    hours = {p.bucket_ts for s in trend.series for p in s.points}
+    assert prev_hour in hours
+    assert current_hour not in hours  # the still-filling bucket is excluded
+
+
 async def test_activity_heatmap_buckets_by_weekday_and_hour(db_session: AsyncSession):
     # A fixed known instant: 2026-09-02 is a Wednesday (weekday() == 2).
     ts = datetime(2026, 9, 2, 14, 30, tzinfo=UTC)

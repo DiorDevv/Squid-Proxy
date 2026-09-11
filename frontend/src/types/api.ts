@@ -317,6 +317,23 @@ export interface BranchSignalsResponse {
   rows: BranchSignalRow[]
 }
 
+export interface BranchTrendPoint {
+  bucket_ts: string
+  total_requests: number
+  blocked_requests: number
+  allowed_requests: number
+}
+
+export interface BranchTrendSeries {
+  branch: string
+  points: BranchTrendPoint[]
+}
+
+export interface BranchTrendResponse {
+  granularity: TrendGranularity
+  series: BranchTrendSeries[]
+}
+
 export interface HeatmapCell {
   weekday: number
   hour: number

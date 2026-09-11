@@ -3,11 +3,12 @@ import { PanelErrorBoundary } from '@/components/common/PanelErrorBoundary'
 import { ErrorState } from '@/components/common/ErrorState'
 import { BranchComparisonChart } from '@/components/analytics/BranchComparisonChart'
 import { BranchSignalsTable } from '@/components/analytics/BranchSignalsTable'
+import { BranchTrendGrid } from '@/components/analytics/BranchTrendGrid'
 import { IngestHealthPanel } from '@/components/analytics/IngestHealthPanel'
 import { cn } from '@/lib/utils'
 import { formatBytes, formatNumber } from '@/lib/format'
 import { useRangeSearchParams } from '@/lib/filters-store'
-import { useBranchBreakdown, useBranchSignals, useIngestHealth } from '@/hooks/useAnalytics'
+import { useBranchBreakdown, useBranchSignals, useBranchTrend, useIngestHealth } from '@/hooks/useAnalytics'
 import { useTranslation } from '@/i18n'
 
 export default function AnalyticsBranchesPage() {
@@ -15,6 +16,7 @@ export default function AnalyticsBranchesPage() {
   const rangeParams = useRangeSearchParams()
   const breakdown = useBranchBreakdown(rangeParams, true)
   const signals = useBranchSignals(rangeParams, true)
+  const trend = useBranchTrend(rangeParams, 'hour', true)
   const ingest = useIngestHealth(true)
 
   const rows = breakdown.data?.rows ?? []
@@ -50,6 +52,19 @@ export default function AnalyticsBranchesPage() {
             <ErrorState message={breakdown.error?.message} onRetry={() => breakdown.refetch()} />
           ) : (
             <BranchComparisonChart rows={rows} loading={breakdown.isLoading} />
+          )}
+        </PanelErrorBoundary>
+      </Panel>
+
+      <Panel
+        title={t('analytics.branches.trendTitle')}
+        action={<span className="text-xs text-muted-foreground">{t('analytics.branches.trendHint')}</span>}
+      >
+        <PanelErrorBoundary panelLabel={t('analytics.branches.trendTitle')}>
+          {trend.isError ? (
+            <ErrorState message={trend.error?.message} onRetry={() => trend.refetch()} />
+          ) : (
+            <BranchTrendGrid data={trend.data} loading={trend.isLoading} />
           )}
         </PanelErrorBoundary>
       </Panel>

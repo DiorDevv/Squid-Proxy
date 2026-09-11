@@ -31,6 +31,9 @@ from app.schemas.analytics import (
     BranchBreakdownRow,
     BranchSignalRow,
     BranchSignalsResponse,
+    BranchTrendPoint,
+    BranchTrendResponse,
+    BranchTrendSeries,
     CategoryMover,
     CategoryTrendPoint,
     CategoryTrendResponse,
@@ -349,6 +352,66 @@ async def get_branch_breakdown(
         )
     rows.sort(key=lambda r: r.total_requests, reverse=True)
     return BranchBreakdownResponse(rows=rows)
+
+
+async def get_branch_trend(
+    session: AsyncSession,
+    since: datetime,
+    until: datetime,
+    granularity: TrendGranularity,
+    branch: str | None,
+) -> BranchTrendResponse:
+    """Requests-over-time, split by branch -- the small-multiples view on
+    the Branches tab. Same auto-coarsening and in-progress-bucket drop as
+    get_category_trend, applied per branch so a quiet branch doesn't get a
+    misleadingly flat line just because a busy one pushed the range wider."""
+    effective_granularity = granularity
+    if granularity == TrendGranularity.HOUR:
+        hours = (until - since).total_seconds() / 3600
+        if hours > get_settings().CATEGORY_TREND_MAX_BUCKETS:
+            effective_granularity = TrendGranularity.DAY
+
+    branches = _branches_in_scope(branch)
+    rows = (
+        await session.execute(
+            select(
+                MinuteAggregate.branch,
+                MinuteAggregate.bucket_ts,
+                func.sum(MinuteAggregate.total_requests),
+                func.sum(MinuteAggregate.blocked_requests),
+                func.sum(MinuteAggregate.allowed_requests),
+            )
+            .where(
+                MinuteAggregate.bucket_ts >= since,
+                MinuteAggregate.bucket_ts <= until,
+                MinuteAggregate.branch.in_(branches),
+            )
+            .group_by(MinuteAggregate.branch, MinuteAggregate.bucket_ts)
+        )
+    ).all()
+
+    # branch -> truncated bucket -> [requests, blocked, allowed]
+    buckets: dict[str, dict[datetime, list[int]]] = defaultdict(lambda: defaultdict(lambda: [0, 0, 0]))
+    for branch_name, bucket_ts, total_requests, blocked_requests, allowed_requests in rows:
+        cell = buckets[branch_name][_truncate(bucket_ts, effective_granularity)]
+        cell[0] += int(total_requests)
+        cell[1] += int(blocked_requests)
+        cell[2] += int(allowed_requests)
+
+    series: list[BranchTrendSeries] = []
+    for b in branches:
+        branch_buckets = buckets.get(b, {})
+        drop = _drop_in_progress_bucket(list(branch_buckets), effective_granularity)
+        points = [
+            BranchTrendPoint(
+                bucket_ts=bucket, total_requests=vals[0], blocked_requests=vals[1], allowed_requests=vals[2]
+            )
+            for bucket, vals in sorted(branch_buckets.items())
+            if bucket not in drop
+        ]
+        series.append(BranchTrendSeries(branch=b, points=points))
+
+    return BranchTrendResponse(granularity=effective_granularity, series=series)
 
 
 async def _branch_alert_inputs(

@@ -10,6 +10,7 @@ from app.schemas.analytics import (
     AnalyticsOverview,
     BranchBreakdownResponse,
     BranchSignalsResponse,
+    BranchTrendResponse,
     CategoryTrendResponse,
     RetentionInfo,
     TrendGranularity,
@@ -78,6 +79,18 @@ async def read_branch_signals(
 ) -> BranchSignalsResponse:
     return await analytics_service.get_branch_signals(
         db, effective_range.since, effective_range.until, branch
+    )
+
+
+@router.get("/branch-trend", response_model=BranchTrendResponse)
+async def read_branch_trend(
+    granularity: TrendGranularity = Query(default=TrendGranularity.HOUR),
+    effective_range: EffectiveRange = Depends(resolve_range),
+    branch: str | None = Depends(resolve_branch),
+    db: AsyncSession = Depends(get_db),
+) -> BranchTrendResponse:
+    return await analytics_service.get_branch_trend(
+        db, effective_range.since, effective_range.until, granularity, branch
     )
 
 

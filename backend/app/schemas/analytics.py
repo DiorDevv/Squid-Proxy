@@ -130,6 +130,25 @@ class BranchSignalsResponse(BaseModel):
     rows: list[BranchSignalRow]
 
 
+class BranchTrendPoint(BaseModel):
+    bucket_ts: datetime
+    total_requests: int
+    blocked_requests: int
+    allowed_requests: int
+
+
+class BranchTrendSeries(BaseModel):
+    branch: str
+    points: list[BranchTrendPoint]
+
+
+class BranchTrendResponse(BaseModel):
+    # The granularity actually used -- see get_branch_trend's auto-coarsening,
+    # same as CategoryTrendResponse.
+    granularity: TrendGranularity
+    series: list[BranchTrendSeries]
+
+
 class HeatmapCell(BaseModel):
     # 0 = Monday .. 6 = Sunday. In the timezone implied by
     # ActivityHeatmapResponse.tz_offset_minutes (0 = UTC).

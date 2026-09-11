@@ -8,6 +8,7 @@ import type {
   AnalyticsOverview,
   BranchBreakdownResponse,
   BranchSignalsResponse,
+  BranchTrendResponse,
   CategoryTrendResponse,
   DenialsResponse,
   ConfigAdvisorResponse,
@@ -60,6 +61,17 @@ export function useBranchSignals(rangeParams: RangeParams, live: boolean) {
     queryKey: ['analytics-branch-signals', rangeParams],
     queryFn: () =>
       apiFetch<BranchSignalsResponse>('/api/analytics/branch-signals', { searchParams: rangeParams }),
+    refetchInterval: live ? false : POLLING_FALLBACK_INTERVAL_MS,
+  })
+}
+
+export function useBranchTrend(rangeParams: RangeParams, granularity: TrendGranularity, live: boolean) {
+  return useQuery({
+    queryKey: ['analytics-branch-trend', rangeParams, granularity],
+    queryFn: () =>
+      apiFetch<BranchTrendResponse>('/api/analytics/branch-trend', {
+        searchParams: { ...rangeParams, granularity },
+      }),
     refetchInterval: live ? false : POLLING_FALLBACK_INTERVAL_MS,
   })
 }

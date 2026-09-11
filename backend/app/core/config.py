@@ -264,7 +264,11 @@ class Settings(BaseSettings):
     LOGIN_ACCOUNT_THROTTLED_INTERVAL_SECONDS: int = 60
 
     # --- Insights / anomaly detection ---
-    INSIGHTS_PROVIDER: str = "noop"
+    # "noop" silently disables every anomaly check (built-in and
+    # admin-defined custom rules alike) with no error and nothing logged --
+    # a deployment that never sets this is easy to mistake for "anomaly
+    # detection is broken" when it's actually just off. Defaults on.
+    INSIGHTS_PROVIDER: str = "statistical"
 
     # --- Analytics ---
     # Above this many time buckets, /api/analytics/category-trend coarsens

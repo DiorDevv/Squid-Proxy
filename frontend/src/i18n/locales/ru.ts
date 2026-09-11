@@ -122,6 +122,9 @@ export const ru = {
   'common.rangeIncomplete': 'Укажите дату/время начала и окончания.',
   'common.rangeInvalidOrder': '«С» должно быть раньше «По».',
   'common.save': 'Сохранить',
+  'common.edit': 'Изменить',
+  'common.delete': 'Удалить',
+  'common.cancel': 'Отмена',
 
   'status.blocked': 'Заблокировано',
   'status.allowed': 'Разрешено',
@@ -175,6 +178,8 @@ export const ru = {
   'insights.anomaly.watchlistHit.title': 'Отслеживаемая цель активна',
   'insights.anomaly.watchlistHit.description':
     'Отслеживаемый {{targetType}} {{value}} сделал {{count}} запрос(ов) ({{blocked}} заблокировано) за последний интервал.',
+  'insights.anomaly.customRule.description':
+    '{{target}} достиг {{value}} ({{metric}}) за последние {{windowMinutes}} мин (порог: {{threshold}}).',
 
   'notifications.bellLabel': 'Уведомления',
   'notifications.title': 'Последние аномалии',
@@ -568,6 +573,36 @@ export const ru = {
   'settings.uncategorizedDomainThresholdDescription':
     'Оповещать о домене без категории, если у него за последние 24ч было больше этого числа запросов. Оставьте пустым, чтобы отключить.',
   'settings.alertSettingsSaved': 'Настройки оповещений сохранены.',
+  'settings.alertRules.title': 'Пользовательские правила',
+  'settings.alertRules.description':
+    'Задайте свои пороговые правила — без изменения кода. «Если <метрика> для одного <IP клиента/домена/филиала> превышает <значение> за <N> минут — оповестить».',
+  'settings.alertRules.add': 'Добавить правило',
+  'settings.alertRules.empty': 'Пользовательских правил пока нет.',
+  'settings.alertRules.colName': 'Название',
+  'settings.alertRules.colScope': 'Применяется к',
+  'settings.alertRules.colMetric': 'Метрика',
+  'settings.alertRules.colThreshold': 'Порог',
+  'settings.alertRules.colWindow': 'Окно',
+  'settings.alertRules.colSeverity': 'Серьёзность',
+  'settings.alertRules.colEnabled': 'Включено',
+  'settings.alertRules.windowMinutesValue': '{{minutes}} мин',
+  'settings.alertRules.scopeClientIp': 'IP клиента',
+  'settings.alertRules.scopeDomain': 'Домен',
+  'settings.alertRules.scopeBranch': 'Весь филиал',
+  'settings.alertRules.metricRequestCount': 'Запросы',
+  'settings.alertRules.metricBlockedCount': 'Заблокированные запросы',
+  'settings.alertRules.metricTotalBytes': 'Скачано данных',
+  'settings.alertRules.metricBytesReceived': 'Загружено данных',
+  'settings.alertRules.thresholdMb': 'Порог (МБ)',
+  'settings.alertRules.thresholdCount': 'Порог (кол-во)',
+  'settings.alertRules.addTitle': 'Добавить правило',
+  'settings.alertRules.editTitle': 'Изменить правило',
+  'settings.alertRules.formDescription':
+    'Оповещает, когда выбранная метрика за последнее окно превышает порог.',
+  'settings.alertRules.saved': 'Правило сохранено.',
+  'settings.alertRules.deleted': 'Правило удалено.',
+  'settings.alertRules.deleteConfirmTitle': 'Удалить это правило?',
+  'settings.alertRules.deleteConfirmDescription': '«{{name}}» больше не будет проверяться. Это необратимо.',
   'settings.telegramChatId': 'Telegram',
   'settings.telegramChatIdDescription':
     'Оповещения этого филиала отправляются в этот чат, в дополнение к чату главного администратора (если он настроен).',

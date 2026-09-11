@@ -125,6 +125,9 @@ export const uz = {
   'common.rangeIncomplete': 'Boshlanish va tugash sana/vaqtini tanlang.',
   'common.rangeInvalidOrder': '"Dan" qiymati "Gacha" qiymatidan oldin bo‘lishi kerak.',
   'common.save': 'Saqlash',
+  'common.edit': 'Tahrirlash',
+  'common.delete': 'Oʻchirish',
+  'common.cancel': 'Bekor qilish',
 
   'status.blocked': 'Bloklangan',
   'status.allowed': 'Ruxsat berilgan',
@@ -178,6 +181,8 @@ export const uz = {
   'insights.anomaly.watchlistHit.title': 'Kuzatilayotgan obyekt faol',
   'insights.anomaly.watchlistHit.description':
     "Kuzatilayotgan {{targetType}} {{value}} oxirgi intervalda {{count}} ta so'rov qildi ({{blocked}} bloklangan).",
+  'insights.anomaly.customRule.description':
+    "{{target}} oxirgi {{windowMinutes}} daqiqada {{value}} ({{metric}}) ga yetdi (chegara: {{threshold}}).",
 
   'notifications.bellLabel': 'Bildirishnomalar',
   'notifications.title': "So'nggi anomaliyalar",
@@ -571,6 +576,36 @@ export const uz = {
   'settings.uncategorizedDomainThresholdDescription':
     'So‘nggi 24 soatda shu miqdordan ko‘p so‘rov qilingan, lekin hali kategoriyaga ega bo‘lmagan domen ogohlantiriladi. Bo‘sh qoldirilsa — o‘chirilgan.',
   'settings.alertSettingsSaved': 'Ogohlantirish sozlamalari saqlandi.',
+  'settings.alertRules.title': 'Maxsus qoidalar',
+  'settings.alertRules.description':
+    'O‘zingizning chegara qoidalaringizni belgilang — kod o‘zgartirish shart emas. "Agar <ko‘rsatkich> bitta <mijoz IP/domen/filial> uchun <N> daqiqada <qiymat>dan oshsa — ogohlantirish chiqsin."',
+  'settings.alertRules.add': 'Qoida qoʻshish',
+  'settings.alertRules.empty': 'Hali maxsus qoida yoʻq.',
+  'settings.alertRules.colName': 'Nomi',
+  'settings.alertRules.colScope': 'Nimaga tegishli',
+  'settings.alertRules.colMetric': 'Koʻrsatkich',
+  'settings.alertRules.colThreshold': 'Chegara',
+  'settings.alertRules.colWindow': 'Vaqt oynasi',
+  'settings.alertRules.colSeverity': 'Daraja',
+  'settings.alertRules.colEnabled': 'Yoqilgan',
+  'settings.alertRules.windowMinutesValue': '{{minutes}} daqiqa',
+  'settings.alertRules.scopeClientIp': 'Mijoz IP',
+  'settings.alertRules.scopeDomain': 'Domen',
+  'settings.alertRules.scopeBranch': 'Butun filial',
+  'settings.alertRules.metricRequestCount': 'Soʻrovlar',
+  'settings.alertRules.metricBlockedCount': 'Bloklangan soʻrovlar',
+  'settings.alertRules.metricTotalBytes': 'Yuklab olingan maʼlumot',
+  'settings.alertRules.metricBytesReceived': 'Yuklangan maʼlumot',
+  'settings.alertRules.thresholdMb': 'Chegara (MB)',
+  'settings.alertRules.thresholdCount': 'Chegara (son)',
+  'settings.alertRules.addTitle': 'Qoida qoʻshish',
+  'settings.alertRules.editTitle': 'Qoidani tahrirlash',
+  'settings.alertRules.formDescription':
+    'Tanlangan koʻrsatkich, oxirgi vaqt oynasida jamlanganda, chegaradan oshsa ogohlantirish chiqaradi.',
+  'settings.alertRules.saved': 'Qoida saqlandi.',
+  'settings.alertRules.deleted': 'Qoida oʻchirildi.',
+  'settings.alertRules.deleteConfirmTitle': 'Bu qoida oʻchirilsinmi?',
+  'settings.alertRules.deleteConfirmDescription': '"{{name}}" endi tekshirilmaydi. Bu amalni qaytarib boʻlmaydi.',
   'settings.telegramChatId': 'Telegram',
   'settings.telegramChatIdDescription':
     "Shu filialning bildirishnomalari ushbu chatga yuboriladi, sozlangan bo'lsa bosh admin chatiga qo'shimcha ravishda.",

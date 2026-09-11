@@ -1,6 +1,8 @@
 import type { TranslationKey } from '@/i18n'
 import { CATEGORY_LABEL_KEYS } from '@/lib/categories'
-import type { AnomalyEvent, DomainCategoryLabel } from '@/types/api'
+import { METRIC_LABEL_KEYS, isByteMetric } from '@/lib/alertRules'
+import { formatBytes, formatNumber } from '@/lib/format'
+import type { AlertRuleMetric, AnomalyEvent, DomainCategoryLabel } from '@/types/api'
 
 type Translate = (key: TranslationKey, vars?: Record<string, string | number>) => string
 
@@ -48,6 +50,27 @@ const ANOMALY_KEYS: Record<string, { title: TranslationKey; description: Transla
  * back to the stored English text for older rows that predate kind/params
  * (both NULL) or for a kind this frontend build doesn't recognize yet. */
 export function localizeAnomaly(item: AnomalyEvent, t: Translate): { title: string; description: string } {
+  // Custom rules (Settings -> Alerts -> Custom rules) get a per-rule kind
+  // ("custom_rule_<id>") so cooldown dedup stays per-rule -- but there's no
+  // way to pre-register an i18n key for an admin-created rule's id, so
+  // every one of them shares this single generic template instead, filled
+  // in from params. See app/insights/anomaly.py's _custom_rules.
+  if (item.kind?.startsWith('custom_rule_') && item.params) {
+    const metric = item.params.metric as AlertRuleMetric | undefined
+    const format = metric && isByteMetric(metric) ? formatBytes : formatNumber
+    const metricLabel = metric ? t(METRIC_LABEL_KEYS[metric]) : String(item.params.metric ?? '')
+    return {
+      title: item.params.ruleName ? String(item.params.ruleName) : item.title,
+      description: t('insights.anomaly.customRule.description', {
+        target: String(item.params.target ?? ''),
+        metric: metricLabel,
+        value: format(Number(item.params.value ?? 0)),
+        threshold: format(Number(item.params.threshold ?? 0)),
+        windowMinutes: item.params.windowMinutes ?? '',
+      }),
+    }
+  }
+
   const keys = item.kind ? ANOMALY_KEYS[item.kind] : undefined
   if (!keys || !item.params) {
     return { title: item.title, description: item.description }

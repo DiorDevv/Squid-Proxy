@@ -10,12 +10,15 @@ elsewhere (see ARCHITECTURE.md).
 import statistics
 from collections import defaultdict
 from datetime import datetime, timedelta
+from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.insights.base import Anomaly, AnomalySeverity, Insight, InsightsProvider
+from app.models.alert_rule import AlertRule, AlertRuleMetric, AlertRuleScope
 from app.models.anomaly_event import AnomalyEvent
+from app.models.client_aggregate import ClientMinuteAggregate
 from app.models.domain_aggregate import DomainMinuteAggregate
 from app.models.minute_aggregate import MinuteAggregate
 from app.models.raw_event import RawEvent
@@ -56,6 +59,22 @@ CLIENT_BLOCKED_MIN_REQUESTS = 5
 # low minutes wide (AGGREGATION_INTERVAL_SECONDS), so an hour is already
 # generous slack.
 MAX_WINDOW_SPREAD = timedelta(hours=1)
+
+# Field name for each metric on ClientMinuteAggregate/DomainMinuteAggregate
+# (identical on both) vs. MinuteAggregate (branch-level totals use
+# different names for the same concepts -- see app/models/minute_aggregate.py).
+_ENTITY_METRIC_FIELD: dict[AlertRuleMetric, str] = {
+    AlertRuleMetric.REQUEST_COUNT: "request_count",
+    AlertRuleMetric.BLOCKED_COUNT: "blocked_count",
+    AlertRuleMetric.TOTAL_BYTES: "total_bytes",
+    AlertRuleMetric.BYTES_RECEIVED: "bytes_received",
+}
+_BRANCH_METRIC_FIELD: dict[AlertRuleMetric, str] = {
+    AlertRuleMetric.REQUEST_COUNT: "total_requests",
+    AlertRuleMetric.BLOCKED_COUNT: "blocked_requests",
+    AlertRuleMetric.TOTAL_BYTES: "total_bytes",
+    AlertRuleMetric.BYTES_RECEIVED: "bytes_received",
+}
 
 # detect_anomalies runs every aggregator flush (~AGGREGATION_INTERVAL_SECONDS).
 # A condition that persists across many flushes -- a spike that lasts ten
@@ -100,6 +119,7 @@ class StatisticalAnomalyProvider(InsightsProvider):
             anomalies += await self._sensitive_category_visit(
                 branch_events, session, window_start, generated_at, branch
             )
+            anomalies += await self._custom_rules(branch_events, session, generated_at, branch)
         return anomalies
 
     async def _recently_flagged(
@@ -334,3 +354,130 @@ class StatisticalAnomalyProvider(InsightsProvider):
             )
             for client_ip, domain in sorted(new_pairs)
         ]
+
+    async def _custom_rules(
+        self,
+        events: list[ParsedEvent],
+        session: AsyncSession,
+        generated_at: datetime,
+        branch: str,
+    ) -> list[Anomaly]:
+        """Admin-defined threshold rules (Settings -> Alerts -> Custom
+        rules, see app/models/alert_rule.py) -- the generic escape hatch
+        for "flag a client_ip/domain/branch whose <metric> exceeds
+        <threshold> within a trailing window", without a code change per
+        new rule. Only evaluates client_ips/domains actually seen in this
+        flush (same scoping as the other per-flush checks above); a
+        branch-scope rule always evaluates once regardless."""
+        rules = (
+            await session.execute(
+                select(AlertRule).where(AlertRule.branch == branch, AlertRule.enabled.is_(True))
+            )
+        ).scalars().all()
+        if not rules:
+            return []
+
+        client_ips = {e.client_ip for e in events if e.client_ip}
+        domains = {e.domain for e in events if e.domain}
+
+        anomalies: list[Anomaly] = []
+        for rule in rules:
+            if rule.scope == AlertRuleScope.CLIENT_IP:
+                values = await self._sum_entity_metric(
+                    session, ClientMinuteAggregate, ClientMinuteAggregate.client_ip,
+                    rule, branch, client_ips, generated_at,
+                )
+            elif rule.scope == AlertRuleScope.DOMAIN:
+                values = await self._sum_entity_metric(
+                    session, DomainMinuteAggregate, DomainMinuteAggregate.domain,
+                    rule, branch, domains, generated_at,
+                )
+            else:
+                values = await self._sum_branch_metric(session, rule, branch, generated_at)
+
+            for target, value in values.items():
+                if value <= rule.threshold:
+                    continue
+                kind = f"custom_rule_{rule.id}"
+                dedup_kwargs = (
+                    {"client_ip": target}
+                    if rule.scope == AlertRuleScope.CLIENT_IP
+                    else {"domain": target}
+                    if rule.scope == AlertRuleScope.DOMAIN
+                    else {}
+                )
+                if await self._recently_flagged(session, kind, branch, generated_at, **dedup_kwargs):
+                    continue
+
+                anomalies.append(
+                    Anomaly(
+                        title=rule.name,
+                        description=(
+                            f"{target} reached {value} ({rule.metric.value}) in the last "
+                            f"{rule.window_minutes} min (threshold: {rule.threshold})."
+                        ),
+                        severity=rule.severity,
+                        client_ip=target if rule.scope == AlertRuleScope.CLIENT_IP else None,
+                        domain=target if rule.scope == AlertRuleScope.DOMAIN else None,
+                        branch=branch,
+                        generated_at=generated_at,
+                        kind=kind,
+                        params={
+                            "ruleName": rule.name,
+                            "scope": rule.scope.value,
+                            "metric": rule.metric.value,
+                            "target": target,
+                            "value": int(value),
+                            "threshold": int(rule.threshold),
+                            "windowMinutes": rule.window_minutes,
+                        },
+                    )
+                )
+        return anomalies
+
+    async def _sum_entity_metric(
+        self,
+        session: AsyncSession,
+        model: type[ClientMinuteAggregate] | type[DomainMinuteAggregate],
+        key_col: Any,
+        rule: AlertRule,
+        branch: str,
+        targets: set[str],
+        generated_at: datetime,
+    ) -> dict[str, int]:
+        """One grouped query per rule (not one per target) -- sums
+        `rule.metric` over the trailing window for every client_ip/domain
+        seen in this flush at once."""
+        if not targets:
+            return {}
+        since = generated_at - timedelta(minutes=rule.window_minutes)
+        metric_col = getattr(model, _ENTITY_METRIC_FIELD[rule.metric])
+        rows = (
+            await session.execute(
+                select(key_col, func.sum(metric_col))
+                .where(
+                    model.branch == branch,
+                    key_col.in_(targets),
+                    model.bucket_ts >= since,
+                    model.bucket_ts <= generated_at,
+                )
+                .group_by(key_col)
+            )
+        ).all()
+        return {key: int(total) for key, total in rows}
+
+    async def _sum_branch_metric(
+        self, session: AsyncSession, rule: AlertRule, branch: str, generated_at: datetime
+    ) -> dict[str, int]:
+        since = generated_at - timedelta(minutes=rule.window_minutes)
+        metric_col = getattr(MinuteAggregate, _BRANCH_METRIC_FIELD[rule.metric])
+        total = (
+            await session.execute(
+                select(func.coalesce(func.sum(metric_col), 0)).where(
+                    MinuteAggregate.branch == branch,
+                    MinuteAggregate.bucket_ts >= since,
+                    MinuteAggregate.bucket_ts <= generated_at,
+                )
+            )
+        ).scalar_one()
+        return {branch: int(total)}

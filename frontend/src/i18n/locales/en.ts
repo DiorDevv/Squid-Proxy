@@ -130,6 +130,9 @@ export const en = {
   'common.rangeIncomplete': 'Pick both a start and end date/time.',
   'common.rangeInvalidOrder': '"From" must be earlier than "To".',
   'common.save': 'Save',
+  'common.edit': 'Edit',
+  'common.delete': 'Delete',
+  'common.cancel': 'Cancel',
 
   // --- Status badge ---
   'status.blocked': 'Blocked',
@@ -185,6 +188,8 @@ export const en = {
   'insights.anomaly.watchlistHit.title': 'Watched target active',
   'insights.anomaly.watchlistHit.description':
     'Watched {{targetType}} {{value}} made {{count}} request(s) ({{blocked}} blocked) in the last interval.',
+  'insights.anomaly.customRule.description':
+    '{{target}} reached {{value}} ({{metric}}) in the last {{windowMinutes}} min (threshold: {{threshold}}).',
 
   'notifications.bellLabel': 'Notifications',
   'notifications.title': 'Recent anomalies',
@@ -589,6 +594,36 @@ export const en = {
   'settings.uncategorizedDomainThresholdDescription':
     'Flag a domain that had this many requests in the last 24h but still has no category assigned. Leave blank to disable.',
   'settings.alertSettingsSaved': 'Alert settings saved.',
+  'settings.alertRules.title': 'Custom rules',
+  'settings.alertRules.description':
+    "Define your own threshold rules -- no code change needed. \"If <metric> for one <client IP/domain/branch> exceeds <value> within <N> minutes, raise an alert.\"",
+  'settings.alertRules.add': 'Add rule',
+  'settings.alertRules.empty': 'No custom rules yet.',
+  'settings.alertRules.colName': 'Name',
+  'settings.alertRules.colScope': 'Applies to',
+  'settings.alertRules.colMetric': 'Metric',
+  'settings.alertRules.colThreshold': 'Threshold',
+  'settings.alertRules.colWindow': 'Window',
+  'settings.alertRules.colSeverity': 'Severity',
+  'settings.alertRules.colEnabled': 'Enabled',
+  'settings.alertRules.windowMinutesValue': '{{minutes}} min',
+  'settings.alertRules.scopeClientIp': 'Client IP',
+  'settings.alertRules.scopeDomain': 'Domain',
+  'settings.alertRules.scopeBranch': 'Whole branch',
+  'settings.alertRules.metricRequestCount': 'Requests',
+  'settings.alertRules.metricBlockedCount': 'Blocked requests',
+  'settings.alertRules.metricTotalBytes': 'Data downloaded',
+  'settings.alertRules.metricBytesReceived': 'Data uploaded',
+  'settings.alertRules.thresholdMb': 'Threshold (MB)',
+  'settings.alertRules.thresholdCount': 'Threshold (count)',
+  'settings.alertRules.addTitle': 'Add custom rule',
+  'settings.alertRules.editTitle': 'Edit custom rule',
+  'settings.alertRules.formDescription':
+    'Raises an alert whenever the chosen metric, summed over the trailing window, exceeds the threshold.',
+  'settings.alertRules.saved': 'Rule saved.',
+  'settings.alertRules.deleted': 'Rule deleted.',
+  'settings.alertRules.deleteConfirmTitle': 'Delete this rule?',
+  'settings.alertRules.deleteConfirmDescription': '"{{name}}" will stop being checked. This cannot be undone.',
   'settings.telegramChatId': 'Telegram',
   'settings.telegramChatIdDescription':
     "This branch's alerts are sent to this chat, in addition to the super-admin chat (if configured).",

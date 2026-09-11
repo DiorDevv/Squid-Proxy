@@ -9,6 +9,7 @@ has to be added to the tuple below.
 """
 
 from app.models import (
+    alert_rule,
     alert_settings,
     anomaly_event,
     archive_run,
@@ -35,6 +36,7 @@ from app.models import (
 )
 
 __all__ = [
+    "alert_rule",
     "alert_settings",
     "anomaly_event",
     "archive_run",

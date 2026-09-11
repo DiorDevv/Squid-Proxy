@@ -7,7 +7,9 @@ from datetime import UTC, datetime, timedelta
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.insights.anomaly import StatisticalAnomalyProvider
+from app.models.alert_rule import AlertRule, AlertRuleMetric, AlertRuleScope
 from app.models.anomaly_event import AnomalyEvent, AnomalySeverity
+from app.models.client_aggregate import ClientMinuteAggregate
 from app.models.domain_aggregate import DomainMinuteAggregate
 from app.models.domain_category import DomainCategoryLabel
 from app.models.minute_aggregate import MinuteAggregate
@@ -430,3 +432,199 @@ async def test_one_wildly_out_of_order_event_does_not_poison_window_start_for_ot
     assert not [
         a for a in anomalies if a.title == "Sensitive category visited" and a.client_ip == "10.0.0.24"
     ]
+
+
+# --- Custom alert rules (app/models/alert_rule.py) -- the generic,
+# admin-defined threshold checks alongside the built-in ones above. ---
+
+
+async def test_custom_rule_client_ip_bytes_spike_fires_over_threshold(db_session: AsyncSession):
+    db_session.add(
+        AlertRule(
+            branch="default",
+            name="IP data spike",
+            scope=AlertRuleScope.CLIENT_IP,
+            metric=AlertRuleMetric.TOTAL_BYTES,
+            window_minutes=10,
+            threshold=50_000_000,
+            severity=AnomalySeverity.HIGH,
+            enabled=True,
+        )
+    )
+    db_session.add(
+        ClientMinuteAggregate(
+            bucket_ts=WINDOW_START, client_ip="10.0.0.5", branch="default",
+            request_count=10, blocked_count=0, total_bytes=60_000_000,
+        )
+    )
+    await db_session.commit()
+    events = [_event(client_ip="10.0.0.5")]
+
+    anomalies = await StatisticalAnomalyProvider().detect_anomalies(events, db_session)
+
+    fired = [a for a in anomalies if a.title == "IP data spike"]
+    assert len(fired) == 1
+    assert fired[0].client_ip == "10.0.0.5"
+    assert fired[0].domain is None
+    assert fired[0].severity == AnomalySeverity.HIGH
+    assert fired[0].params == {
+        "ruleName": "IP data spike",
+        "scope": "client_ip",
+        "metric": "total_bytes",
+        "target": "10.0.0.5",
+        "value": 60_000_000,
+        "threshold": 50_000_000,
+        "windowMinutes": 10,
+    }
+
+
+async def test_custom_rule_not_fired_below_threshold(db_session: AsyncSession):
+    db_session.add(
+        AlertRule(
+            branch="default", name="IP data spike", scope=AlertRuleScope.CLIENT_IP,
+            metric=AlertRuleMetric.TOTAL_BYTES, window_minutes=10, threshold=50_000_000,
+            severity=AnomalySeverity.HIGH, enabled=True,
+        )
+    )
+    db_session.add(
+        ClientMinuteAggregate(
+            bucket_ts=WINDOW_START, client_ip="10.0.0.5", branch="default",
+            request_count=10, blocked_count=0, total_bytes=10_000_000,
+        )
+    )
+    await db_session.commit()
+    events = [_event(client_ip="10.0.0.5")]
+
+    anomalies = await StatisticalAnomalyProvider().detect_anomalies(events, db_session)
+
+    assert not [a for a in anomalies if a.title == "IP data spike"]
+
+
+async def test_custom_rule_grouped_query_only_flags_the_ip_over_threshold(db_session: AsyncSession):
+    """Exercises the grouped (one query for every target in the flush, not
+    one query per target) path with two client IPs, only one of which is
+    over the threshold."""
+    db_session.add(
+        AlertRule(
+            branch="default", name="IP data spike", scope=AlertRuleScope.CLIENT_IP,
+            metric=AlertRuleMetric.TOTAL_BYTES, window_minutes=10, threshold=50_000_000,
+            severity=AnomalySeverity.HIGH, enabled=True,
+        )
+    )
+    db_session.add_all(
+        [
+            ClientMinuteAggregate(
+                bucket_ts=WINDOW_START, client_ip="10.0.0.5", branch="default",
+                request_count=10, blocked_count=0, total_bytes=60_000_000,
+            ),
+            ClientMinuteAggregate(
+                bucket_ts=WINDOW_START, client_ip="10.0.0.6", branch="default",
+                request_count=10, blocked_count=0, total_bytes=1_000_000,
+            ),
+        ]
+    )
+    await db_session.commit()
+    events = [_event(client_ip="10.0.0.5"), _event(client_ip="10.0.0.6")]
+
+    anomalies = await StatisticalAnomalyProvider().detect_anomalies(events, db_session)
+
+    fired = [a for a in anomalies if a.title == "IP data spike"]
+    assert [a.client_ip for a in fired] == ["10.0.0.5"]
+
+
+async def test_custom_rule_domain_request_spike(db_session: AsyncSession):
+    db_session.add(
+        AlertRule(
+            branch="default", name="Domain request spike", scope=AlertRuleScope.DOMAIN,
+            metric=AlertRuleMetric.REQUEST_COUNT, window_minutes=10, threshold=100,
+            severity=AnomalySeverity.MEDIUM, enabled=True,
+        )
+    )
+    db_session.add(
+        DomainMinuteAggregate(
+            bucket_ts=WINDOW_START, domain="example.com", branch="default",
+            request_count=150, blocked_count=0, total_bytes=0,
+        )
+    )
+    await db_session.commit()
+    events = [_event(domain="example.com")]
+
+    anomalies = await StatisticalAnomalyProvider().detect_anomalies(events, db_session)
+
+    fired = [a for a in anomalies if a.title == "Domain request spike"]
+    assert len(fired) == 1
+    assert fired[0].domain == "example.com"
+    assert fired[0].client_ip is None
+
+
+async def test_custom_rule_branch_scope(db_session: AsyncSession):
+    db_session.add(
+        AlertRule(
+            branch="default", name="Branch blocked spike", scope=AlertRuleScope.BRANCH,
+            metric=AlertRuleMetric.BLOCKED_COUNT, window_minutes=10, threshold=5,
+            severity=AnomalySeverity.LOW, enabled=True,
+        )
+    )
+    db_session.add(
+        MinuteAggregate(
+            bucket_ts=WINDOW_START, branch="default",
+            total_requests=20, blocked_requests=10, allowed_requests=10, total_bytes=0,
+        )
+    )
+    await db_session.commit()
+    events = [_event()]
+
+    anomalies = await StatisticalAnomalyProvider().detect_anomalies(events, db_session)
+
+    fired = [a for a in anomalies if a.title == "Branch blocked spike"]
+    assert len(fired) == 1
+    assert fired[0].branch == "default"
+    assert fired[0].client_ip is None
+    assert fired[0].domain is None
+
+
+async def test_custom_rule_disabled_never_fires(db_session: AsyncSession):
+    db_session.add(
+        AlertRule(
+            branch="default", name="Disabled rule", scope=AlertRuleScope.CLIENT_IP,
+            metric=AlertRuleMetric.TOTAL_BYTES, window_minutes=10, threshold=1,
+            severity=AnomalySeverity.HIGH, enabled=False,
+        )
+    )
+    db_session.add(
+        ClientMinuteAggregate(
+            bucket_ts=WINDOW_START, client_ip="10.0.0.5", branch="default",
+            request_count=10, blocked_count=0, total_bytes=60_000_000,
+        )
+    )
+    await db_session.commit()
+    events = [_event(client_ip="10.0.0.5")]
+
+    anomalies = await StatisticalAnomalyProvider().detect_anomalies(events, db_session)
+
+    assert not [a for a in anomalies if a.title == "Disabled rule"]
+
+
+async def test_custom_rule_respects_cooldown(db_session: AsyncSession):
+    rule = AlertRule(
+        branch="default", name="IP data spike", scope=AlertRuleScope.CLIENT_IP,
+        metric=AlertRuleMetric.TOTAL_BYTES, window_minutes=10, threshold=50_000_000,
+        severity=AnomalySeverity.HIGH, enabled=True,
+    )
+    db_session.add(rule)
+    await db_session.flush()  # assigns rule.id without ending the transaction
+    await _seed_prior_anomaly(
+        db_session, f"custom_rule_{rule.id}", age=timedelta(minutes=10), client_ip="10.0.0.5"
+    )
+    db_session.add(
+        ClientMinuteAggregate(
+            bucket_ts=WINDOW_START, client_ip="10.0.0.5", branch="default",
+            request_count=10, blocked_count=0, total_bytes=60_000_000,
+        )
+    )
+    await db_session.commit()
+    events = [_event(client_ip="10.0.0.5")]
+
+    anomalies = await StatisticalAnomalyProvider().detect_anomalies(events, db_session)
+
+    assert not [a for a in anomalies if a.title == "IP data spike"]

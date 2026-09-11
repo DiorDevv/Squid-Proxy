@@ -58,6 +58,11 @@ class AuditAction(str, enum.Enum):
     # halt-on-archive-lag guard) at Settings -> Retention -- see
     # app/services/retention_settings_service.py.
     RETENTION_SETTINGS_UPDATED = "retention_settings_updated"
+    # A custom alert rule (Settings -> Alerts -> Custom rules) was
+    # created/edited/removed -- see app/services/alert_rule_service.py.
+    ALERT_RULE_CREATED = "alert_rule_created"
+    ALERT_RULE_UPDATED = "alert_rule_updated"
+    ALERT_RULE_DELETED = "alert_rule_deleted"
 
 
 class AuditLogEntry(Base):

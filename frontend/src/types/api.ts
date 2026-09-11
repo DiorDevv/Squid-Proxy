@@ -129,6 +129,32 @@ export interface TelegramSuperAdminOut {
   chat_id: string | null
 }
 
+export type AlertRuleScope = 'client_ip' | 'domain' | 'branch'
+export type AlertRuleMetric = 'request_count' | 'blocked_count' | 'total_bytes' | 'bytes_received'
+
+export interface AlertRuleOut {
+  id: number
+  branch: string
+  name: string
+  scope: AlertRuleScope
+  metric: AlertRuleMetric
+  window_minutes: number
+  threshold: number
+  severity: AnomalySeverity
+  enabled: boolean
+  updated_at: string
+}
+
+export interface AlertRuleInput {
+  name: string
+  scope: AlertRuleScope
+  metric: AlertRuleMetric
+  window_minutes: number
+  threshold: number
+  severity: AnomalySeverity
+  enabled: boolean
+}
+
 export interface ReportStatus {
   schedule: 'disabled' | 'daily' | 'weekly'
   recipients_configured: boolean

@@ -13,14 +13,17 @@ import { ErrorState } from '@/components/common/ErrorState'
 import { RangeSelector } from '@/components/common/RangeSelector'
 import { BranchSelector } from '@/components/common/BranchSelector'
 import { SavedFiltersMenu } from '@/components/common/SavedFiltersMenu'
-import { BranchTrendGrid } from '@/components/analytics/BranchTrendGrid'
+import { BranchTrendGrid, type BranchTrendMetric } from '@/components/analytics/BranchTrendGrid'
+import { BranchCategoryBreakdownGrid } from '@/components/analytics/BranchCategoryBreakdownGrid'
+import { BranchBlockedDomainsGrid } from '@/components/analytics/BranchBlockedDomainsGrid'
+import { Toggle } from '@/components/analytics/Toggle'
 import { useFiltersStore, useRangeSearchParams } from '@/lib/filters-store'
 import { getPercentChange, getPreviousPeriodParams } from '@/lib/compare-period'
 import { useCacheEfficiency, useSummary } from '@/hooks/useSummary'
 import { useTimeseries } from '@/hooks/useTimeseries'
 import { useTopBlocked } from '@/hooks/useTopDomains'
 import { useRecentInsights } from '@/hooks/useInsights'
-import { useBranchTrend } from '@/hooks/useAnalytics'
+import { useBranchBlockedDomains, useBranchCategoryBreakdown, useBranchTrend } from '@/hooks/useAnalytics'
 import { useLiveEvents } from '@/hooks/useLiveEvents'
 import { useTranslation } from '@/i18n'
 import type { Granularity } from '@/types/api'
@@ -73,6 +76,7 @@ export default function DashboardPage() {
   const live = connectionState === 'open'
   const trafficPanelRef = useRef<HTMLDivElement>(null)
   const [highlightedAnomalyId, setHighlightedAnomalyId] = useState<string | null>(null)
+  const [branchTrendMetric, setBranchTrendMetric] = useState<BranchTrendMetric>('requests')
 
   const granularity = granularityForRange(filterMode, filterRange, customFrom, customTo)
 
@@ -81,6 +85,8 @@ export default function DashboardPage() {
   const timeseriesQuery = useTimeseries(rangeParams, granularity, live)
   const topBlockedQuery = useTopBlocked(rangeParams, 5, live)
   const branchTrendQuery = useBranchTrend(rangeParams, 'hour', live)
+  const branchCategoryQuery = useBranchCategoryBreakdown(rangeParams, live)
+  const branchBlockedQuery = useBranchBlockedDomains(rangeParams, 8, live)
   // Same query InsightsPanel makes (identical queryKey) -- sharing its cache
   // rather than a second independent fetch, just to also plot markers here.
   const insightsQuery = useRecentInsights(10)
@@ -269,18 +275,66 @@ export default function DashboardPage() {
       </div>
 
       {branchSeries.length > 1 && (
-        <Panel
-          title={t('analytics.branches.trendTitle')}
-          action={<span className="text-xs text-muted-foreground">{t('analytics.branches.trendHint')}</span>}
-        >
-          <PanelErrorBoundary panelLabel={t('analytics.branches.trendTitle')}>
-            {branchTrendQuery.isError ? (
-              <ErrorState message={branchTrendQuery.error?.message} onRetry={() => branchTrendQuery.refetch()} />
-            ) : (
-              <BranchTrendGrid data={branchTrendQuery.data} loading={branchTrendQuery.isLoading} />
-            )}
-          </PanelErrorBoundary>
-        </Panel>
+        <>
+          <Panel
+            title={t('analytics.branches.trendTitle')}
+            action={
+              <Toggle
+                value={branchTrendMetric}
+                onChange={setBranchTrendMetric}
+                options={[
+                  { value: 'requests', labelKey: 'analytics.trend.metricRequests' },
+                  { value: 'bytes', labelKey: 'analytics.trend.metricBytes' },
+                ]}
+              />
+            }
+          >
+            <PanelErrorBoundary panelLabel={t('analytics.branches.trendTitle')}>
+              {branchTrendQuery.isError ? (
+                <ErrorState message={branchTrendQuery.error?.message} onRetry={() => branchTrendQuery.refetch()} />
+              ) : (
+                <BranchTrendGrid
+                  data={branchTrendQuery.data}
+                  loading={branchTrendQuery.isLoading}
+                  metric={branchTrendMetric}
+                />
+              )}
+            </PanelErrorBoundary>
+          </Panel>
+
+          <Panel
+            title={t('analytics.branches.categoryBreakdownTitle')}
+            action={
+              <span className="text-xs text-muted-foreground">
+                {t('analytics.branches.categoryBreakdownHint')}
+              </span>
+            }
+          >
+            <PanelErrorBoundary panelLabel={t('analytics.branches.categoryBreakdownTitle')}>
+              {branchCategoryQuery.isError ? (
+                <ErrorState
+                  message={branchCategoryQuery.error?.message}
+                  onRetry={() => branchCategoryQuery.refetch()}
+                />
+              ) : (
+                <BranchCategoryBreakdownGrid data={branchCategoryQuery.data} loading={branchCategoryQuery.isLoading} />
+              )}
+            </PanelErrorBoundary>
+          </Panel>
+
+          <Panel title={t('analytics.branches.blockedDomainsTitle')}>
+            <PanelErrorBoundary panelLabel={t('analytics.branches.blockedDomainsTitle')}>
+              {branchBlockedQuery.isError ? (
+                <ErrorState
+                  message={branchBlockedQuery.error?.message}
+                  onRetry={() => branchBlockedQuery.refetch()}
+                />
+              ) : (
+                <BranchBlockedDomainsGrid data={branchBlockedQuery.data} loading={branchBlockedQuery.isLoading} />
+              )}
+            </PanelErrorBoundary>
+          </Panel>
+        </>
       )}
 
       <div className="grid grid-cols-1 gap-4 xl:grid-cols-3">

@@ -109,12 +109,13 @@ async def read_response_time(
 async def read_actor_leaderboard(
     limit: int = Query(default=25, ge=1, le=200),
     sort: str = Query(default="requests"),
+    search: str | None = Query(default=None, max_length=255),
     effective_range: EffectiveRange = Depends(resolve_range),
     branch: str | None = Depends(resolve_branch),
     db: AsyncSession = Depends(get_db),
 ) -> ActorLeaderboardResponse:
     return await squid_ops_service.get_actor_leaderboard(
-        db, effective_range.since, effective_range.until, branch, limit, sort
+        db, effective_range.since, effective_range.until, branch, limit, sort, search
     )
 
 

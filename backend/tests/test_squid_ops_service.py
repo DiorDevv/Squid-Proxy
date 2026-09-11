@@ -175,6 +175,32 @@ async def test_actor_leaderboard_falls_back_to_client_ip_without_auth(db_session
     assert board.unattributed_requests == 0  # no "unattributed" concept in the IP view
 
 
+async def test_actor_leaderboard_search_filters_by_user_or_client_ip(db_session: AsyncSession):
+    db_session.add_all(
+        [
+            ClientMinuteAggregate(
+                bucket_ts=BUCKET, client_ip="10.0.0.1", branch="default", user="alice",
+                request_count=100, blocked_count=0, total_bytes=1000,
+            ),
+            ClientMinuteAggregate(
+                bucket_ts=BUCKET, client_ip="10.0.0.2", branch="default", user="bob",
+                request_count=50, blocked_count=0, total_bytes=500,
+            ),
+        ]
+    )
+    await db_session.commit()
+
+    board = await squid_ops_service.get_actor_leaderboard(
+        db_session, SINCE, NOW, branch=None, limit=25, sort="requests", search="ali"
+    )
+    assert [r.actor for r in board.rows] == ["alice"]
+
+    empty = await squid_ops_service.get_actor_leaderboard(
+        db_session, SINCE, NOW, branch=None, limit=25, sort="requests", search="nobody-like-this"
+    )
+    assert empty.rows == []
+
+
 async def test_denials_splits_reasons_from_aggregates(db_session: AsyncSession):
     db_session.add_all(
         [

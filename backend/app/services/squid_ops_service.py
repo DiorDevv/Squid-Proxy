@@ -304,9 +304,14 @@ async def get_actor_leaderboard(
     branch: str | None,
     limit: int,
     sort: str,
+    search: str | None = None,
 ) -> ActorLeaderboardResponse:
+    # is_user is decided from the unfiltered range, not the searched-for
+    # rows -- otherwise typing an IP while the branch is mostly
+    # authenticated would flip the whole leaderboard into client_ip mode
+    # for that one search.
     is_user = await _has_authenticated_users(session, since, until, branch)
-    combined = client_bucket_rows(since, until, branch=branch)
+    combined = client_bucket_rows(since, until, branch=branch, search=search)
     actor_col = combined.c.user if is_user else combined.c.client_ip
     order_col = {
         "request_count": func.sum(combined.c.request_count),

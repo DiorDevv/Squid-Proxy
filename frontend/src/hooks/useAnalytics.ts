@@ -105,12 +105,13 @@ export function useActorLeaderboard(
   sort: string,
   limit: number,
   live: boolean,
+  search?: string,
 ) {
   return useQuery({
-    queryKey: ['analytics-actors', rangeParams, sort, limit],
+    queryKey: ['analytics-actors', rangeParams, sort, limit, search],
     queryFn: () =>
       apiFetch<ActorLeaderboardResponse>('/api/analytics/actors', {
-        searchParams: { ...rangeParams, sort, limit },
+        searchParams: { ...rangeParams, sort, limit, search: search || undefined },
       }),
     refetchInterval: live ? false : POLLING_FALLBACK_INTERVAL_MS,
   })

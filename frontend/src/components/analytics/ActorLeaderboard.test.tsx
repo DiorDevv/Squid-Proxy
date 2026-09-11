@@ -83,4 +83,18 @@ describe('ActorLeaderboard', () => {
     await user.click(screen.getByRole('button', { name: /Uploaded/ }))
     expect(onSortChange).toHaveBeenCalledWith('uploaded')
   })
+
+  it('shows a custom empty message (e.g. for a no-match search) when rows is empty', () => {
+    render(
+      <ActorLeaderboard
+        rows={[]}
+        actorKind="user"
+        sort="requests"
+        onSortChange={() => {}}
+        onSelect={() => {}}
+        emptyMessage="No match for your search."
+      />,
+    )
+    expect(screen.getByText('No match for your search.')).toBeInTheDocument()
+  })
 })

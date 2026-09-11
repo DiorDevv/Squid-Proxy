@@ -11,6 +11,7 @@ interface ActorLeaderboardProps {
   sort: string
   onSortChange: (sort: string) => void
   onSelect: (row: ActorRow) => void
+  emptyMessage?: string
 }
 
 const COLS: { key: string; labelKey: TranslationKey; sortable: boolean; align?: 'right' }[] = [
@@ -30,6 +31,7 @@ export function ActorLeaderboard({
   sort,
   onSortChange,
   onSelect,
+  emptyMessage,
 }: ActorLeaderboardProps) {
   const { t } = useTranslation()
 
@@ -39,7 +41,7 @@ export function ActorLeaderboard({
   if (rows.length === 0) {
     return (
       <div className="flex h-40 items-center justify-center text-sm text-muted-foreground">
-        {t('analytics.who.empty')}
+        {emptyMessage ?? t('analytics.who.empty')}
       </div>
     )
   }

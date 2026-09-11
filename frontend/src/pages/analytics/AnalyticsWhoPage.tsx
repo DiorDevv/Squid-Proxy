@@ -2,10 +2,12 @@ import { useState } from 'react'
 import { Panel } from '@/components/common/Panel'
 import { PanelErrorBoundary } from '@/components/common/PanelErrorBoundary'
 import { ErrorState } from '@/components/common/ErrorState'
+import { SearchFilterInput } from '@/components/common/SearchFilterInput'
 import { ActorLeaderboard } from '@/components/analytics/ActorLeaderboard'
 import { ActorDetailSheet } from '@/components/analytics/ActorDetailSheet'
 import { formatNumber } from '@/lib/format'
 import { useRangeSearchParams } from '@/lib/filters-store'
+import { useDebouncedValue } from '@/hooks/useDebouncedValue'
 import { useActorLeaderboard, useNewEntities } from '@/hooks/useAnalytics'
 import { useTranslation, type TranslationKey } from '@/i18n'
 import type { ActorRow } from '@/types/api'
@@ -43,15 +45,27 @@ export default function AnalyticsWhoPage() {
   const rangeParams = useRangeSearchParams()
   const [sort, setSort] = useState('requests')
   const [selected, setSelected] = useState<ActorRow | null>(null)
+  const [search, setSearch] = useState('')
+  const debouncedSearch = useDebouncedValue(search, 300)
 
-  const board = useActorLeaderboard(rangeParams, sort, 50, true)
+  const board = useActorLeaderboard(rangeParams, sort, 50, true, debouncedSearch)
   const newEntities = useNewEntities(rangeParams, true)
 
   return (
     <div className="flex flex-col gap-4">
       <Panel
         title={t('analytics.who.title')}
-        action={<span className="text-xs text-muted-foreground">{t('analytics.who.hint')}</span>}
+        action={
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-xs text-muted-foreground">{t('analytics.who.hint')}</span>
+            <SearchFilterInput
+              value={search}
+              onChange={setSearch}
+              placeholder={t('analytics.who.searchPlaceholder')}
+              ariaLabel={t('analytics.who.searchAriaLabel')}
+            />
+          </div>
+        }
       >
         <PanelErrorBoundary panelLabel={t('analytics.who.title')}>
           {board.isError ? (
@@ -72,6 +86,7 @@ export default function AnalyticsWhoPage() {
                 sort={sort}
                 onSortChange={setSort}
                 onSelect={setSelected}
+                emptyMessage={debouncedSearch ? t('analytics.who.searchEmpty') : undefined}
               />
             </div>
           )}

@@ -12,6 +12,9 @@ ENDPOINTS = [
     "/api/analytics/category-trend",
     "/api/analytics/branch-breakdown",
     "/api/analytics/branch-signals",
+    "/api/analytics/branch-trend",
+    "/api/analytics/branch-category-breakdown",
+    "/api/analytics/branch-blocked-domains",
     "/api/analytics/activity-heatmap",
     "/api/analytics/result-codes",
     "/api/analytics/response-time",
@@ -85,6 +88,21 @@ async def test_branch_scoped_admin_only_sees_own_branch(
         "/api/analytics/branch-signals", headers=auth_headers(branch_a_admin_token)
     )
     assert [r["branch"] for r in signals.json()["rows"]] == ["branch-a"]
+
+    trend = await app_client.get(
+        "/api/analytics/branch-trend", headers=auth_headers(branch_a_admin_token)
+    )
+    assert [s["branch"] for s in trend.json()["series"]] == ["branch-a"]
+
+    categories = await app_client.get(
+        "/api/analytics/branch-category-breakdown", headers=auth_headers(branch_a_admin_token)
+    )
+    assert [s["branch"] for s in categories.json()["series"]] == ["branch-a"]
+
+    blocked = await app_client.get(
+        "/api/analytics/branch-blocked-domains", headers=auth_headers(branch_a_admin_token)
+    )
+    assert [s["branch"] for s in blocked.json()["series"]] == ["branch-a"]
 
 
 async def test_branch_scoped_admin_cannot_request_other_branch(

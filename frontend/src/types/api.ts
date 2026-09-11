@@ -322,6 +322,7 @@ export interface BranchTrendPoint {
   total_requests: number
   blocked_requests: number
   allowed_requests: number
+  total_bytes: number
 }
 
 export interface BranchTrendSeries {
@@ -332,6 +333,37 @@ export interface BranchTrendSeries {
 export interface BranchTrendResponse {
   granularity: TrendGranularity
   series: BranchTrendSeries[]
+}
+
+export interface BranchCategoryUsage {
+  category: DomainCategoryLabel
+  request_count: number
+  total_bytes: number
+}
+
+export interface BranchCategoryBreakdownSeries {
+  branch: string
+  categories: BranchCategoryUsage[]
+}
+
+export interface BranchCategoryBreakdownResponse {
+  series: BranchCategoryBreakdownSeries[]
+}
+
+export interface BranchBlockedDomainRow {
+  domain: string
+  blocked_count: number
+}
+
+export interface BranchBlockedDomainsSeries {
+  branch: string
+  domains: BranchBlockedDomainRow[]
+}
+
+export interface BranchBlockedDomainsResponse {
+  since: string
+  until: string
+  series: BranchBlockedDomainsSeries[]
 }
 
 export interface HeatmapCell {

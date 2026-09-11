@@ -8,7 +8,9 @@ from app.models.audit_log import AuditAction
 from app.schemas.analytics import (
     ActivityHeatmapResponse,
     AnalyticsOverview,
+    BranchBlockedDomainsResponse,
     BranchBreakdownResponse,
+    BranchCategoryBreakdownResponse,
     BranchSignalsResponse,
     BranchTrendResponse,
     CategoryTrendResponse,
@@ -91,6 +93,29 @@ async def read_branch_trend(
 ) -> BranchTrendResponse:
     return await analytics_service.get_branch_trend(
         db, effective_range.since, effective_range.until, granularity, branch
+    )
+
+
+@router.get("/branch-category-breakdown", response_model=BranchCategoryBreakdownResponse)
+async def read_branch_category_breakdown(
+    effective_range: EffectiveRange = Depends(resolve_range),
+    branch: str | None = Depends(resolve_branch),
+    db: AsyncSession = Depends(get_db),
+) -> BranchCategoryBreakdownResponse:
+    return await analytics_service.get_branch_category_breakdown(
+        db, effective_range.since, effective_range.until, branch
+    )
+
+
+@router.get("/branch-blocked-domains", response_model=BranchBlockedDomainsResponse)
+async def read_branch_blocked_domains(
+    limit: int = Query(default=8, ge=1, le=50),
+    effective_range: EffectiveRange = Depends(resolve_range),
+    branch: str | None = Depends(resolve_branch),
+    db: AsyncSession = Depends(get_db),
+) -> BranchBlockedDomainsResponse:
+    return await analytics_service.get_branch_top_blocked_domains(
+        db, effective_range.since, effective_range.until, branch, limit
     )
 
 

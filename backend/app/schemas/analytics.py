@@ -135,6 +135,7 @@ class BranchTrendPoint(BaseModel):
     total_requests: int
     blocked_requests: int
     allowed_requests: int
+    total_bytes: int
 
 
 class BranchTrendSeries(BaseModel):
@@ -147,6 +148,40 @@ class BranchTrendResponse(BaseModel):
     # same as CategoryTrendResponse.
     granularity: TrendGranularity
     series: list[BranchTrendSeries]
+
+
+class BranchCategoryUsage(BaseModel):
+    category: DomainCategoryLabel
+    request_count: int
+    total_bytes: int
+
+
+class BranchCategoryBreakdownSeries(BaseModel):
+    branch: str
+    # Every category with nonzero traffic in range, sorted by total_bytes
+    # descending -- the fixed category set (see CATEGORY_OPTIONS) is short
+    # enough that there's no need to cap and bucket the rest as "other".
+    categories: list[BranchCategoryUsage]
+
+
+class BranchCategoryBreakdownResponse(BaseModel):
+    series: list[BranchCategoryBreakdownSeries]
+
+
+class BranchBlockedDomainRow(BaseModel):
+    domain: str
+    blocked_count: int
+
+
+class BranchBlockedDomainsSeries(BaseModel):
+    branch: str
+    domains: list[BranchBlockedDomainRow]
+
+
+class BranchBlockedDomainsResponse(BaseModel):
+    since: datetime
+    until: datetime
+    series: list[BranchBlockedDomainsSeries]
 
 
 class HeatmapCell(BaseModel):

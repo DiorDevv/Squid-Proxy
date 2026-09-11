@@ -1,14 +1,21 @@
 import { Area, AreaChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
-import { formatNumber } from '@/lib/format'
+import { formatBytes, formatNumber } from '@/lib/format'
 import { useTranslation } from '@/i18n'
 import type { BranchTrendResponse, TrendGranularity } from '@/types/api'
 
 const ALLOWED = '#22c55e'
 const BLOCKED = '#ef4444'
+const BYTES_COLOR = '#3b82f6'
+
+export type BranchTrendMetric = 'requests' | 'bytes'
 
 interface BranchTrendGridProps {
   data?: BranchTrendResponse
   loading?: boolean
+  /** 'requests' (default) stacks allowed/blocked request counts; 'bytes'
+   * plots total_bytes as a single area -- there's no allowed/blocked split
+   * for byte volume, so it isn't stacked. */
+  metric?: BranchTrendMetric
 }
 
 function formatBucket(iso: string, granularity: TrendGranularity): string {
@@ -21,12 +28,12 @@ function formatBucket(iso: string, granularity: TrendGranularity): string {
   )
 }
 
-/** One small requests-over-time chart per branch (allowed/blocked stacked),
- * side by side -- the "which branch is doing what, and when" view that a
- * single snapshot comparison (see BranchComparisonChart) can't answer. A
- * branch configured but silent in this range still gets its own tile, with
- * an explicit "no traffic" state instead of just being absent. */
-export function BranchTrendGrid({ data, loading }: BranchTrendGridProps) {
+/** One small trend chart per branch, side by side -- the "which branch is
+ * doing what, and when" view that a single snapshot comparison (see
+ * BranchComparisonChart) can't answer. A branch configured but silent in
+ * this range still gets its own tile, with an explicit "no traffic" state
+ * instead of just being absent. */
+export function BranchTrendGrid({ data, loading, metric = 'requests' }: BranchTrendGridProps) {
   const { t } = useTranslation()
 
   if (loading) {
@@ -52,6 +59,7 @@ export function BranchTrendGrid({ data, loading }: BranchTrendGridProps) {
       {data.series.map((series) => {
         const totalRequests = series.points.reduce((sum, p) => sum + p.total_requests, 0)
         const totalBlocked = series.points.reduce((sum, p) => sum + p.blocked_requests, 0)
+        const totalBytes = series.points.reduce((sum, p) => sum + p.total_bytes, 0)
         return (
           <div key={series.branch} className="rounded-lg border border-border p-3">
             <div className="mb-2 flex items-baseline justify-between gap-2">
@@ -59,12 +67,18 @@ export function BranchTrendGrid({ data, loading }: BranchTrendGridProps) {
                 {series.branch}
               </span>
               <span className="font-data shrink-0 text-xs text-muted-foreground">
-                {formatNumber(totalRequests)}
-                {totalBlocked > 0 && (
-                  <span className="text-destructive">
-                    {' '}
-                    · {formatNumber(totalBlocked)} {t('analytics.metric.blocked').toLowerCase()}
-                  </span>
+                {metric === 'bytes' ? (
+                  formatBytes(totalBytes)
+                ) : (
+                  <>
+                    {formatNumber(totalRequests)}
+                    {totalBlocked > 0 && (
+                      <span className="text-destructive">
+                        {' '}
+                        · {formatNumber(totalBlocked)} {t('analytics.metric.blocked').toLowerCase()}
+                      </span>
+                    )}
+                  </>
                 )}
               </span>
             </div>
@@ -88,8 +102,8 @@ export function BranchTrendGrid({ data, loading }: BranchTrendGridProps) {
                     tick={{ fill: 'var(--color-muted-foreground)', fontSize: 10, fontFamily: 'var(--font-mono)' }}
                     axisLine={false}
                     tickLine={false}
-                    width={36}
-                    tickFormatter={(value: number) => formatNumber(value)}
+                    width={metric === 'bytes' ? 44 : 36}
+                    tickFormatter={(value: number) => (metric === 'bytes' ? formatBytes(value) : formatNumber(value))}
                   />
                   <Tooltip
                     contentStyle={{
@@ -100,31 +114,49 @@ export function BranchTrendGrid({ data, loading }: BranchTrendGridProps) {
                     }}
                     labelStyle={{ color: 'var(--color-muted-foreground)', fontFamily: 'var(--font-mono)' }}
                     labelFormatter={(value) => formatBucket(String(value), data.granularity)}
-                    formatter={(value, name) => [
-                      formatNumber(Number(value)),
-                      name === 'allowed_requests' ? t('analytics.metric.allowed') : t('analytics.metric.blocked'),
-                    ]}
+                    formatter={(value, name) =>
+                      metric === 'bytes'
+                        ? [formatBytes(Number(value)), t('analytics.metric.dataTransferred')]
+                        : [
+                            formatNumber(Number(value)),
+                            name === 'allowed_requests' ? t('analytics.metric.allowed') : t('analytics.metric.blocked'),
+                          ]
+                    }
                   />
-                  <Area
-                    type="monotone"
-                    dataKey="allowed_requests"
-                    stackId="1"
-                    stroke={ALLOWED}
-                    fill={ALLOWED}
-                    fillOpacity={0.35}
-                    strokeWidth={1.5}
-                    isAnimationActive={false}
-                  />
-                  <Area
-                    type="monotone"
-                    dataKey="blocked_requests"
-                    stackId="1"
-                    stroke={BLOCKED}
-                    fill={BLOCKED}
-                    fillOpacity={0.35}
-                    strokeWidth={1.5}
-                    isAnimationActive={false}
-                  />
+                  {metric === 'bytes' ? (
+                    <Area
+                      type="monotone"
+                      dataKey="total_bytes"
+                      stroke={BYTES_COLOR}
+                      fill={BYTES_COLOR}
+                      fillOpacity={0.35}
+                      strokeWidth={1.5}
+                      isAnimationActive={false}
+                    />
+                  ) : (
+                    <>
+                      <Area
+                        type="monotone"
+                        dataKey="allowed_requests"
+                        stackId="1"
+                        stroke={ALLOWED}
+                        fill={ALLOWED}
+                        fillOpacity={0.35}
+                        strokeWidth={1.5}
+                        isAnimationActive={false}
+                      />
+                      <Area
+                        type="monotone"
+                        dataKey="blocked_requests"
+                        stackId="1"
+                        stroke={BLOCKED}
+                        fill={BLOCKED}
+                        fillOpacity={0.35}
+                        strokeWidth={1.5}
+                        isAnimationActive={false}
+                      />
+                    </>
+                  )}
                 </AreaChart>
               </ResponsiveContainer>
             )}

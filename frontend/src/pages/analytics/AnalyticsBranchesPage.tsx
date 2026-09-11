@@ -1,22 +1,36 @@
+import { useState } from 'react'
 import { Panel } from '@/components/common/Panel'
 import { PanelErrorBoundary } from '@/components/common/PanelErrorBoundary'
 import { ErrorState } from '@/components/common/ErrorState'
 import { BranchComparisonChart } from '@/components/analytics/BranchComparisonChart'
 import { BranchSignalsTable } from '@/components/analytics/BranchSignalsTable'
-import { BranchTrendGrid } from '@/components/analytics/BranchTrendGrid'
+import { BranchTrendGrid, type BranchTrendMetric } from '@/components/analytics/BranchTrendGrid'
+import { BranchCategoryBreakdownGrid } from '@/components/analytics/BranchCategoryBreakdownGrid'
+import { BranchBlockedDomainsGrid } from '@/components/analytics/BranchBlockedDomainsGrid'
 import { IngestHealthPanel } from '@/components/analytics/IngestHealthPanel'
+import { Toggle } from '@/components/analytics/Toggle'
 import { cn } from '@/lib/utils'
 import { formatBytes, formatNumber } from '@/lib/format'
 import { useRangeSearchParams } from '@/lib/filters-store'
-import { useBranchBreakdown, useBranchSignals, useBranchTrend, useIngestHealth } from '@/hooks/useAnalytics'
+import {
+  useBranchBlockedDomains,
+  useBranchBreakdown,
+  useBranchCategoryBreakdown,
+  useBranchSignals,
+  useBranchTrend,
+  useIngestHealth,
+} from '@/hooks/useAnalytics'
 import { useTranslation } from '@/i18n'
 
 export default function AnalyticsBranchesPage() {
   const { t } = useTranslation()
   const rangeParams = useRangeSearchParams()
+  const [trendMetric, setTrendMetric] = useState<BranchTrendMetric>('requests')
   const breakdown = useBranchBreakdown(rangeParams, true)
   const signals = useBranchSignals(rangeParams, true)
   const trend = useBranchTrend(rangeParams, 'hour', true)
+  const categoryBreakdown = useBranchCategoryBreakdown(rangeParams, true)
+  const blockedDomains = useBranchBlockedDomains(rangeParams, 8, true)
   const ingest = useIngestHealth(true)
 
   const rows = breakdown.data?.rows ?? []
@@ -58,13 +72,48 @@ export default function AnalyticsBranchesPage() {
 
       <Panel
         title={t('analytics.branches.trendTitle')}
-        action={<span className="text-xs text-muted-foreground">{t('analytics.branches.trendHint')}</span>}
+        action={
+          <Toggle
+            value={trendMetric}
+            onChange={setTrendMetric}
+            options={[
+              { value: 'requests', labelKey: 'analytics.trend.metricRequests' },
+              { value: 'bytes', labelKey: 'analytics.trend.metricBytes' },
+            ]}
+          />
+        }
       >
         <PanelErrorBoundary panelLabel={t('analytics.branches.trendTitle')}>
           {trend.isError ? (
             <ErrorState message={trend.error?.message} onRetry={() => trend.refetch()} />
           ) : (
-            <BranchTrendGrid data={trend.data} loading={trend.isLoading} />
+            <BranchTrendGrid data={trend.data} loading={trend.isLoading} metric={trendMetric} />
+          )}
+        </PanelErrorBoundary>
+      </Panel>
+
+      <Panel
+        title={t('analytics.branches.categoryBreakdownTitle')}
+        action={<span className="text-xs text-muted-foreground">{t('analytics.branches.categoryBreakdownHint')}</span>}
+      >
+        <PanelErrorBoundary panelLabel={t('analytics.branches.categoryBreakdownTitle')}>
+          {categoryBreakdown.isError ? (
+            <ErrorState
+              message={categoryBreakdown.error?.message}
+              onRetry={() => categoryBreakdown.refetch()}
+            />
+          ) : (
+            <BranchCategoryBreakdownGrid data={categoryBreakdown.data} loading={categoryBreakdown.isLoading} />
+          )}
+        </PanelErrorBoundary>
+      </Panel>
+
+      <Panel title={t('analytics.branches.blockedDomainsTitle')}>
+        <PanelErrorBoundary panelLabel={t('analytics.branches.blockedDomainsTitle')}>
+          {blockedDomains.isError ? (
+            <ErrorState message={blockedDomains.error?.message} onRetry={() => blockedDomains.refetch()} />
+          ) : (
+            <BranchBlockedDomainsGrid data={blockedDomains.data} loading={blockedDomains.isLoading} />
           )}
         </PanelErrorBoundary>
       </Panel>

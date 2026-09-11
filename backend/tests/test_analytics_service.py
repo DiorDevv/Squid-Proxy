@@ -9,6 +9,7 @@ from app.core.config import LogSource, Settings
 from app.models.alert_settings import AlertSettings
 from app.models.anomaly_event import AnomalyEvent, AnomalySeverity
 from app.models.domain_aggregate import DomainMinuteAggregate
+from app.models.domain_category import DomainCategoryLabel
 from app.models.minute_aggregate import MinuteAggregate
 from app.schemas.analytics import HeatmapCell, TrendGranularity, TrendMetric
 from app.services import analytics_service
@@ -219,13 +220,17 @@ async def test_branch_trend_splits_series_per_branch_including_a_quiet_one(
     bucket = since + timedelta(minutes=1)
     db_session.add_all(
         [
-            _minute(bucket_ts=bucket, branch="hq", total_requests=100, blocked_requests=10, allowed_requests=90),
+            _minute(
+                bucket_ts=bucket, branch="hq", total_requests=100, blocked_requests=10,
+                allowed_requests=90, total_bytes=9000,
+            ),
             _minute(
                 bucket_ts=bucket + timedelta(minutes=30),
                 branch="hq",
                 total_requests=50,
                 blocked_requests=0,
                 allowed_requests=50,
+                total_bytes=1000,
             ),
             # "warehouse" is a configured branch with zero traffic in this
             # window -- it must still appear, with an empty series, not be
@@ -245,6 +250,7 @@ async def test_branch_trend_splits_series_per_branch_including_a_quiet_one(
     assert hq_points[0].total_requests == 150
     assert hq_points[0].blocked_requests == 10
     assert hq_points[0].allowed_requests == 140
+    assert hq_points[0].total_bytes == 10_000
 
     # A branch-scoped caller only ever gets their own series.
     scoped = await analytics_service.get_branch_trend(
@@ -271,6 +277,95 @@ async def test_branch_trend_drops_the_in_progress_bucket(db_session: AsyncSessio
     hours = {p.bucket_ts for s in trend.series for p in s.points}
     assert prev_hour in hours
     assert current_hour not in hours  # the still-filling bucket is excluded
+
+
+async def test_branch_category_breakdown_splits_and_sorts_by_bytes(db_session: AsyncSession, monkeypatch):
+    monkeypatch.setattr(
+        analytics_service,
+        "get_settings",
+        lambda: Settings(
+            LOG_SOURCES=[LogSource(branch="hq", path="/x/hq.log"), LogSource(branch="warehouse", path="/x/wh.log")]
+        ),
+    )
+    now = datetime.now(UTC).replace(second=0, microsecond=0)
+    since = now - timedelta(hours=1)
+    bucket = since + timedelta(minutes=1)
+    db_session.add_all(
+        [
+            DomainMinuteAggregate(
+                bucket_ts=bucket, branch="hq", domain="youtube.com", request_count=10, total_bytes=90_000,
+            ),
+            DomainMinuteAggregate(
+                bucket_ts=bucket, branch="hq", domain="github.com", request_count=40, total_bytes=1_000,
+            ),
+            DomainMinuteAggregate(
+                bucket_ts=bucket, branch="warehouse", domain="github.com", request_count=5, total_bytes=500,
+            ),
+            # "warehouse" has no video-streaming traffic at all -- its
+            # series must simply not carry that category, not error.
+        ]
+    )
+    await db_session.commit()
+
+    result = await analytics_service.get_branch_category_breakdown(db_session, since, now, branch=None)
+    by_branch = {s.branch: s for s in result.series}
+    assert set(by_branch) == {"hq", "warehouse"}
+
+    hq_categories = {c.category: c for c in by_branch["hq"].categories}
+    assert hq_categories[DomainCategoryLabel.VIDEO_STREAMING].request_count == 10
+    assert hq_categories[DomainCategoryLabel.VIDEO_STREAMING].total_bytes == 90_000
+    assert hq_categories[DomainCategoryLabel.WORK_TOOLS].request_count == 40
+    # sorted by total_bytes descending -- video_streaming (90k) before work_tools (1k)
+    assert [c.category for c in by_branch["hq"].categories][:2] == [
+        DomainCategoryLabel.VIDEO_STREAMING,
+        DomainCategoryLabel.WORK_TOOLS,
+    ]
+
+    warehouse_categories = {c.category for c in by_branch["warehouse"].categories}
+    assert warehouse_categories == {DomainCategoryLabel.WORK_TOOLS}
+
+
+async def test_branch_top_blocked_domains_scoped_per_branch(db_session: AsyncSession, monkeypatch):
+    monkeypatch.setattr(
+        analytics_service,
+        "get_settings",
+        lambda: Settings(
+            LOG_SOURCES=[LogSource(branch="hq", path="/x/hq.log"), LogSource(branch="warehouse", path="/x/wh.log")]
+        ),
+    )
+    now = datetime.now(UTC).replace(second=0, microsecond=0)
+    since = now - timedelta(hours=1)
+    bucket = since + timedelta(minutes=1)
+    db_session.add_all(
+        [
+            DomainMinuteAggregate(
+                bucket_ts=bucket, branch="hq", domain="gambling-x.com", request_count=100, blocked_count=80,
+            ),
+            DomainMinuteAggregate(
+                bucket_ts=bucket, branch="hq", domain="social-y.com", request_count=100, blocked_count=20,
+            ),
+            DomainMinuteAggregate(
+                # allowed, never blocked -- must not show up in anyone's list
+                bucket_ts=bucket, branch="hq", domain="clean.com", request_count=100, blocked_count=0,
+            ),
+            DomainMinuteAggregate(
+                bucket_ts=bucket, branch="warehouse", domain="ads-tracker.net", request_count=50, blocked_count=5,
+            ),
+        ]
+    )
+    await db_session.commit()
+
+    result = await analytics_service.get_branch_top_blocked_domains(db_session, since, now, branch=None, limit=1)
+    by_branch = {s.branch: s for s in result.series}
+    assert set(by_branch) == {"hq", "warehouse"}
+    # limit=1 -- only gambling-x.com (80 > 20), never clean.com (0 blocked)
+    assert [d.domain for d in by_branch["hq"].domains] == ["gambling-x.com"]
+    assert by_branch["hq"].domains[0].blocked_count == 80
+    assert [(d.domain, d.blocked_count) for d in by_branch["warehouse"].domains] == [("ads-tracker.net", 5)]
+
+    # A branch-scoped caller only ever gets their own series.
+    scoped = await analytics_service.get_branch_top_blocked_domains(db_session, since, now, branch="hq", limit=8)
+    assert [s.branch for s in scoped.series] == ["hq"]
 
 
 async def test_activity_heatmap_buckets_by_weekday_and_hour(db_session: AsyncSession):

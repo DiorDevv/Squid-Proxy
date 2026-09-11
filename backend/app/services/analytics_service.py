@@ -27,8 +27,14 @@ from app.models.minute_aggregate import MinuteAggregate
 from app.schemas.analytics import (
     ActivityHeatmapResponse,
     AnalyticsOverview,
+    BranchBlockedDomainRow,
+    BranchBlockedDomainsResponse,
+    BranchBlockedDomainsSeries,
     BranchBreakdownResponse,
     BranchBreakdownRow,
+    BranchCategoryBreakdownResponse,
+    BranchCategoryBreakdownSeries,
+    BranchCategoryUsage,
     BranchSignalRow,
     BranchSignalsResponse,
     BranchTrendPoint,
@@ -380,6 +386,7 @@ async def get_branch_trend(
                 func.sum(MinuteAggregate.total_requests),
                 func.sum(MinuteAggregate.blocked_requests),
                 func.sum(MinuteAggregate.allowed_requests),
+                func.sum(MinuteAggregate.total_bytes),
             )
             .where(
                 MinuteAggregate.bucket_ts >= since,
@@ -390,13 +397,14 @@ async def get_branch_trend(
         )
     ).all()
 
-    # branch -> truncated bucket -> [requests, blocked, allowed]
-    buckets: dict[str, dict[datetime, list[int]]] = defaultdict(lambda: defaultdict(lambda: [0, 0, 0]))
-    for branch_name, bucket_ts, total_requests, blocked_requests, allowed_requests in rows:
+    # branch -> truncated bucket -> [requests, blocked, allowed, bytes]
+    buckets: dict[str, dict[datetime, list[int]]] = defaultdict(lambda: defaultdict(lambda: [0, 0, 0, 0]))
+    for branch_name, bucket_ts, total_requests, blocked_requests, allowed_requests, total_bytes in rows:
         cell = buckets[branch_name][_truncate(bucket_ts, effective_granularity)]
         cell[0] += int(total_requests)
         cell[1] += int(blocked_requests)
         cell[2] += int(allowed_requests)
+        cell[3] += int(total_bytes)
 
     series: list[BranchTrendSeries] = []
     for b in branches:
@@ -404,7 +412,11 @@ async def get_branch_trend(
         drop = _drop_in_progress_bucket(list(branch_buckets), effective_granularity)
         points = [
             BranchTrendPoint(
-                bucket_ts=bucket, total_requests=vals[0], blocked_requests=vals[1], allowed_requests=vals[2]
+                bucket_ts=bucket,
+                total_requests=vals[0],
+                blocked_requests=vals[1],
+                allowed_requests=vals[2],
+                total_bytes=vals[3],
             )
             for bucket, vals in sorted(branch_buckets.items())
             if bucket not in drop
@@ -412,6 +424,101 @@ async def get_branch_trend(
         series.append(BranchTrendSeries(branch=b, points=points))
 
     return BranchTrendResponse(granularity=effective_granularity, series=series)
+
+
+async def get_branch_category_breakdown(
+    session: AsyncSession, since: datetime, until: datetime, branch: str | None
+) -> BranchCategoryBreakdownResponse:
+    """What each branch's traffic is actually going to, by category -- one
+    query over domain_minute_aggregates grouped by (branch, domain), each
+    domain resolved to its effective category and summed in Python (same
+    shape as _branch_category_bytes, plus request_count so the frontend can
+    show share-of-requests as well as share-of-bytes)."""
+    branches = _branches_in_scope(branch)
+    overrides = await get_overrides_map(session)
+    rows = (
+        await session.execute(
+            select(
+                DomainMinuteAggregate.branch,
+                DomainMinuteAggregate.domain,
+                func.sum(DomainMinuteAggregate.request_count),
+                func.sum(DomainMinuteAggregate.total_bytes),
+            )
+            .where(
+                DomainMinuteAggregate.bucket_ts >= since,
+                DomainMinuteAggregate.bucket_ts <= until,
+                DomainMinuteAggregate.branch.in_(branches),
+            )
+            .group_by(DomainMinuteAggregate.branch, DomainMinuteAggregate.domain)
+        )
+    ).all()
+
+    # branch -> category -> [requests, bytes]
+    totals: dict[str, dict[DomainCategoryLabel, list[int]]] = {
+        b: defaultdict(lambda: [0, 0]) for b in branches
+    }
+    for branch_name, domain, request_count, total_bytes in rows:
+        cell = totals[branch_name][effective_category(domain, overrides)]
+        cell[0] += int(request_count)
+        cell[1] += int(total_bytes)
+
+    series = [
+        BranchCategoryBreakdownSeries(
+            branch=b,
+            categories=sorted(
+                (
+                    BranchCategoryUsage(category=category, request_count=vals[0], total_bytes=vals[1])
+                    for category, vals in totals[b].items()
+                ),
+                key=lambda c: c.total_bytes,
+                reverse=True,
+            ),
+        )
+        for b in branches
+    ]
+    return BranchCategoryBreakdownResponse(series=series)
+
+
+async def get_branch_top_blocked_domains(
+    session: AsyncSession, since: datetime, until: datetime, branch: str | None, limit: int = 8
+) -> BranchBlockedDomainsResponse:
+    """Which domains a branch is blocking the most -- one query grouped by
+    (branch, domain) across every branch in scope, top-N sliced per branch
+    in Python so a heavily-blocked branch can't crowd a quieter branch's own
+    list out of the response."""
+    branches = _branches_in_scope(branch)
+    rows = (
+        await session.execute(
+            select(
+                DomainMinuteAggregate.branch,
+                DomainMinuteAggregate.domain,
+                func.sum(DomainMinuteAggregate.blocked_count),
+            )
+            .where(
+                DomainMinuteAggregate.bucket_ts >= since,
+                DomainMinuteAggregate.bucket_ts <= until,
+                DomainMinuteAggregate.branch.in_(branches),
+            )
+            .group_by(DomainMinuteAggregate.branch, DomainMinuteAggregate.domain)
+            .having(func.sum(DomainMinuteAggregate.blocked_count) > 0)
+        )
+    ).all()
+
+    by_branch: dict[str, list[tuple[str, int]]] = defaultdict(list)
+    for branch_name, domain, blocked_count in rows:
+        by_branch[branch_name].append((domain, int(blocked_count)))
+
+    series = [
+        BranchBlockedDomainsSeries(
+            branch=b,
+            domains=[
+                BranchBlockedDomainRow(domain=domain, blocked_count=count)
+                for domain, count in sorted(by_branch.get(b, []), key=lambda x: x[1], reverse=True)[:limit]
+            ],
+        )
+        for b in branches
+    ]
+    return BranchBlockedDomainsResponse(since=since, until=until, series=series)
 
 
 async def _branch_alert_inputs(

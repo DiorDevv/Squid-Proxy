@@ -6,7 +6,9 @@ import type {
   ActorDetailResponse,
   ActorLeaderboardResponse,
   AnalyticsOverview,
+  BranchBlockedDomainsResponse,
   BranchBreakdownResponse,
+  BranchCategoryBreakdownResponse,
   BranchSignalsResponse,
   BranchTrendResponse,
   CategoryTrendResponse,
@@ -71,6 +73,28 @@ export function useBranchTrend(rangeParams: RangeParams, granularity: TrendGranu
     queryFn: () =>
       apiFetch<BranchTrendResponse>('/api/analytics/branch-trend', {
         searchParams: { ...rangeParams, granularity },
+      }),
+    refetchInterval: live ? false : POLLING_FALLBACK_INTERVAL_MS,
+  })
+}
+
+export function useBranchCategoryBreakdown(rangeParams: RangeParams, live: boolean) {
+  return useQuery({
+    queryKey: ['analytics-branch-category-breakdown', rangeParams],
+    queryFn: () =>
+      apiFetch<BranchCategoryBreakdownResponse>('/api/analytics/branch-category-breakdown', {
+        searchParams: rangeParams,
+      }),
+    refetchInterval: live ? false : POLLING_FALLBACK_INTERVAL_MS,
+  })
+}
+
+export function useBranchBlockedDomains(rangeParams: RangeParams, limit: number, live: boolean) {
+  return useQuery({
+    queryKey: ['analytics-branch-blocked-domains', rangeParams, limit],
+    queryFn: () =>
+      apiFetch<BranchBlockedDomainsResponse>('/api/analytics/branch-blocked-domains', {
+        searchParams: { ...rangeParams, limit },
       }),
     refetchInterval: live ? false : POLLING_FALLBACK_INTERVAL_MS,
   })

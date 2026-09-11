@@ -9,8 +9,20 @@ const DATA: BranchTrendResponse = {
     {
       branch: 'hq',
       points: [
-        { bucket_ts: '2026-09-11T10:00:00Z', total_requests: 120, blocked_requests: 20, allowed_requests: 100 },
-        { bucket_ts: '2026-09-11T11:00:00Z', total_requests: 80, blocked_requests: 0, allowed_requests: 80 },
+        {
+          bucket_ts: '2026-09-11T10:00:00Z',
+          total_requests: 120,
+          blocked_requests: 20,
+          allowed_requests: 100,
+          total_bytes: 500_000,
+        },
+        {
+          bucket_ts: '2026-09-11T11:00:00Z',
+          total_requests: 80,
+          blocked_requests: 0,
+          allowed_requests: 80,
+          total_bytes: 500_000,
+        },
       ],
     },
     {
@@ -48,5 +60,11 @@ describe('BranchTrendGrid', () => {
     render(<BranchTrendGrid data={DATA} />)
     expect(screen.getByText('200')).toBeInTheDocument() // 120 + 80 total_requests
     expect(screen.getByText(/20 blocked/)).toBeInTheDocument()
+  })
+
+  it('shows total bytes instead of requests when metric is "bytes"', () => {
+    render(<BranchTrendGrid data={DATA} metric="bytes" />)
+    expect(screen.getByText('976.6 KB')).toBeInTheDocument() // 500_000 + 500_000 total_bytes
+    expect(screen.queryByText('200')).not.toBeInTheDocument()
   })
 })

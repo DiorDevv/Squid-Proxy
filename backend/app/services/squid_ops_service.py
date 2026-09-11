@@ -55,11 +55,18 @@ from app.services.domain_category_service import get_overrides_map
 
 _NEW_ENTITY_CAP = 50
 _ACTOR_TOP_DOMAINS = 10
-# The domain sample shown under each category in the actor sheet. Category
-# request/byte totals are exact (from the per-category aggregate); this only
-# bounds how many of the actor's busiest domains are listed beneath them, so
-# it need not be large.
-_ACTOR_CATEGORY_DOMAIN_LIMIT = 40
+# The domain sample fetched for the whole actor sheet, then split by category
+# (see get_actor_detail). Category request/byte totals are exact (from the
+# per-category aggregate) regardless of this limit -- but a category whose
+# domains don't make this single global top-N cut shows a real count with an
+# empty domain list underneath, which reads as broken rather than "sampled".
+# Wide enough that a lower-traffic category (games, shopping, ...) still gets
+# a look-in even when one or two categories dominate the actor's traffic;
+# still one indexed, single-actor, range-bounded query, so raising it is
+# cheap. _ACTOR_DOMAINS_PER_CATEGORY then caps how many of *this* sample are
+# shown under any one category, so a dominant category can't crowd the sheet.
+_ACTOR_CATEGORY_DOMAIN_LIMIT = 300
+_ACTOR_DOMAINS_PER_CATEGORY = 10
 
 # (lower_ms, upper_ms | None, histogram column) in band order -- mirrors
 # aggregator._add_duration.
@@ -448,9 +455,16 @@ async def get_actor_detail(
     # per-category table -- exact for the whole selected range. The domains
     # listed under each category are the actor's busiest few from raw_events
     # (bounded by _ACTOR_CATEGORY_DOMAIN_LIMIT and the raw-event retention
-    # window): a sample, not a set that sums to the category total.
+    # window): a sample, not a set that sums to the category total. That
+    # sample is fetched once across *all* of the actor's domains, then split
+    # by category and re-capped to _ACTOR_DOMAINS_PER_CATEGORY each -- a
+    # category can still legitimately show a count with no domains beneath it
+    # if none of its domains made the global sample (a very long-tail
+    # category on a very high-traffic actor), but _ACTOR_CATEGORY_DOMAIN_LIMIT
+    # is wide enough that this should be rare in practice.
     # bytes_received isn't carried on the per-category aggregate, so a
-    # category's upload figure is summed from its sampled domains.
+    # category's upload figure is summed from its sampled domains (the full
+    # per-category sample, before the per-category display cap).
     overrides = await get_overrides_map(session)
     scored_domains = await _actor_domains(
         session,
@@ -497,7 +511,7 @@ async def get_actor_detail(
                     domains_by_category.get(category, []),
                     key=lambda d: d.total_bytes,
                     reverse=True,
-                ),
+                )[:_ACTOR_DOMAINS_PER_CATEGORY],
             )
             for category, rc, tb in cat_rows
         ),

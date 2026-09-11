@@ -356,6 +356,66 @@ async def test_actor_detail_category_totals_are_exact_domains_are_a_sample(db_se
     }
 
 
+async def test_actor_detail_low_traffic_category_not_starved_by_a_dominant_one(db_session: AsyncSession):
+    # Regression for a real bug report: the domain sample used to be a
+    # single global top-40 across *all* of an actor's domains -- a
+    # high-volume category (here VIDEO_STREAMING) filled every slot with
+    # more than 40 distinct domains, leaving a real, nonzero category
+    # (GAMING) with a count but an empty domain list underneath, which read
+    # as broken rather than "sampled". 45 competing video domains here is
+    # deliberately more than the old 40-wide sample so this would have
+    # failed before the fix.
+    db_session.add_all(
+        [
+            ClientMinuteAggregate(
+                bucket_ts=BUCKET, client_ip="10.0.0.1", branch="default", user="carol",
+                request_count=400, blocked_count=0, total_bytes=40_000,
+            ),
+            UserCategoryMinuteAggregate(
+                bucket_ts=BUCKET, branch="default", user="carol",
+                category=DomainCategoryLabel.VIDEO_STREAMING, request_count=390, total_bytes=39_000,
+            ),
+            UserCategoryMinuteAggregate(
+                bucket_ts=BUCKET, branch="default", user="carol",
+                category=DomainCategoryLabel.GAMING, request_count=10, total_bytes=1_000,
+            ),
+        ]
+    )
+    # 45 video domains, each with more raw_events rows than the 1 gaming
+    # domain -- they all outrank it on request count.
+    db_session.add_all(
+        RawEvent(
+            timestamp=BUCKET, duration_ms=1, client_ip="10.0.0.1", user="carol",
+            action="TCP_MISS", status_code=200, bytes=1000, bytes_received=0, method="GET",
+            url=f"http://video{i}.com/", domain=f"video{i}.com",
+            hierarchy=None, peer=None, content_type=None, blocked=False,
+        )
+        for i in range(45)
+        for _ in range(2)
+    )
+    db_session.add(
+        RawEvent(
+            timestamp=BUCKET, duration_ms=1, client_ip="10.0.0.1", user="carol",
+            action="TCP_MISS", status_code=200, bytes=200, bytes_received=0, method="GET",
+            url="http://game-hub.com/", domain="game-hub.com",
+            hierarchy=None, peer=None, content_type=None, blocked=False,
+        )
+    )
+    await db_session.commit()
+
+    detail = await squid_ops_service.get_actor_detail(
+        db_session, "carol", is_user=True, since=SINCE, until=NOW, branch=None
+    )
+    gaming = next(c for c in detail.categories if c.category == DomainCategoryLabel.GAMING)
+    assert gaming.request_count == 10  # exact, from the per-category aggregate -- still true
+    assert [d.domain for d in gaming.domains] == ["game-hub.com"]  # no longer starved to []
+
+    video = next(c for c in detail.categories if c.category == DomainCategoryLabel.VIDEO_STREAMING)
+    # the dominant category doesn't get to show all 45 -- capped per category
+    # so it can't crowd the sheet either.
+    assert len(video.domains) == squid_ops_service._ACTOR_DOMAINS_PER_CATEGORY
+
+
 def test_build_ingest_health_reshapes_health_snapshot():
     snapshot = {
         "aggregator_backlog_ratio": 0.12,

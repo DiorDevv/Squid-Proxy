@@ -424,6 +424,7 @@ export const uz = {
   'analytics.branches.blockedDomainsEmpty': 'Bu oraliqda hech narsa bloklanmagan.',
   'analytics.branches.tableTitle': 'Filiallar boʻyicha taqsimot',
   'analytics.branches.colBranch': 'Filial',
+  'analytics.branches.colCategory': 'Kategoriya',
   'analytics.branches.colRequests': 'Soʻrovlar',
   'analytics.branches.colBlockedRatio': 'Bloklash %',
   'analytics.branches.colBlockedPct': 'Bloklash %',

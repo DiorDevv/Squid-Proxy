@@ -441,6 +441,7 @@ export const en = {
   'analytics.branches.blockedDomainsEmpty': 'Nothing blocked in this range.',
   'analytics.branches.tableTitle': 'Branch breakdown',
   'analytics.branches.colBranch': 'Branch',
+  'analytics.branches.colCategory': 'Category',
   'analytics.branches.colRequests': 'Requests',
   'analytics.branches.colBlockedRatio': 'Blocked %',
   'analytics.branches.colBlockedPct': 'Blocked %',

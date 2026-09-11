@@ -421,6 +421,7 @@ export const ru = {
   'analytics.branches.blockedDomainsEmpty': 'За этот период ничего не заблокировано.',
   'analytics.branches.tableTitle': 'Разбивка по филиалам',
   'analytics.branches.colBranch': 'Филиал',
+  'analytics.branches.colCategory': 'Категория',
   'analytics.branches.colRequests': 'Запросы',
   'analytics.branches.colBlockedRatio': '% блокировок',
   'analytics.branches.colBlockedPct': '% блокировок',

@@ -14,6 +14,22 @@ Quyidagi joylarda o'zingizning haqiqiy qiymatlaringizni qo'ying:
 parol **`git pull` bilan avtomatik ko'chib kelmaydi**. Bu qo'llanmadagi 3-qadam ularni
 VM'ning o'zida yaratadi.
 
+**Qisqa yo'l:** 3–7-qadamlarning (keypair, parol, target'ga kalit o'rnatish,
+`known_hosts`, `.env`) barchasini bitta buyruq bilan avtomatik bajaradigan skript bor —
+`backend/scripts/setup_offsite.sh`. Qadamma-qadam qo'lda bajarishni tushunib olish
+uchun pastdagi to'liq ro'yxat ham qoldirilgan, lekin amalda quyidagisi kifoya:
+
+```bash
+cd ~/squid-watch
+git pull
+TARGET_HOST=<TARGET_HOST> TARGET_USER=<TARGET_USER> backend/scripts/setup_offsite.sh
+```
+
+(ixtiyoriy: `TARGET_PATH=...` — bermasangiz, `TARGET_USER`ning uy papkasidagi
+`squid-watch-offsite` ishlatiladi). Qayta ishga tushirish xavfsiz — allaqachon
+bajarilgan qadamlarni o'zi aniqlab o'tkazib yuboradi. Muvaffaqiyatli tugagach, faqat
+`docker compose up -d db-offsite` qoladi (8-qadam).
+
 ---
 
 ## 1-QADAM — Kodni VM'da yangilang

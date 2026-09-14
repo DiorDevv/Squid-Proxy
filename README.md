@@ -658,12 +658,46 @@ until you set a repository and a passphrase**:
 # .env (Docker) or backend/.env (bare-metal):
 OFFSITE_RESTIC_REPOSITORY=sftp:backup-user@backup-host:/srv/squid-watch-offsite
 OFFSITE_RESTIC_PASSWORD=$(python3 -c "import secrets; print(secrets.token_urlsafe(48))")
-# ...or OFFSITE_RESTIC_PASSWORD_FILE=/path/to/a/mounted/file instead
+# ...or, since docker-compose.yml already mounts ./deploy/offsite read-only into the
+# db-offsite container at /offsite-config:
+OFFSITE_RESTIC_PASSWORD_FILE=/offsite-config/restic-password
 ```
 
 **Keep a copy of that passphrase off this host** — a password manager, a separate secrets store.
 It's the only thing between the off-site copy and being unrestorable, exactly like
 `ARCHIVE_ENCRYPTION_KEY`.
+
+**Choosing `sftp:` (another server you control over SSH)** additionally needs SSH key auth set
+up, since `db-offsite` runs unattended — there's no terminal to type a password or confirm a host
+key into. On the target server:
+
+```bash
+# Target server: a dedicated user, ideally with a restricted shell (rssh/scponly) and its
+# own directory -- don't point this at a login account.
+sudo useradd -m -s /usr/sbin/nologin squidoffsite   # or a restricted shell if you have one
+sudo install -d -o squidoffsite -g squidoffsite /srv/squid-watch-offsite
+```
+
+Then, wherever `db-offsite` runs (the Docker host, or the box `offsite_sync.py` runs on
+bare-metal):
+
+```bash
+# A dedicated, passphrase-less keypair -- unattended, so no passphrase prompt; don't reuse
+# a key that's used anywhere else (e.g. the squidreader ingest keys).
+mkdir -p deploy/offsite/ssh
+ssh-keygen -t ed25519 -N "" -f deploy/offsite/ssh/id_ed25519 -C squid-watch-offsite
+chmod 600 deploy/offsite/ssh/id_ed25519
+
+# Install the public half on the target server (paste it into
+# /home/squidoffsite/.ssh/authorized_keys if ssh-copy-id isn't available):
+ssh-copy-id -i deploy/offsite/ssh/id_ed25519.pub squidoffsite@backup-host
+
+# Pre-populate known_hosts so the first connection doesn't need an interactive
+# "yes" -- run this from the machine that will actually make the connection.
+ssh-keyscan -H backup-host >> deploy/offsite/ssh/known_hosts
+```
+
+`OFFSITE_RESTIC_REPOSITORY=sftp:squidoffsite@backup-host:/srv/squid-watch-offsite` in `.env`.
 
 **Docker**: nothing else to do — `db-offsite` comes up with `docker compose up`, notices the
 repository is configured, runs `restic init` once, then syncs every `OFFSITE_INTERVAL_SECONDS`
@@ -671,7 +705,10 @@ repository is configured, runs `restic init` once, then syncs every `OFFSITE_INT
 its own Docker network with outbound internet but no path to any other service in the stack — it
 only reads the backup volume and `./archives` (both mounted read-only) and pushes out. For an
 `s3:`/`b2:` repository, add the matching `AWS_ACCESS_KEY_ID`/`AWS_SECRET_ACCESS_KEY` (or
-`B2_ACCOUNT_ID`/`B2_ACCOUNT_KEY`) to `.env`.
+`B2_ACCOUNT_ID`/`B2_ACCOUNT_KEY`) to `.env`. For an `sftp:` repository, `docker-compose.yml`
+already mounts `./deploy/offsite/ssh` to `/root/.ssh:ro` in the `db-offsite` container — the
+container's own `ssh`/`sftp` binaries read the key and `known_hosts` from there the same way any
+ssh client does; just populate that directory as shown above before bringing the service up.
 
 **Without Docker**: install `restic` (`apt install restic`), then run `offsite_sync.py` on a
 schedule just after the backup timer, plus `--check` weekly —

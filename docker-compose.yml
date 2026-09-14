@@ -278,10 +278,18 @@ services:
       - ./archives:/archives:ro
       - job_status_data:/status
       - ./backend/scripts/offsite_sync_docker.sh:/offsite_sync_docker.sh:ro
-      # Optional: mount a host directory holding a restic password file
-      # and/or an rclone.conf, and point OFFSITE_RESTIC_PASSWORD_FILE /
-      # RCLONE_CONFIG at paths under it, to keep secrets out of .env.
-      # - ./deploy/offsite:/offsite-config:ro
+      # Mounts a host directory holding the restic repo password file
+      # (and/or an rclone.conf), so it doesn't have to sit in .env too --
+      # see OFFSITE_RESTIC_PASSWORD_FILE below.
+      - ./deploy/offsite:/offsite-config:ro
+      # Required for an sftp: repository (OFFSITE_RESTIC_REPOSITORY=sftp:user@host:/path)
+      # -- the sftp backend shells out to this image's own ssh/sftp binaries, which read
+      # keys and host verification from $HOME/.ssh same as any other ssh client (HOME is
+      # /root here). Put a dedicated, passphrase-less keypair's PRIVATE half plus a
+      # known_hosts pre-populated with the target's host key (ssh-keyscan -H <host>) in
+      # ./deploy/offsite/ssh/ -- see "Off-site copies" in README.md. Not needed for an
+      # s3:/b2:/rclone: repository.
+      - ./deploy/offsite/ssh:/root/.ssh:ro
     entrypoint: ["/bin/sh", "/offsite_sync_docker.sh"]
     networks:
       # Its own network -- needs OUTBOUND internet (S3, a remote SFTP/REST

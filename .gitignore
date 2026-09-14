@@ -31,6 +31,11 @@ backend/log_tailer_state/
 .env
 !.env.example
 
+# Off-site backup secrets (restic password file, SSH private key + known_hosts
+# for an sftp: repository) -- see "Off-site copies" in README.md. Never commit
+# these; docker-compose.yml optionally bind-mounts this whole directory.
+/deploy/offsite/
+
 # Node / frontend
 node_modules/
 dist/

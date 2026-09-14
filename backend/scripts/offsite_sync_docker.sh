@@ -153,8 +153,14 @@ while true; do
   cycle_start=$(date -u +%s)
   now=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 
+  # --host pins restic's parent-snapshot lookup to a fixed identity. Without it, restic
+  # defaults to the container's own hostname, which is a fresh random ID every time this
+  # container is recreated (any .env change, a VM reboot) -- parent-snapshot matching
+  # would silently break each time, forcing a full re-read/re-chunk of every file (the
+  # network upload still dedups fine via the repo's chunk index, but the local scan does
+  # not, so this otherwise costs real time on every recreate for no reason).
   # shellcheck disable=SC2086  # $paths is a space-separated path list, split on purpose
-  if restic backup --tag squid-watch $paths; then
+  if restic backup --host squid-watch --tag squid-watch $paths; then
     echo "Off-site backup complete: $paths"
     printf '%s' "$now" > "$status_dir/.offsite_sync_at" 2>/dev/null
     printf 'true' > "$status_dir/.offsite_sync_ok" 2>/dev/null

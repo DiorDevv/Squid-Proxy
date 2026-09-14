@@ -19,6 +19,12 @@
 
 repo="${RESTIC_REPOSITORY:-${OFFSITE_RESTIC_REPOSITORY:-}}"
 interval_seconds="${OFFSITE_INTERVAL_SECONDS:-86400}"
+# Pin the daily sync to a fixed UTC hour instead of "24h after whenever this
+# container last started" -- same reasoning and arithmetic as db-backup's
+# BACKUP_AT_HOUR (see backup_postgres_docker.sh). Unset by default so a
+# fresh deployment's first sync still runs immediately rather than waiting
+# up to 24h for the clock to hit some hour nobody chose.
+offsite_at_hour="${OFFSITE_AT_HOUR:-}"
 keep_daily="${OFFSITE_KEEP_DAILY:-7}"
 keep_weekly="${OFFSITE_KEEP_WEEKLY:-8}"
 keep_monthly="${OFFSITE_KEEP_MONTHLY:-12}"
@@ -71,6 +77,28 @@ export RESTIC_REPOSITORY="$repo"
 : "${RESTIC_PASSWORD:=${OFFSITE_RESTIC_PASSWORD:-}}"
 export RESTIC_PASSWORD_FILE RESTIC_PASSWORD
 
+# Seconds to sleep after this cycle. With OFFSITE_AT_HOUR set, that's the
+# time until the next occurrence of that UTC hour (pure arithmetic --
+# busybox date has no date math); otherwise interval_seconds minus how
+# long the cycle took, floored at 60s so a slow sync can't spin.
+sleep_until_next() {
+  cycle_elapsed=$1
+  if [ -n "$offsite_at_hour" ]; then
+    now_h=$(date -u +%H)
+    now_m=$(date -u +%M)
+    now_s=$(date -u +%S)
+    now_secs=$(( ${now_h#0} * 3600 + ${now_m#0} * 60 + ${now_s#0} ))
+    target_secs=$(( ${offsite_at_hour#0} * 3600 ))
+    delta=$(( (target_secs - now_secs + 86400) % 86400 ))
+    [ "$delta" -eq 0 ] && delta=86400
+    echo "$delta"
+    return
+  fi
+  remaining=$(( interval_seconds - cycle_elapsed ))
+  [ "$remaining" -lt 60 ] && remaining=60
+  echo "$remaining"
+}
+
 idle_forever() {
   # Stay running so `docker compose` doesn't treat this as a crash-looping
   # service and back off restarting the rest of the stack's dependents.
@@ -122,6 +150,7 @@ fi
 cycle=0
 while true; do
   cycle=$((cycle + 1))
+  cycle_start=$(date -u +%s)
   now=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 
   # shellcheck disable=SC2086  # $paths is a space-separated path list, split on purpose
@@ -137,11 +166,11 @@ while true; do
       notify_operator_failure "Off-site retention (restic forget --prune) failed this cycle"
     fi
   else
-    echo "Off-site backup FAILED this cycle -- will retry in ${interval_seconds}s" >&2
+    echo "Off-site backup FAILED this cycle -- will retry next cycle" >&2
     printf '%s' "$now" > "$status_dir/.offsite_sync_at" 2>/dev/null
     printf 'false' > "$status_dir/.offsite_sync_ok" 2>/dev/null
     printf 'restic backup failed this cycle' > "$status_dir/.offsite_error" 2>/dev/null
-    notify_operator_failure "Off-site backup (restic) FAILED this cycle; will retry in ${interval_seconds}s"
+    notify_operator_failure "Off-site backup (restic) FAILED this cycle; will retry next cycle"
   fi
 
   if [ "$check_every" -gt 0 ] && [ $((cycle % check_every)) -eq 0 ]; then
@@ -158,5 +187,8 @@ while true; do
   fi
 
   write_offsite_status
-  sleep "$interval_seconds"
+  cycle_elapsed=$(( $(date -u +%s) - cycle_start ))
+  nap=$(sleep_until_next "$cycle_elapsed")
+  echo "Next off-site sync in ${nap}s"
+  sleep "$nap"
 done

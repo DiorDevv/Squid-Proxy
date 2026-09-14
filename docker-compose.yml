@@ -256,6 +256,10 @@ services:
       OFFSITE_RESTIC_PASSWORD_FILE: ${OFFSITE_RESTIC_PASSWORD_FILE:-}
       OFFSITE_PATHS: ${OFFSITE_PATHS:-/backups /archives}
       OFFSITE_INTERVAL_SECONDS: ${OFFSITE_INTERVAL_SECONDS:-86400}
+      # Optional: pin the daily sync to a fixed UTC hour (e.g. 7, an hour after
+      # db-backup's default BACKUP_AT_HOUR=6) instead of "24h after whenever this
+      # container last started". Unset by default -- see offsite_sync_docker.sh.
+      OFFSITE_AT_HOUR: ${OFFSITE_AT_HOUR:-}
       OFFSITE_KEEP_DAILY: ${OFFSITE_KEEP_DAILY:-7}
       OFFSITE_KEEP_WEEKLY: ${OFFSITE_KEEP_WEEKLY:-8}
       OFFSITE_KEEP_MONTHLY: ${OFFSITE_KEEP_MONTHLY:-12}

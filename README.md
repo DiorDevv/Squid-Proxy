@@ -701,7 +701,11 @@ ssh-keyscan -H backup-host >> deploy/offsite/ssh/known_hosts
 
 **Docker**: nothing else to do — `db-offsite` comes up with `docker compose up`, notices the
 repository is configured, runs `restic init` once, then syncs every `OFFSITE_INTERVAL_SECONDS`
-(default daily) and runs `restic check` every `OFFSITE_CHECK_EVERY` cycles (default 7th). It's on
+(default daily) and runs `restic check` every `OFFSITE_CHECK_EVERY` cycles (default 7th). By
+default that "daily" is relative to whenever the container last started, same drift problem
+`BACKUP_AT_HOUR` fixes for `db-backup` above — set `OFFSITE_AT_HOUR` (0–23, UTC) to pin it to a
+fixed time instead, ideally an hour or two after `BACKUP_AT_HOUR` so the day's dump is already on
+disk before this pushes it out. It's on
 its own Docker network with outbound internet but no path to any other service in the stack — it
 only reads the backup volume and `./archives` (both mounted read-only) and pushes out. For an
 `s3:`/`b2:` repository, add the matching `AWS_ACCESS_KEY_ID`/`AWS_SECRET_ACCESS_KEY` (or

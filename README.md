@@ -341,6 +341,13 @@ and copy the Postgres write-heavy-workload tuning flags (`shared_buffers`, `effe
 `max_wal_size`) from `docker-compose.override.yml.example` — the only part of large-deployment
 sizing that still needs an override file rather than a plain `.env` variable.
 
+Every service also sets a `*_CPU_SHARES` (e.g. `POSTGRES_CPU_SHARES`, `BACKEND_CPU_SHARES`) — a
+relative weight, distinct from the hard `*_CPU_LIMIT` ceiling above. The ceiling caps what a
+service can ever use; shares only matter once the host itself is out of spare CPU, deciding who
+gets priority in that moment (postgres and backend outweigh the bursty daily backup/offsite jobs,
+which outweigh the frontend) instead of leaving it to chance. See `.env.example` for the full set
+and defaults.
+
 **Required host sizing at this scale** (see `ARCHITECTURE.md` for the derivation):
 
 | Resource | Approximate requirement | Why |

@@ -27,6 +27,10 @@ x-backend-common: &backend-common
   # already use.
   mem_limit: ${BACKEND_MEMORY_LIMIT:-1g}
   cpus: "${BACKEND_CPU_LIMIT:-2}"
+  # See postgres's cpu_shares comment below -- same mechanism. Backend is
+  # the second-heaviest, continuously-running service (log parsing off the
+  # event loop + API serving), so it gets the second-largest share.
+  cpu_shares: ${BACKEND_CPU_SHARES:-1536}
   environment:
     ENVIRONMENT: production
     DATABASE_URL: postgresql+asyncpg://squid:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in your .env before starting}@postgres:5432/squid_dashboard
@@ -106,6 +110,14 @@ services:
       POSTGRES_DB: squid_dashboard
     mem_limit: ${POSTGRES_MEMORY_LIMIT:-1g}
     cpus: "${POSTGRES_CPU_LIMIT:-2}"
+    # Relative CPU weight under contention (all six services below set one) --
+    # a ceiling (`cpus`) alone doesn't stop one busy container from crowding
+    # out another when the host is actually saturated; shares make the split
+    # proportional to how much each service's workload actually matters,
+    # instead of first-come-first-served. Postgres carries the heaviest
+    # weight: it's the confirmed bottleneck under real load (see README
+    # "Capacity planning"), not a guess.
+    cpu_shares: ${POSTGRES_CPU_SHARES:-2048}
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
@@ -169,8 +181,11 @@ services:
         HTTPS_PROXY: ${HTTPS_PROXY:-}
         NO_PROXY: ${NO_PROXY:-}
     logging: *default-logging
-    mem_limit: 256m
-    cpus: "1"
+    mem_limit: ${FRONTEND_MEMORY_LIMIT:-256m}
+    cpus: "${FRONTEND_CPU_LIMIT:-1}"
+    # Lightest weight -- nginx serving static files + proxying, not a real
+    # CPU consumer even under load.
+    cpu_shares: ${FRONTEND_CPU_SHARES:-512}
     ports:
       - "${FRONTEND_PORT:-8080}:80"
     networks:
@@ -215,8 +230,12 @@ services:
       # ops_alerting: falls back to ALERT_WEBHOOK_URL if unset.
       OPS_ALERT_WEBHOOK_URL: ${OPS_ALERT_WEBHOOK_URL:-}
       ALERT_WEBHOOK_URL: ${ALERT_WEBHOOK_URL:-}
-    mem_limit: 512m
-    cpus: "1"
+    mem_limit: ${DB_BACKUP_MEMORY_LIMIT:-512m}
+    # Bumped from 1 -> 2 by default: pg_dump's custom-format compression is
+    # genuinely CPU-bound, and this runs once a day, not continuously --
+    # extra cores here shorten that daily window rather than sitting idle.
+    cpus: "${DB_BACKUP_CPU_LIMIT:-2}"
+    cpu_shares: ${DB_BACKUP_CPU_SHARES:-1024}
     volumes:
       - db_backup_data:/backups
       - job_status_data:/status
@@ -274,8 +293,13 @@ services:
       # Same OPS webhook fallback as db-backup.
       OPS_ALERT_WEBHOOK_URL: ${OPS_ALERT_WEBHOOK_URL:-}
       ALERT_WEBHOOK_URL: ${ALERT_WEBHOOK_URL:-}
-    mem_limit: 512m
-    cpus: "1"
+    mem_limit: ${DB_OFFSITE_MEMORY_LIMIT:-512m}
+    # Bumped from 1 -> 2 by default: restic's chunking/encryption is
+    # measurably CPU-bound (observed at ~75% of one core during a real
+    # sync) -- more cores here means less wall-clock time the daily sync
+    # spends running, same reasoning as db-backup above.
+    cpus: "${DB_OFFSITE_CPU_LIMIT:-2}"
+    cpu_shares: ${DB_OFFSITE_CPU_SHARES:-1024}
     volumes:
       # Read-only -- this service never writes to either source.
       - db_backup_data:/backups:ro
@@ -315,8 +339,11 @@ services:
         NO_PROXY: ${NO_PROXY:-}
     profiles: ["demo"]
     logging: *default-logging
-    mem_limit: 256m
-    cpus: "1"
+    mem_limit: ${DEMO_LOG_GENERATOR_MEMORY_LIMIT:-256m}
+    cpus: "${DEMO_LOG_GENERATOR_CPU_LIMIT:-1}"
+    # Lowest weight -- demo/dev tooling only, never runs in a real
+    # deployment (no --profile demo there), shouldn't compete with it.
+    cpu_shares: ${DEMO_LOG_GENERATOR_CPU_SHARES:-256}
     volumes:
       - squid_log_data:/data/squid-logs
     command:

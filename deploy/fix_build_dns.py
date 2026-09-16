@@ -6,9 +6,12 @@ internal DNS server that SERVFAILs anything outside its own zone, which
 Docker's containers inherit even though the host itself resolves fine).
 
 Resolves the hosts npm/pip/apt need via this machine's own working
-resolver (stdlib socket, same mechanism `getent` uses -- no extra tools
-required) and writes them into docker-compose.override.yml as `extra_hosts`
-under each service's `build:` section. Safe to re-run: only inserts a
+resolver, shelling out to `getent ahostsv4` (not Python's socket module --
+socket.gethostbyname() was found to fail on a real host where `getent`/
+`curl` resolve the exact same name fine, apparently an NSS/systemd-resolved
+integration quirk specific to that older resolver call) and writes them
+into docker-compose.override.yml as `extra_hosts` under each service's
+`build:` section. Safe to re-run: only inserts a
 service's `build.extra_hosts` block if that service doesn't already have
 one, and never touches any other existing content in the file (your real
 LOG_SOURCES/volumes override, Postgres tuning command, etc. are left
@@ -20,7 +23,7 @@ repo root:
 """
 from __future__ import annotations
 
-import socket
+import subprocess
 import sys
 from pathlib import Path
 
@@ -34,11 +37,20 @@ SERVICE_HOSTS = {
 
 
 def resolve(host: str) -> str | None:
+    # `getent ahostsv4` -- goes through the same NSS chain `curl`/most
+    # system tools use, unlike Python's own socket.gethostbyname() (see
+    # module docstring for why that matters here).
     try:
-        return socket.gethostbyname(host)
-    except OSError as exc:
-        print(f"  ! could not resolve {host} from this machine: {exc}", file=sys.stderr)
+        result = subprocess.run(
+            ["getent", "ahostsv4", host], capture_output=True, text=True, timeout=10
+        )
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        print(f"  ! could not run getent for {host}: {exc}", file=sys.stderr)
         return None
+    if result.returncode != 0 or not result.stdout.strip():
+        print(f"  ! could not resolve {host} from this machine (getent exit {result.returncode})", file=sys.stderr)
+        return None
+    return result.stdout.split()[0]
 
 
 def extra_hosts_block(hosts: list[str]) -> str:

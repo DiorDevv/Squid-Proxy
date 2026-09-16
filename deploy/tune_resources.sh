@@ -14,6 +14,16 @@
 # tens of GB of raw_events) -- not the README's 30,000-client preset, which
 # is considerably larger. Re-tune the numbers below by hand if your load
 # looks more like that.
+#
+# shared_buffers=2GB (not the more textbook-typical ~25% of the container
+# limit, which would be 1GB here) is deliberate: verified on a real
+# deployment that the *_minute_aggregates tables are small (under 2GB each)
+# but heavily UPSERT'd every AGGREGATION_INTERVAL_SECONDS, and at 1GB they
+# thrashed constantly (domain_minute_aggregates measured a 27% cache hit
+# ratio despite being only 1.9GB on disk -- nowhere near memory-bound in
+# theory). These tables benefit far more from a bigger *shared_buffers*
+# specifically than from a bigger *effective_cache_size* (a planner hint,
+# not actual cache) -- raising shared_buffers to 2GB fixed it.
 
 set -eu
 
@@ -48,7 +58,7 @@ else
     echo "    command:"
     echo "      - \"postgres\""
     echo "      - \"-c\""
-    echo "      - \"shared_buffers=1GB\""
+    echo "      - \"shared_buffers=2GB\""
     echo "      - \"-c\""
     echo "      - \"effective_cache_size=3GB\""
     echo "      - \"-c\""

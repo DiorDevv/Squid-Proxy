@@ -2,7 +2,18 @@ import { toast } from 'sonner'
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from '@/components/ui/sheet'
 import { Button } from '@/components/ui/button'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
-import { ChevronRight, ShieldQuestion } from 'lucide-react'
+import { SummaryCard } from '@/components/dashboard/SummaryCard'
+import {
+  Activity,
+  CalendarClock,
+  ChevronRight,
+  Clock,
+  Download,
+  Layers,
+  ShieldQuestion,
+  ShieldX,
+  Upload,
+} from 'lucide-react'
 import { formatBytes, formatDateTime, formatNumber } from '@/lib/format'
 import { CATEGORY_COLORS, CATEGORY_LABEL_KEYS } from '@/lib/categories'
 import { downloadSubjectDossier } from '@/lib/api-client'
@@ -17,6 +28,8 @@ interface ActorDetailSheetProps {
   onOpenChange: (open: boolean) => void
 }
 
+const HOUR_TICKS = [0, 6, 12, 18, 23]
+
 export function ActorDetailSheet({ actor, rangeParams, onOpenChange }: ActorDetailSheetProps) {
   const { t } = useTranslation()
   const role = useAuthStore((state) => state.role)
@@ -24,14 +37,18 @@ export function ActorDetailSheet({ actor, rangeParams, onOpenChange }: ActorDeta
   const data = query.data
 
   const maxHour = Math.max(...(data?.hourly ?? [0]), 1)
+  const blockedBytesTotal = data ? data.blocked_bytes + data.blocked_bytes_received : 0
 
   return (
     <Sheet open={actor !== null} onOpenChange={onOpenChange}>
-      <SheetContent className="w-full sm:max-w-lg">
+      {/* Widened from max-w-lg -- five stat cards plus nested category/domain
+          rows need real room; at the old width everything was cramped
+          two-per-line with truncated labels. */}
+      <SheetContent className="flex w-full flex-col sm:max-w-2xl">
         <SheetHeader>
           <div className="flex items-start justify-between gap-2">
             <div className="min-w-0">
-              <SheetTitle className="font-data break-all">{actor?.actor}</SheetTitle>
+              <SheetTitle className="font-data text-lg break-all">{actor?.actor}</SheetTitle>
               <SheetDescription>
                 {actor?.is_user ? t('analytics.who.colUser') : t('analytics.who.colClientIp')}
               </SheetDescription>
@@ -45,7 +62,7 @@ export function ActorDetailSheet({ actor, rangeParams, onOpenChange }: ActorDeta
                   <Button
                     variant="outline"
                     size="sm"
-                    className="h-7 shrink-0 gap-1.5 px-2 text-xs"
+                    className="h-8 shrink-0 gap-1.5 px-2.5 text-xs"
                     onClick={() => {
                       downloadSubjectDossier(actor.is_user ? 'user' : 'client_ip', actor.actor).catch(() =>
                         toast.error(t('analytics.who.dossierDownloadFailed')),
@@ -62,100 +79,115 @@ export function ActorDetailSheet({ actor, rangeParams, onOpenChange }: ActorDeta
           </div>
         </SheetHeader>
 
-        <div className="flex flex-col gap-4 overflow-y-auto px-4 pb-6">
+        <div className="flex flex-1 flex-col gap-6 overflow-y-auto px-4 pb-8">
           {query.isLoading ? (
-            <div className="h-40 animate-pulse rounded bg-muted" />
+            <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+              {Array.from({ length: 5 }).map((_, i) => (
+                <div key={i} className="h-28 animate-pulse rounded-xl bg-muted" />
+              ))}
+            </div>
           ) : data ? (
             <>
-              <div className="grid grid-cols-2 gap-2 text-sm sm:grid-cols-5">
-                <div className="flex flex-col">
-                  <span className="text-[11px] uppercase text-muted-foreground">
-                    {t('analytics.metric.totalRequests')}
-                  </span>
-                  <span className="font-data font-semibold">{formatNumber(data.request_count)}</span>
-                </div>
-                <div className="flex flex-col">
-                  <span className="text-[11px] uppercase text-muted-foreground">
-                    {t('analytics.metric.blocked')}
-                  </span>
-                  <span className="font-data font-semibold text-destructive">
-                    {formatNumber(data.blocked_count)}
-                  </span>
-                </div>
-                <div className="flex flex-col">
-                  <span className="text-[11px] uppercase text-muted-foreground">
-                    {t('analytics.metric.downloaded')}
-                  </span>
-                  <span className="font-data font-semibold">{formatBytes(data.total_bytes)}</span>
-                </div>
-                <div className="flex flex-col">
-                  <span className="text-[11px] uppercase text-muted-foreground">
-                    {t('analytics.metric.uploaded')}
-                  </span>
-                  <span className="font-data font-semibold">
-                    {data.bytes_received > 0 ? formatBytes(data.bytes_received) : '—'}
-                  </span>
-                </div>
+              <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+                <SummaryCard
+                  label={t('analytics.metric.totalRequests')}
+                  value={data.request_count}
+                  icon={Activity}
+                  tone="info"
+                  formatValue={formatNumber}
+                />
+                <SummaryCard
+                  label={t('analytics.metric.blocked')}
+                  value={data.blocked_count}
+                  icon={ShieldX}
+                  tone="warning"
+                  formatValue={formatNumber}
+                />
+                <SummaryCard
+                  label={t('analytics.metric.downloaded')}
+                  value={data.total_bytes}
+                  icon={Download}
+                  tone="purple"
+                  formatValue={formatBytes}
+                />
+                <SummaryCard
+                  label={t('analytics.metric.uploaded')}
+                  value={data.bytes_received > 0 ? data.bytes_received : null}
+                  icon={Upload}
+                  tone="purple"
+                  formatValue={formatBytes}
+                />
                 {/* Bytes excluded from Downloaded/Uploaded above (a blocked
                     request's denial-page size, not real content) -- its own
-                    figure so nothing silently disappears, not netted out. */}
-                <div className="flex flex-col">
-                  <span className="text-[11px] uppercase text-muted-foreground">
-                    {t('analytics.metric.blockedBytes')}
-                  </span>
-                  <span className="font-data font-semibold text-destructive">
-                    {data.blocked_bytes + data.blocked_bytes_received > 0
-                      ? formatBytes(data.blocked_bytes + data.blocked_bytes_received)
-                      : '—'}
-                  </span>
-                </div>
+                    card so nothing silently disappears, not netted out. */}
+                <SummaryCard
+                  label={t('analytics.metric.blockedBytes')}
+                  value={blockedBytesTotal > 0 ? blockedBytesTotal : null}
+                  icon={ShieldX}
+                  tone="warning"
+                  formatValue={formatBytes}
+                />
               </div>
 
-              <div className="flex justify-between text-xs text-muted-foreground">
-                <span>
+              <div className="flex flex-wrap items-center gap-x-6 gap-y-1.5 rounded-xl border border-border bg-card px-4 py-3 text-sm">
+                <span className="flex items-center gap-1.5 text-muted-foreground">
+                  <CalendarClock className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
                   {t('analytics.who.firstSeen')}:{' '}
-                  {data.first_seen ? formatDateTime(data.first_seen) : '—'}
+                  <span className="font-data text-foreground">
+                    {data.first_seen ? formatDateTime(data.first_seen) : '—'}
+                  </span>
                 </span>
-                <span>
-                  {t('analytics.who.lastSeen')}: {data.last_seen ? formatDateTime(data.last_seen) : '—'}
+                <span className="flex items-center gap-1.5 text-muted-foreground">
+                  <CalendarClock className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+                  {t('analytics.who.lastSeen')}:{' '}
+                  <span className="font-data text-foreground">
+                    {data.last_seen ? formatDateTime(data.last_seen) : '—'}
+                  </span>
                 </span>
               </div>
 
-              <section>
-                <h3 className="mb-1.5 text-xs font-semibold uppercase text-muted-foreground">
+              <section className="rounded-xl border border-border bg-card p-4">
+                <h3 className="mb-3 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                  <Clock className="h-3.5 w-3.5" aria-hidden="true" />
                   {t('analytics.who.hourlyActivity')}
                 </h3>
-                <div className="flex h-16 items-end gap-0.5">
+                <div className="flex h-20 items-end gap-0.5">
                   {data.hourly.map((v, hour) => (
                     <div
                       key={hour}
-                      className="flex-1 rounded-t-[2px] bg-info/70"
+                      className="flex-1 rounded-t-[3px] bg-info/70 transition-colors hover:bg-info"
                       style={{ height: `${Math.max(2, (v / maxHour) * 100)}%` }}
                       title={`${String(hour).padStart(2, '0')}:00 UTC — ${formatNumber(v)}`}
                     />
                   ))}
                 </div>
+                <div className="mt-1.5 flex justify-between font-data text-[10px] text-muted-foreground">
+                  {HOUR_TICKS.map((h) => (
+                    <span key={h}>{String(h).padStart(2, '0')}</span>
+                  ))}
+                </div>
               </section>
 
-              <section>
-                <h3 className="mb-1.5 text-xs font-semibold uppercase text-muted-foreground">
+              <section className="rounded-xl border border-border bg-card p-4">
+                <h3 className="mb-2 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                  <Layers className="h-3.5 w-3.5" aria-hidden="true" />
                   {t('analytics.overview.topCategories')}
                 </h3>
                 <ul className="flex flex-col divide-y divide-border">
                   {data.categories.slice(0, 8).map((c) => (
                     <li key={c.category}>
                       <details className="group">
-                        <summary className="flex cursor-pointer list-none items-center gap-2 py-1.5 text-sm [&::-webkit-details-marker]:hidden">
+                        <summary className="-mx-2 flex cursor-pointer list-none items-center gap-2 rounded-md px-2 py-2 text-sm transition-colors hover:bg-muted/50 [&::-webkit-details-marker]:hidden">
                           <ChevronRight
                             className="h-3.5 w-3.5 shrink-0 text-muted-foreground transition-transform group-open:rotate-90"
                             aria-hidden="true"
                           />
                           <span
-                            className="h-2 w-2 shrink-0 rounded-full"
+                            className="h-2.5 w-2.5 shrink-0 rounded-full"
                             style={{ backgroundColor: CATEGORY_COLORS[c.category] }}
                             aria-hidden="true"
                           />
-                          <span className="min-w-0 flex-1 truncate">
+                          <span className="min-w-0 flex-1 truncate font-medium">
                             {t(CATEGORY_LABEL_KEYS[c.category])}
                           </span>
                           <span className="font-data text-xs text-muted-foreground">
@@ -168,9 +200,9 @@ export function ActorDetailSheet({ actor, rangeParams, onOpenChange }: ActorDeta
                             )}
                           </span>
                         </summary>
-                        <ul className="mb-1 ml-[6px] flex flex-col divide-y divide-border/40 border-l border-border pl-4">
+                        <ul className="mb-1.5 ml-[10px] flex flex-col divide-y divide-border/40 border-l border-border pl-4">
                           {c.domains.map((d) => (
-                            <li key={d.domain} className="flex items-center gap-2 py-1 text-xs">
+                            <li key={d.domain} className="flex items-center gap-2 py-1.5 text-xs">
                               <span className="font-data min-w-0 flex-1 truncate">{d.domain}</span>
                               {d.blocked_count > 0 && (
                                 <span className="font-data text-[11px] text-destructive">
@@ -196,13 +228,17 @@ export function ActorDetailSheet({ actor, rangeParams, onOpenChange }: ActorDeta
               </section>
 
               {data.denied_domains.length > 0 && (
-                <section>
-                  <h3 className="mb-1.5 text-xs font-semibold uppercase text-destructive">
+                <section className="rounded-xl border border-destructive/30 bg-destructive/[0.04] p-4">
+                  <h3 className="mb-2 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-destructive">
+                    <ShieldX className="h-3.5 w-3.5" aria-hidden="true" />
                     {t('analytics.who.deniedDomains')}
                   </h3>
-                  <ul className="flex flex-col divide-y divide-border">
+                  <ul className="flex flex-col divide-y divide-destructive/15">
                     {data.denied_domains.slice(0, 8).map((d) => (
-                      <li key={d.domain} className="flex items-center gap-2 py-1.5 text-sm">
+                      <li
+                        key={d.domain}
+                        className="-mx-2 flex items-center gap-2 rounded-md px-2 py-2 text-sm transition-colors hover:bg-destructive/[0.06]"
+                      >
                         <span className="font-data min-w-0 flex-1 truncate text-destructive">{d.domain}</span>
                         <span className="font-data text-xs text-muted-foreground">
                           {formatNumber(d.blocked_count)}

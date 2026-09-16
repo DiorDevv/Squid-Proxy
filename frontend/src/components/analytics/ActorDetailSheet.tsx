@@ -44,7 +44,7 @@ export function ActorDetailSheet({ actor, rangeParams, onOpenChange }: ActorDeta
       {/* Widened from max-w-lg -- five stat cards plus nested category/domain
           rows need real room; at the old width everything was cramped
           two-per-line with truncated labels. */}
-      <SheetContent className="flex w-full flex-col sm:max-w-2xl">
+      <SheetContent className="flex w-full flex-col data-[side=right]:sm:max-w-2xl">
         <SheetHeader>
           <div className="flex items-start justify-between gap-2">
             <div className="min-w-0">
@@ -81,14 +81,17 @@ export function ActorDetailSheet({ actor, rangeParams, onOpenChange }: ActorDeta
 
         <div className="flex flex-1 flex-col gap-6 overflow-y-auto px-4 pb-8">
           {query.isLoading ? (
-            <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+            <div className="grid grid-cols-2 gap-3">
               {Array.from({ length: 5 }).map((_, i) => (
-                <div key={i} className="h-28 animate-pulse rounded-xl bg-muted" />
+                <div
+                  key={i}
+                  className={`h-28 animate-pulse rounded-xl bg-muted ${i === 4 ? 'col-span-2' : ''}`}
+                />
               ))}
             </div>
           ) : data ? (
             <>
-              <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+              <div className="grid grid-cols-2 gap-3">
                 <SummaryCard
                   label={t('analytics.metric.totalRequests')}
                   value={data.request_count}
@@ -119,14 +122,19 @@ export function ActorDetailSheet({ actor, rangeParams, onOpenChange }: ActorDeta
                 />
                 {/* Bytes excluded from Downloaded/Uploaded above (a blocked
                     request's denial-page size, not real content) -- its own
-                    card so nothing silently disappears, not netted out. */}
-                <SummaryCard
-                  label={t('analytics.metric.blockedBytes')}
-                  value={blockedBytesTotal > 0 ? blockedBytesTotal : null}
-                  icon={ShieldX}
-                  tone="warning"
-                  formatValue={formatBytes}
-                />
+                    card so nothing silently disappears, not netted out.
+                    col-span-2: the odd one out in a 2-column grid of 5 --
+                    full-width instead of leaving a lopsided empty cell next
+                    to it. */}
+                <div className="col-span-2">
+                  <SummaryCard
+                    label={t('analytics.metric.blockedBytes')}
+                    value={blockedBytesTotal > 0 ? blockedBytesTotal : null}
+                    icon={ShieldX}
+                    tone="warning"
+                    formatValue={formatBytes}
+                  />
+                </div>
               </div>
 
               <div className="flex flex-wrap items-center gap-x-6 gap-y-1.5 rounded-xl border border-border bg-card px-4 py-3 text-sm">

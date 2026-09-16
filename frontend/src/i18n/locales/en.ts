@@ -402,6 +402,7 @@ export const en = {
   'analytics.metric.blocked': 'Blocked',
   'analytics.metric.allowed': 'Allowed',
   'analytics.metric.dataTransferred': 'Data transferred',
+  'analytics.metric.blockedBytes': 'Blocked traffic',
   'analytics.metric.downloaded': 'Downloaded',
   'analytics.metric.uploaded': 'Uploaded',
   'analytics.metric.activeClients': 'Active clients',

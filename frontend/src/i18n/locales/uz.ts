@@ -385,6 +385,7 @@ export const uz = {
   'analytics.metric.blocked': 'Bloklangan',
   'analytics.metric.allowed': 'Ruxsat berilgan',
   'analytics.metric.dataTransferred': 'Uzatilgan maʼlumot',
+  'analytics.metric.blockedBytes': 'Bloklangan trafik',
   'analytics.metric.downloaded': 'Yuklab olindi',
   'analytics.metric.uploaded': 'Yuklandi',
   'analytics.metric.activeClients': 'Faol mijozlar',

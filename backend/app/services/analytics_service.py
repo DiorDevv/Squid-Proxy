@@ -81,9 +81,14 @@ def _branches_in_scope(branch: str | None) -> list[str]:
 
 async def _minute_totals(
     session: AsyncSession, since: datetime, until: datetime, branch: str | None
-) -> tuple[int, int, int, int]:
-    """(total_requests, blocked_requests, allowed_requests, total_bytes) for
-    one window, summed across the branch filter."""
+) -> tuple[int, int, int, int, int]:
+    """(total_requests, blocked_requests, allowed_requests, total_bytes,
+    allowed_bytes) for one window, summed across the branch filter.
+    total_bytes includes blocked-request bytes (the Overview-wide bandwidth
+    figure); allowed_bytes excludes them -- get_overview derives a
+    blocked_bytes metric as their difference, so both "how much traffic
+    touched this box" and "how much was actually blocked" are visible
+    side by side, rather than picking one and losing the other."""
     conditions = [MinuteAggregate.bucket_ts >= since, MinuteAggregate.bucket_ts <= until]
     if branch is not None:
         conditions.append(MinuteAggregate.branch == branch)
@@ -94,10 +99,11 @@ async def _minute_totals(
                 func.coalesce(func.sum(MinuteAggregate.blocked_requests), 0),
                 func.coalesce(func.sum(MinuteAggregate.allowed_requests), 0),
                 func.coalesce(func.sum(MinuteAggregate.total_bytes), 0),
+                func.coalesce(func.sum(MinuteAggregate.allowed_bytes), 0),
             ).where(*conditions)
         )
     ).one()
-    return int(row[0]), int(row[1]), int(row[2]), int(row[3])
+    return int(row[0]), int(row[1]), int(row[2]), int(row[3]), int(row[4])
 
 
 async def _active_client_count(
@@ -114,10 +120,17 @@ async def get_overview(
     prev_until = since
     prev_since = since - duration
 
-    cur_req, cur_blocked, cur_allowed, cur_bytes = await _minute_totals(session, since, until, branch)
-    prev_req, prev_blocked, prev_allowed, prev_bytes = await _minute_totals(
+    cur_req, cur_blocked, cur_allowed, cur_bytes, cur_allowed_bytes = await _minute_totals(
+        session, since, until, branch
+    )
+    prev_req, prev_blocked, prev_allowed, prev_bytes, prev_allowed_bytes = await _minute_totals(
         session, prev_since, prev_until, branch
     )
+    # blocked_bytes as a difference, not its own summed column -- total_bytes
+    # and allowed_bytes are both already exact sums, so subtracting them is
+    # exact too, no separate query needed.
+    cur_blocked_bytes = cur_bytes - cur_allowed_bytes
+    prev_blocked_bytes = prev_bytes - prev_allowed_bytes
     cur_clients = await _active_client_count(session, since, until, branch)
     prev_clients = await _active_client_count(session, prev_since, prev_until, branch)
 
@@ -140,6 +153,7 @@ async def get_overview(
         delta("blocked_requests", cur_blocked, prev_blocked),
         delta("allowed_requests", cur_allowed, prev_allowed),
         delta("total_bytes", cur_bytes, prev_bytes),
+        delta("blocked_bytes", cur_blocked_bytes, prev_blocked_bytes),
         delta("active_clients", cur_clients, prev_clients),
         delta("blocked_ratio", cur_ratio, prev_ratio),
         delta(

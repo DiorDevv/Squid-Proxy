@@ -21,16 +21,27 @@ const METRICS: Record<string, MetricConfig> = {
   blocked_requests: { labelKey: 'analytics.metric.blocked', icon: ShieldX, tone: 'warning', format: formatNumber },
   allowed_requests: { labelKey: 'analytics.metric.allowed', icon: ShieldCheck, tone: 'success', format: formatNumber },
   total_bytes: { labelKey: 'analytics.metric.dataTransferred', icon: Database, tone: 'purple', format: formatBytes },
+  blocked_bytes: { labelKey: 'analytics.metric.blockedBytes', icon: Database, tone: 'warning', format: formatBytes },
   active_clients: { labelKey: 'analytics.metric.activeClients', icon: Users, tone: 'purple', format: formatNumber },
   blocked_ratio: { labelKey: 'analytics.metric.blockedRatio', icon: ShieldX, tone: 'warning', format: PERCENT, scale: 100 },
   cache_hit_ratio: { labelKey: 'analytics.metric.cacheHitRate', icon: Gauge, tone: 'default', format: PERCENT, scale: 100 },
 }
 
-// The five volume headline numbers. The two operational ratios
-// (blocked_ratio, cache_hit_ratio) that get_overview also returns live in
-// the "Squid health" strip right below this on the Overview tab, so they
-// aren't duplicated here.
-const ORDER = ['total_requests', 'blocked_requests', 'allowed_requests', 'total_bytes', 'active_clients']
+// The six volume headline numbers. total_bytes includes blocked-request
+// bytes (denial pages etc.) on purpose -- it's "how much traffic touched
+// this box"; blocked_bytes is the same window's blocked-only slice, shown
+// alongside it rather than netted out, so neither figure is lost. The two
+// operational ratios (blocked_ratio, cache_hit_ratio) that get_overview
+// also returns live in the "Squid health" strip right below this on the
+// Overview tab, so they aren't duplicated here.
+const ORDER = [
+  'total_requests',
+  'blocked_requests',
+  'allowed_requests',
+  'total_bytes',
+  'blocked_bytes',
+  'active_clients',
+]
 
 interface ComparisonCardsProps {
   metrics: MetricDelta[]
@@ -45,7 +56,7 @@ export function ComparisonCards({ metrics, loading }: ComparisonCardsProps) {
   const byMetric = new Map(metrics.map((m) => [m.metric, m]))
 
   return (
-    <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
+    <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
       {ORDER.map((key) => {
         const config = METRICS[key]
         if (!config) return null

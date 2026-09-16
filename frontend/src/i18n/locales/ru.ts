@@ -382,6 +382,7 @@ export const ru = {
   'analytics.metric.blocked': 'Заблокировано',
   'analytics.metric.allowed': 'Разрешено',
   'analytics.metric.dataTransferred': 'Передано данных',
+  'analytics.metric.blockedBytes': 'Заблокированный трафик',
   'analytics.metric.downloaded': 'Скачано',
   'analytics.metric.uploaded': 'Загружено',
   'analytics.metric.activeClients': 'Активные клиенты',

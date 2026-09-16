@@ -55,3 +55,44 @@ services:
 #       - "effective_cache_size=6GB"
 #       - "-c"
 #       - "max_wal_size=4GB"
+
+# --- Docker build can't resolve external domains ---
+# Commented out -- a third example, not applied by default.
+#
+# Symptom: `docker compose build frontend` hangs or fails on `npm ci` with
+# `getaddrinfo ENOTFOUND registry.npmjs.org` (backend: pip install failing
+# to reach pypi.org/files.pythonhosted.org the same way) -- even though the
+# host itself resolves those domains fine. Cause: the host's real resolver
+# (e.g. systemd-resolved's 127.0.0.53) isn't reachable from inside a build
+# container's own network namespace, so Docker substitutes whatever
+# upstream server(s) it finds in the *legacy* resolv.conf instead
+# (`resolvectl status`) -- on a network with an internal/corporate DNS
+# server that only serves internal zones and SERVFAILs anything external,
+# every container build inherits that, while the host (which never asked
+# that server directly) keeps working.
+#
+# `--dns` isn't available as a build flag on current Docker (only `docker
+# run`, not `docker build`/`buildx build`, accepts it) -- the supported
+# fix is pinning the specific host(s) via `extra_hosts` under `build:`,
+# which does get honored during a build (verified: forces a real DNS
+# bypass for that name specifically, tested with `--no-cache` to confirm
+# it isn't just reusing an already-resolved cached layer). Resolve the
+# current IP from somewhere DNS *does* work (the host itself, or your own
+# machine) right before building -- these IPs aren't guaranteed stable
+# forever, so re-resolve if this ever starts failing again rather than
+# trusting an old value:
+#
+#   getent ahostsv4 registry.npmjs.org | head -1
+#
+# docker-compose.override.yml:
+# services:
+#   frontend:
+#     build:
+#       extra_hosts:
+#         - "registry.npmjs.org:<resolved IP>"
+#   backend:
+#     build:
+#       extra_hosts:
+#         - "pypi.org:<resolved IP>"
+#         - "files.pythonhosted.org:<resolved IP>"
+#         - "deb.debian.org:<resolved IP>"

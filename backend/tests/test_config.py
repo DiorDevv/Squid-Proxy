@@ -117,3 +117,19 @@ def test_production_allows_sqlite_with_the_explicit_escape_hatch():
 def test_development_allows_sqlite_by_default():
     settings = Settings(ENVIRONMENT="development", DATABASE_URL="sqlite+aiosqlite:///./x.db")
     assert settings.DATABASE_URL.startswith("sqlite")
+
+
+def test_cookie_secure_blank_string_is_treated_as_unset():
+    # docker-compose.yml passes COOKIE_SECURE through as `${COOKIE_SECURE:-}`
+    # -- an empty string, not an absent key, when unset in .env. Pydantic
+    # would otherwise reject "" as an invalid bool instead of falling back
+    # to None (see _blank_cookie_secure_means_unset).
+    settings = Settings(ENVIRONMENT="production", JWT_SECRET=_REAL_JWT_SECRET, DATABASE_URL=_PG_URL, COOKIE_SECURE="")
+    assert settings.COOKIE_SECURE is None
+
+
+def test_cookie_secure_explicit_value_overrides_environment():
+    settings = Settings(
+        ENVIRONMENT="production", JWT_SECRET=_REAL_JWT_SECRET, DATABASE_URL=_PG_URL, COOKIE_SECURE=False
+    )
+    assert settings.COOKIE_SECURE is False

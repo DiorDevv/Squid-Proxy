@@ -2,7 +2,7 @@
 
 from functools import lru_cache
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 INSECURE_DEFAULT_JWT_SECRET = "CHANGE_ME_INSECURE_DEV_SECRET"
@@ -38,6 +38,16 @@ class Settings(BaseSettings):
 
     # --- General ---
     ENVIRONMENT: str = "development"
+    # The refresh-token cookie's `Secure` flag defaults to ENVIRONMENT ==
+    # "production" (see auth.py's _cookie_kwargs) -- a browser only stores/
+    # sends a Secure cookie over HTTPS, so that default is right for a
+    # public-facing deployment but silently breaks the whole point of the
+    # cookie (surviving a page reload without a login form -- see
+    # auth-store.ts's docstring) for an internal deployment served over
+    # plain HTTP behind a firewall/VPN, which this project is routinely run
+    # as. None (default) keeps that ENVIRONMENT-based inference unchanged;
+    # set explicitly to override it either way regardless of ENVIRONMENT.
+    COOKIE_SECURE: bool | None = None
     LOG_LEVEL: str = "INFO"
     # SQLite is the zero-config default for evaluating the project, but it's
     # a single-writer file -- under the ~9 background jobs plus the
@@ -359,6 +369,17 @@ class Settings(BaseSettings):
         if self.LOG_SOURCES:
             return self.LOG_SOURCES
         return [LogSource(branch=DEFAULT_BRANCH, path=self.LOG_FILE_PATH)]
+
+    @field_validator("COOKIE_SECURE", mode="before")
+    @classmethod
+    def _blank_cookie_secure_means_unset(cls, value: object) -> object:
+        # docker-compose.yml passes this through as `${COOKIE_SECURE:-}`,
+        # which is an empty string (not an absent key) when unset in .env --
+        # Pydantic would otherwise reject "" as an invalid bool instead of
+        # falling back to the field's None default.
+        if value == "":
+            return None
+        return value
 
     @model_validator(mode="after")
     def _reject_insecure_production_config(self) -> "Settings":

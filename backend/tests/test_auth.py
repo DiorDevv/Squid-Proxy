@@ -2,7 +2,12 @@ from httpx import AsyncClient
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api.routes import auth as auth_module
+from app.core.config import Settings
 from app.models.refresh_token import RefreshToken
+
+_REAL_JWT_SECRET = "a-real-random-secret-at-least-32-characters-long"
+_PG_URL = "postgresql+asyncpg://squid:a-real-password@postgres:5432/squid_dashboard"
 
 
 async def test_login_with_valid_credentials_returns_access_token(app_client: AsyncClient):
@@ -15,6 +20,49 @@ async def test_login_with_valid_credentials_returns_access_token(app_client: Asy
     assert body["access_token"]
     assert body["role"] == "admin"
     assert "refresh_token" in response.cookies
+
+
+async def test_refresh_cookie_secure_follows_environment_by_default(
+    app_client: AsyncClient, monkeypatch
+):
+    # Tests otherwise run under ENVIRONMENT=development (Settings' default),
+    # so the refresh cookie's Secure flag is off unless a test says
+    # otherwise -- flip to production here to exercise the "on" side too.
+    monkeypatch.setattr(
+        auth_module,
+        "get_settings",
+        lambda: Settings(ENVIRONMENT="production", JWT_SECRET=_REAL_JWT_SECRET, DATABASE_URL=_PG_URL),
+    )
+    response = await app_client.post(
+        "/api/auth/login",
+        json={"email": "admin@example.com", "password": "admin-test-password-123"},
+    )
+    set_cookie = response.headers.get("set-cookie", "")
+    assert "Secure" in set_cookie
+
+
+async def test_refresh_cookie_secure_explicit_override_wins_over_environment(
+    app_client: AsyncClient, monkeypatch
+):
+    # Regression: COOKIE_SECURE=False must be able to disable Secure even
+    # in production -- the internal-HTTP-deployment escape hatch this
+    # setting exists for (see config.py's field docstring).
+    monkeypatch.setattr(
+        auth_module,
+        "get_settings",
+        lambda: Settings(
+            ENVIRONMENT="production",
+            JWT_SECRET=_REAL_JWT_SECRET,
+            DATABASE_URL=_PG_URL,
+            COOKIE_SECURE=False,
+        ),
+    )
+    response = await app_client.post(
+        "/api/auth/login",
+        json={"email": "admin@example.com", "password": "admin-test-password-123"},
+    )
+    set_cookie = response.headers.get("set-cookie", "")
+    assert "Secure" not in set_cookie
 
 
 async def test_login_with_wrong_password_returns_401(app_client: AsyncClient):

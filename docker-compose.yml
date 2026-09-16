@@ -33,6 +33,14 @@ x-backend-common: &backend-common
   cpu_shares: ${BACKEND_CPU_SHARES:-1536}
   environment:
     ENVIRONMENT: production
+    # Unset by default -- the refresh-token cookie's Secure flag then
+    # follows ENVIRONMENT (true here). Set to "false" if this dashboard is
+    # served over plain HTTP (e.g. internal-only, behind a firewall/VPN,
+    # no TLS termination in front) -- otherwise the browser silently
+    # refuses to store/send that cookie at all, breaking the silent-
+    # refresh-on-reload flow (see auth.py's _cookie_kwargs and
+    # frontend/src/lib/auth-store.ts's docstring). See .env.example.
+    COOKIE_SECURE: ${COOKIE_SECURE:-}
     DATABASE_URL: postgresql+asyncpg://squid:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in your .env before starting}@postgres:5432/squid_dashboard
     LOG_FILE_PATH: /data/squid-logs/access.log
     JWT_SECRET: ${JWT_SECRET:?Set JWT_SECRET in your .env before starting}

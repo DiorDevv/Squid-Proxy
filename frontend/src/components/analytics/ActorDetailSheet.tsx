@@ -67,7 +67,7 @@ export function ActorDetailSheet({ actor, rangeParams, onOpenChange }: ActorDeta
             <div className="h-40 animate-pulse rounded bg-muted" />
           ) : data ? (
             <>
-              <div className="grid grid-cols-2 gap-2 text-sm sm:grid-cols-4">
+              <div className="grid grid-cols-2 gap-2 text-sm sm:grid-cols-5">
                 <div className="flex flex-col">
                   <span className="text-[11px] uppercase text-muted-foreground">
                     {t('analytics.metric.totalRequests')}
@@ -94,6 +94,19 @@ export function ActorDetailSheet({ actor, rangeParams, onOpenChange }: ActorDeta
                   </span>
                   <span className="font-data font-semibold">
                     {data.bytes_received > 0 ? formatBytes(data.bytes_received) : '—'}
+                  </span>
+                </div>
+                {/* Bytes excluded from Downloaded/Uploaded above (a blocked
+                    request's denial-page size, not real content) -- its own
+                    figure so nothing silently disappears, not netted out. */}
+                <div className="flex flex-col">
+                  <span className="text-[11px] uppercase text-muted-foreground">
+                    {t('analytics.metric.blockedBytes')}
+                  </span>
+                  <span className="font-data font-semibold text-destructive">
+                    {data.blocked_bytes + data.blocked_bytes_received > 0
+                      ? formatBytes(data.blocked_bytes + data.blocked_bytes_received)
+                      : '—'}
                   </span>
                 </div>
               </div>

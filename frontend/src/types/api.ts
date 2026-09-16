@@ -498,6 +498,8 @@ export interface ActorDetailResponse {
   blocked_count: number
   total_bytes: number
   bytes_received: number
+  blocked_bytes: number
+  blocked_bytes_received: number
   categories: ActorCategorySlice[]
   top_domains: ActorDomainRow[]
   denied_domains: ActorDomainRow[]

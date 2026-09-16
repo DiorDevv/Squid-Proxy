@@ -84,6 +84,11 @@ class _ClientTotals:
     blocked: int = 0
     bytes_: int = 0
     bytes_recv: int = 0
+    # The excluded-from-bytes_/bytes_recv slice (blocked events) -- kept so
+    # the "Kim" actor detail sheet can show blocked traffic as its own
+    # figure instead of it just vanishing from Downloaded/Uploaded.
+    blocked_bytes_: int = 0
+    blocked_bytes_recv: int = 0
 
 
 @dataclass
@@ -498,6 +503,8 @@ class Aggregator:
             cb.count += 1
             if ev.blocked:
                 cb.blocked += 1
+                cb.blocked_bytes_ += ev.bytes
+                cb.blocked_bytes_recv += recv
             else:
                 cb.bytes_ += ev.bytes
                 cb.bytes_recv += recv
@@ -810,6 +817,8 @@ class Aggregator:
                 "blocked_count": totals.blocked,
                 "total_bytes": totals.bytes_,
                 "bytes_received": totals.bytes_recv,
+                "blocked_bytes": totals.blocked_bytes_,
+                "blocked_bytes_received": totals.blocked_bytes_recv,
             }
             for (bucket, client_ip, branch, user), totals in client_buckets.items()
         ]
@@ -831,5 +840,12 @@ class Aggregator:
                 ClientMinuteAggregate.branch,
                 func.coalesce(ClientMinuteAggregate.user, literal_column("''")),
             ],
-            sum_columns=["request_count", "blocked_count", "total_bytes", "bytes_received"],
+            sum_columns=[
+                "request_count",
+                "blocked_count",
+                "total_bytes",
+                "bytes_received",
+                "blocked_bytes",
+                "blocked_bytes_received",
+            ],
         )

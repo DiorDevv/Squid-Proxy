@@ -12,6 +12,8 @@ const DETAIL: ActorDetailResponse = {
   blocked_count: 12,
   total_bytes: 9000,
   bytes_received: 1200,
+  blocked_bytes: 500,
+  blocked_bytes_received: 80,
   hourly: Array<number>(24).fill(0),
   top_domains: [],
   denied_domains: [],
@@ -69,5 +71,14 @@ describe('ActorDetailSheet', () => {
 
     // a domain from another category is not under News
     expect(within(newsDetails as HTMLElement).queryByText('x.com')).toBeNull()
+  })
+
+  it('shows blocked bytes as its own figure, not folded into Downloaded/Uploaded', () => {
+    render(<ActorDetailSheet actor={ACTOR} rangeParams={{}} onOpenChange={() => {}} />)
+
+    expect(screen.getByText('Blocked traffic')).toBeInTheDocument()
+    // 500 + 80 = 580 -- the combined blocked_bytes/blocked_bytes_received,
+    // separate from the 9000/1200 Downloaded/Uploaded figures above.
+    expect(screen.getByText('580 B')).toBeInTheDocument()
   })
 })

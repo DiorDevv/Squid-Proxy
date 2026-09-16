@@ -356,6 +356,31 @@ async def test_actor_detail_category_totals_are_exact_domains_are_a_sample(db_se
     }
 
 
+async def test_actor_detail_splits_blocked_bytes_from_the_real_total(db_session: AsyncSession):
+    # Regression for a real bug report: a blocked visit's bytes (a denial
+    # page's size, not real content) were folding into the Downloaded/
+    # Uploaded tiles. total_bytes/bytes_received must reflect only allowed
+    # traffic; blocked_bytes/blocked_bytes_received carry the excluded
+    # slice as its own figure, not just drop it.
+    db_session.add(
+        ClientMinuteAggregate(
+            bucket_ts=BUCKET, client_ip="10.0.0.9", branch="default", user="bob",
+            request_count=10, blocked_count=3,
+            total_bytes=1000, bytes_received=200,
+            blocked_bytes=450, blocked_bytes_received=90,
+        )
+    )
+    await db_session.commit()
+
+    detail = await squid_ops_service.get_actor_detail(
+        db_session, "bob", is_user=True, since=SINCE, until=NOW, branch=None
+    )
+    assert detail.total_bytes == 1000
+    assert detail.bytes_received == 200
+    assert detail.blocked_bytes == 450
+    assert detail.blocked_bytes_received == 90
+
+
 async def test_actor_detail_low_traffic_category_not_starved_by_a_dominant_one(db_session: AsyncSession):
     # Regression for a real bug report: the domain sample used to be a
     # single global top-40 across *all* of an actor's domains -- a

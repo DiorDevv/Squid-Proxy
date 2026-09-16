@@ -432,12 +432,23 @@ async def get_actor_detail(
                 func.coalesce(func.sum(combined.c.blocked_count), 0),
                 func.coalesce(func.sum(combined.c.total_bytes), 0),
                 func.coalesce(func.sum(combined.c.bytes_received), 0),
+                func.coalesce(func.sum(combined.c.blocked_bytes), 0),
+                func.coalesce(func.sum(combined.c.blocked_bytes_received), 0),
                 func.min(combined.c.bucket_ts),
                 func.max(combined.c.bucket_ts),
             ).where(actor_col == actor)
         )
     ).one()
-    req_total, blocked_total, byte_total, recv_total, first_seen, last_seen = totals_row
+    (
+        req_total,
+        blocked_total,
+        byte_total,
+        recv_total,
+        blocked_byte_total,
+        blocked_recv_total,
+        first_seen,
+        last_seen,
+    ) = totals_row
 
     # hourly (0-23, UTC)
     hourly_rows = (
@@ -535,6 +546,8 @@ async def get_actor_detail(
         blocked_count=int(blocked_total),
         total_bytes=int(byte_total),
         bytes_received=int(recv_total),
+        blocked_bytes=int(blocked_byte_total),
+        blocked_bytes_received=int(blocked_recv_total),
         categories=categories,
         top_domains=top_domains,
         denied_domains=denied_domains,

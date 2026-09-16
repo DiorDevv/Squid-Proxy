@@ -119,8 +119,12 @@ class ActorDetailResponse(BaseModel):
     last_seen: datetime | None
     request_count: int
     blocked_count: int
-    total_bytes: int          # %<st -- downloaded
-    bytes_received: int       # %>st -- uploaded
+    total_bytes: int          # %<st -- downloaded (excludes blocked-request bytes)
+    bytes_received: int       # %>st -- uploaded (excludes blocked-request bytes)
+    # The excluded slice above, shown as its own figure rather than just
+    # dropped -- see ClientMinuteAggregate.blocked_bytes.
+    blocked_bytes: int
+    blocked_bytes_received: int
     categories: list[ActorCategorySlice]
     top_domains: list[ActorDomainRow]
     denied_domains: list[ActorDomainRow]

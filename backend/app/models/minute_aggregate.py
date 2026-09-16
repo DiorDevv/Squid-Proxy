@@ -28,6 +28,14 @@ class MinuteAggregate(Base):
     total_bytes: Mapped[int] = mapped_column(BigInteger, default=0)
     # %>st -- bytes received from clients (upload); %<st is total_bytes above.
     bytes_received: Mapped[int] = mapped_column(BigInteger, default=0)
+    # total_bytes/bytes_received above include blocked-request bytes on purpose
+    # (this column backs the Overview-wide bandwidth total). These two are the
+    # same sums with blocked events excluded -- per-branch attribution reads
+    # (branch breakdown/trend) use these instead, since "how much did branch X
+    # transfer" shouldn't include a denial page's bytes. See migration
+    # a3f8c1d94b26 and aggregator.py's _MinuteTotals.
+    allowed_bytes: Mapped[int] = mapped_column(BigInteger, default=0)
+    allowed_bytes_received: Mapped[int] = mapped_column(BigInteger, default=0)
     # Squid's %Ss result tag (RawEvent.action) contains "HIT" for anything
     # served from cache (TCP_HIT, TCP_MEM_HIT, TCP_IMS_HIT, ...) and "MISS"
     # for anything fetched fresh (TCP_MISS, TCP_REFRESH_MODIFIED, ...) --

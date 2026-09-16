@@ -22,7 +22,10 @@ async def get_domain_summary(
     session: AsyncSession, domain: str, since: datetime, until: datetime, branch: str | None = None
 ) -> DomainSummary:
     blocked_requests = func.coalesce(func.sum(case((RawEvent.blocked, 1), else_=0)), 0)
-    total_bytes = func.coalesce(func.sum(RawEvent.bytes), 0)
+    # Excludes blocked requests' bytes -- a denial page's byte count isn't
+    # "this domain transferred N bytes", same reasoning as the aggregate
+    # tables (see MinuteAggregate.allowed_bytes).
+    total_bytes = func.coalesce(func.sum(case((~RawEvent.blocked, RawEvent.bytes), else_=0)), 0)
     distinct_clients = func.count(func.distinct(RawEvent.client_ip))
 
     conditions = [RawEvent.domain == domain, RawEvent.timestamp >= since, RawEvent.timestamp <= until]
@@ -68,7 +71,8 @@ async def get_domain_clients(
     column makes that visible."""
     visit_count = func.count()
     blocked_count = func.coalesce(func.sum(case((RawEvent.blocked, 1), else_=0)), 0)
-    total_bytes = func.coalesce(func.sum(RawEvent.bytes), 0)
+    # Excludes blocked requests' bytes -- same reasoning as get_domain_summary above.
+    total_bytes = func.coalesce(func.sum(case((~RawEvent.blocked, RawEvent.bytes), else_=0)), 0)
     last_visit = func.max(RawEvent.timestamp)
     latest_user = func.max(RawEvent.user)
 

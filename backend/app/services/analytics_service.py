@@ -298,7 +298,11 @@ async def _branch_minute_totals(
                 func.coalesce(func.sum(MinuteAggregate.total_requests), 0),
                 func.coalesce(func.sum(MinuteAggregate.blocked_requests), 0),
                 func.coalesce(func.sum(MinuteAggregate.allowed_requests), 0),
-                func.coalesce(func.sum(MinuteAggregate.total_bytes), 0),
+                # allowed_bytes, not total_bytes: this is "how much did this
+                # branch transfer" attributed to one branch, not the
+                # Overview-wide bandwidth figure -- a denial page's bytes
+                # don't belong here. See MinuteAggregate's column comment.
+                func.coalesce(func.sum(MinuteAggregate.allowed_bytes), 0),
             )
             .where(
                 MinuteAggregate.bucket_ts >= since,
@@ -386,7 +390,8 @@ async def get_branch_trend(
                 func.sum(MinuteAggregate.total_requests),
                 func.sum(MinuteAggregate.blocked_requests),
                 func.sum(MinuteAggregate.allowed_requests),
-                func.sum(MinuteAggregate.total_bytes),
+                # allowed_bytes -- same reasoning as _branch_minute_totals above.
+                func.sum(MinuteAggregate.allowed_bytes),
             )
             .where(
                 MinuteAggregate.bucket_ts >= since,

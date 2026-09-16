@@ -52,6 +52,10 @@ class _MinuteTotals:
     allowed: int = 0
     bytes_: int = 0
     bytes_recv: int = 0
+    # bytes_/bytes_recv include blocked-request bytes (Overview-wide bandwidth
+    # total); these exclude them (per-branch attribution -- see MinuteAggregate).
+    allowed_bytes_: int = 0
+    allowed_bytes_recv: int = 0
     hit: int = 0
     miss: int = 0
     # Response-time histogram (see MinuteAggregate's perf columns) -- six
@@ -444,6 +448,8 @@ class Aggregator:
                 mb.blocked += 1
             else:
                 mb.allowed += 1
+                mb.allowed_bytes_ += ev.bytes
+                mb.allowed_bytes_recv += recv
             if _is_cache_hit(ev.action):
                 mb.hit += 1
             elif _is_cache_miss(ev.action):
@@ -462,29 +468,39 @@ class Aggregator:
             hr.count += 1
             hr.bytes_ += ev.bytes
 
+            # domain/category/client bytes_ (and bytes_recv) deliberately
+            # exclude blocked events below -- unlike mb above, these totals
+            # are always read as "what this domain/category/client actually
+            # transferred", never as an Overview-wide bandwidth figure, so a
+            # denial page's bytes have nowhere legitimate to hide. blocked
+            # count/blocked flag is still tracked as before.
             if ev.domain:
                 db = domain_buckets[(bucket, ev.domain, ev.branch)]
                 db.count += 1
-                db.bytes_ += ev.bytes
-                db.bytes_recv += recv
                 if ev.blocked:
                     db.blocked += 1
+                else:
+                    db.bytes_ += ev.bytes
+                    db.bytes_recv += recv
 
                 category = effective_category(ev.domain, overrides)
                 ctb = category_buckets[(bucket, ev.client_ip, ev.branch, category)]
                 ctb.count += 1
-                ctb.bytes_ += ev.bytes
+                if not ev.blocked:
+                    ctb.bytes_ += ev.bytes
 
                 ucb = usercat_buckets[(bucket, ev.branch, ev.user or "", category)]
                 ucb.count += 1
-                ucb.bytes_ += ev.bytes
+                if not ev.blocked:
+                    ucb.bytes_ += ev.bytes
 
             cb = client_buckets[(bucket, ev.client_ip, ev.branch, ev.user)]
             cb.count += 1
-            cb.bytes_ += ev.bytes
-            cb.bytes_recv += recv
             if ev.blocked:
                 cb.blocked += 1
+            else:
+                cb.bytes_ += ev.bytes
+                cb.bytes_recv += recv
 
             raw_rows.append(
                 {
@@ -554,6 +570,8 @@ class Aggregator:
                 "allowed_requests": totals.allowed,
                 "total_bytes": totals.bytes_,
                 "bytes_received": totals.bytes_recv,
+                "allowed_bytes": totals.allowed_bytes_,
+                "allowed_bytes_received": totals.allowed_bytes_recv,
                 "hit_requests": totals.hit,
                 "miss_requests": totals.miss,
                 "duration_sum_ms": totals.dur_sum,
@@ -577,6 +595,8 @@ class Aggregator:
                 "allowed_requests",
                 "total_bytes",
                 "bytes_received",
+                "allowed_bytes",
+                "allowed_bytes_received",
                 "hit_requests",
                 "miss_requests",
                 "duration_sum_ms",

@@ -16,7 +16,9 @@ from app.services import analytics_service
 
 
 def _minute(**kw: object) -> MinuteAggregate:
-    base = dict(total_requests=0, blocked_requests=0, allowed_requests=0, total_bytes=0)
+    base = dict(
+        total_requests=0, blocked_requests=0, allowed_requests=0, total_bytes=0, allowed_bytes=0
+    )
     base.update(kw)
     return MinuteAggregate(**base)  # type: ignore[arg-type]
 
@@ -222,7 +224,7 @@ async def test_branch_trend_splits_series_per_branch_including_a_quiet_one(
         [
             _minute(
                 bucket_ts=bucket, branch="hq", total_requests=100, blocked_requests=10,
-                allowed_requests=90, total_bytes=9000,
+                allowed_requests=90, total_bytes=9000, allowed_bytes=8000,
             ),
             _minute(
                 bucket_ts=bucket + timedelta(minutes=30),
@@ -231,6 +233,7 @@ async def test_branch_trend_splits_series_per_branch_including_a_quiet_one(
                 blocked_requests=0,
                 allowed_requests=50,
                 total_bytes=1000,
+                allowed_bytes=1000,
             ),
             # "warehouse" is a configured branch with zero traffic in this
             # window -- it must still appear, with an empty series, not be
@@ -250,7 +253,10 @@ async def test_branch_trend_splits_series_per_branch_including_a_quiet_one(
     assert hq_points[0].total_requests == 150
     assert hq_points[0].blocked_requests == 10
     assert hq_points[0].allowed_requests == 140
-    assert hq_points[0].total_bytes == 10_000
+    # Branch trend attributes bytes per branch from allowed_bytes (excludes
+    # blocked-request bytes), not total_bytes (9000+1000=10_000) -- see
+    # MinuteAggregate.allowed_bytes / get_branch_trend.
+    assert hq_points[0].total_bytes == 9_000
 
     # A branch-scoped caller only ever gets their own series.
     scoped = await analytics_service.get_branch_trend(

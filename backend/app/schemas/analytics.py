@@ -97,6 +97,9 @@ class BranchBreakdownRow(BaseModel):
     total_requests: int
     blocked_requests: int
     allowed_requests: int
+    # Sourced from MinuteAggregate.allowed_bytes, not total_bytes -- excludes
+    # blocked-request bytes, since this is attributed to one branch ("what
+    # did branch X transfer") rather than an Overview-wide bandwidth figure.
     total_bytes: int
     blocked_ratio: float
     active_client_count: int
@@ -135,6 +138,7 @@ class BranchTrendPoint(BaseModel):
     total_requests: int
     blocked_requests: int
     allowed_requests: int
+    # Same allowed_bytes sourcing as BranchBreakdownRow.total_bytes above.
     total_bytes: int
 
 

@@ -570,14 +570,25 @@ async def _actor_domains(
         conditions.append(RawEvent.branch == branch)
     if blocked_only:
         conditions.append(RawEvent.blocked.is_(True))
+        # Every matching row is already blocked=True here -- gating the sum
+        # on "not blocked" would zero it out. This call's whole point is
+        # showing a denied domain's byte figures, so sum unconditionally.
+        byte_expr = RawEvent.bytes
+        recv_expr = RawEvent.bytes_received
+    else:
+        # Mixed blocked/unblocked rows -- exclude blocked bytes so this
+        # reads as "what this domain actually transferred", same reasoning
+        # as domain_service.py's get_domain_summary/get_domain_clients.
+        byte_expr = case((~RawEvent.blocked, RawEvent.bytes), else_=0)
+        recv_expr = case((~RawEvent.blocked, RawEvent.bytes_received), else_=0)
     rows = (
         await session.execute(
             select(
                 RawEvent.domain,
                 func.count(),
                 func.coalesce(func.sum(case((RawEvent.blocked.is_(True), 1), else_=0)), 0),
-                func.coalesce(func.sum(RawEvent.bytes), 0),
-                func.coalesce(func.sum(RawEvent.bytes_received), 0),
+                func.coalesce(func.sum(byte_expr), 0),
+                func.coalesce(func.sum(recv_expr), 0),
             )
             .where(*conditions)
             .group_by(RawEvent.domain)

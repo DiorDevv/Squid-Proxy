@@ -1,7 +1,20 @@
 import { render, screen, within } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { describe, expect, it, vi } from 'vitest'
+import { MemoryRouter } from 'react-router-dom'
 import { ActorDetailSheet } from '@/components/analytics/ActorDetailSheet'
+import { useFiltersStore } from '@/lib/filters-store'
 import type { ActorDetailResponse, ActorRow } from '@/types/api'
+
+const navigateMock = vi.fn()
+vi.mock('react-router-dom', async () => {
+  const actual = await vi.importActual<typeof import('react-router-dom')>('react-router-dom')
+  return { ...actual, useNavigate: () => navigateMock }
+})
+
+function renderWithRouter(ui: React.ReactElement) {
+  return render(<MemoryRouter>{ui}</MemoryRouter>)
+}
 
 const DETAIL: ActorDetailResponse = {
   actor: '10.0.0.5',
@@ -14,8 +27,15 @@ const DETAIL: ActorDetailResponse = {
   bytes_received: 1200,
   blocked_bytes: 500,
   blocked_bytes_received: 80,
+  request_count_pct_change: 0.25,
+  blocked_count_pct_change: null,
+  total_bytes_pct_change: -0.1,
+  bytes_received_pct_change: 0.5,
+  blocked_bytes_pct_change: null,
   hourly: Array<number>(24).fill(0),
-  top_domains: [],
+  top_domains: [
+    { domain: 'cnn.com', category: 'news', request_count: 150, blocked_count: 0, total_bytes: 4000, bytes_received: 700 },
+  ],
   denied_domains: [],
   categories: [
     {
@@ -60,7 +80,7 @@ const ACTOR: ActorRow = {
 
 describe('ActorDetailSheet', () => {
   it('nests each category over the domains that resolved to it', () => {
-    render(<ActorDetailSheet actor={ACTOR} rangeParams={{}} onOpenChange={() => {}} />)
+    renderWithRouter(<ActorDetailSheet actor={ACTOR} rangeParams={{}} onOpenChange={() => {}} />)
 
     const newsDetails = screen.getByText('News').closest('details')
     expect(newsDetails).not.toBeNull()
@@ -74,11 +94,27 @@ describe('ActorDetailSheet', () => {
   })
 
   it('shows blocked bytes as its own figure, not folded into Downloaded/Uploaded', () => {
-    render(<ActorDetailSheet actor={ACTOR} rangeParams={{}} onOpenChange={() => {}} />)
+    renderWithRouter(<ActorDetailSheet actor={ACTOR} rangeParams={{}} onOpenChange={() => {}} />)
 
     expect(screen.getByText('Blocked traffic')).toBeInTheDocument()
     // 500 + 80 = 580 -- the combined blocked_bytes/blocked_bytes_received,
     // separate from the 9000/1200 Downloaded/Uploaded figures above.
     expect(screen.getByText('580 B')).toBeInTheDocument()
+  })
+
+  it('shows top domains as their own section', () => {
+    renderWithRouter(<ActorDetailSheet actor={ACTOR} rangeParams={{}} onOpenChange={() => {}} />)
+
+    expect(screen.getByText('Top domains')).toBeInTheDocument()
+  })
+
+  it('hands the actor off to the Events page and navigates there on "View all events"', async () => {
+    const user = userEvent.setup()
+    renderWithRouter(<ActorDetailSheet actor={ACTOR} rangeParams={{}} onOpenChange={() => {}} />)
+
+    await user.click(screen.getByRole('button', { name: 'View all events' }))
+
+    expect(useFiltersStore.getState().pendingEventsSearch).toBe(ACTOR.actor)
+    expect(navigateMock).toHaveBeenCalledWith('/events')
   })
 })

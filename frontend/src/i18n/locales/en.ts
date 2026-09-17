@@ -355,6 +355,7 @@ export const en = {
   'analytics.who.lastSeen': 'Last active (in range)',
   'analytics.who.hourlyActivity': 'Activity by hour (UTC)',
   'analytics.who.deniedDomains': 'Denied domains',
+  'analytics.who.viewAllEvents': 'View all events',
 
   // Blocks & policy
   'analytics.blocks.title': 'Denials over time',

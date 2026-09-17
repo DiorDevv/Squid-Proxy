@@ -341,6 +341,7 @@ export const uz = {
   'analytics.who.lastSeen': 'Oxirgi faollik (oraliqda)',
   'analytics.who.hourlyActivity': 'Soatlik faollik (UTC)',
   'analytics.who.deniedDomains': 'Rad etilgan domenlar',
+  'analytics.who.viewAllEvents': 'Barcha hodisalarni ko‘rish',
 
   'analytics.blocks.title': 'Rad etishlar dinamikasi',
   'analytics.blocks.empty': 'Bu oraliqda rad etish yo‘q.',

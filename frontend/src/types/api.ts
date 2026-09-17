@@ -500,6 +500,14 @@ export interface ActorDetailResponse {
   bytes_received: number
   blocked_bytes: number
   blocked_bytes_received: number
+  // vs. the equal-length period immediately before the selected range --
+  // null means no comparison available (previous window had zero to
+  // divide by), same convention as MetricDelta.pct_change.
+  request_count_pct_change: number | null
+  blocked_count_pct_change: number | null
+  total_bytes_pct_change: number | null
+  bytes_received_pct_change: number | null
+  blocked_bytes_pct_change: number | null
   categories: ActorCategorySlice[]
   top_domains: ActorDomainRow[]
   denied_domains: ActorDomainRow[]

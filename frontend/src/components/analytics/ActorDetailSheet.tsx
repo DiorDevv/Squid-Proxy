@@ -1,4 +1,5 @@
 import { toast } from 'sonner'
+import { useNavigate } from 'react-router-dom'
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from '@/components/ui/sheet'
 import { Button } from '@/components/ui/button'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
@@ -9,6 +10,7 @@ import {
   ChevronRight,
   Clock,
   Download,
+  ExternalLink,
   Layers,
   ShieldQuestion,
   ShieldX,
@@ -18,6 +20,7 @@ import { formatBytes, formatDateTime, formatNumber } from '@/lib/format'
 import { CATEGORY_COLORS, CATEGORY_LABEL_KEYS } from '@/lib/categories'
 import { downloadSubjectDossier } from '@/lib/api-client'
 import { useAuthStore } from '@/lib/auth-store'
+import { useFiltersStore } from '@/lib/filters-store'
 import { useActorDetail } from '@/hooks/useAnalytics'
 import { useTranslation } from '@/i18n'
 import type { ActorRow } from '@/types/api'
@@ -32,7 +35,9 @@ const HOUR_TICKS = [0, 6, 12, 18, 23]
 
 export function ActorDetailSheet({ actor, rangeParams, onOpenChange }: ActorDetailSheetProps) {
   const { t } = useTranslation()
+  const navigate = useNavigate()
   const role = useAuthStore((state) => state.role)
+  const setPendingEventsSearch = useFiltersStore((state) => state.setPendingEventsSearch)
   const query = useActorDetail(rangeParams, actor?.actor ?? null, actor?.is_user ?? true)
   const data = query.data
 
@@ -53,29 +58,45 @@ export function ActorDetailSheet({ actor, rangeParams, onOpenChange }: ActorDeta
                 {actor?.is_user ? t('analytics.who.colUser') : t('analytics.who.colClientIp')}
               </SheetDescription>
             </div>
-            {/* Full subject-access dossier (docs/PRODUCT.md #4) -- admin-only
-                on the backend (it includes watchlist status); every
-                generation is itself audited there. */}
-            {role === 'admin' && actor && (
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="h-8 shrink-0 gap-1.5 px-2.5 text-xs"
-                    onClick={() => {
-                      downloadSubjectDossier(actor.is_user ? 'user' : 'client_ip', actor.actor).catch(() =>
-                        toast.error(t('analytics.who.dossierDownloadFailed')),
-                      )
-                    }}
-                  >
-                    <ShieldQuestion className="h-3.5 w-3.5" aria-hidden="true" />
-                    {t('analytics.who.downloadDossier')}
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent>{t('analytics.who.downloadDossierHint')}</TooltipContent>
-              </Tooltip>
-            )}
+            <div className="flex shrink-0 items-center gap-1.5">
+              {actor && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-8 gap-1.5 px-2.5 text-xs"
+                  onClick={() => {
+                    setPendingEventsSearch(actor.actor)
+                    navigate('/events')
+                  }}
+                >
+                  <ExternalLink className="h-3.5 w-3.5" aria-hidden="true" />
+                  {t('analytics.who.viewAllEvents')}
+                </Button>
+              )}
+              {/* Full subject-access dossier (docs/PRODUCT.md #4) -- admin-only
+                  on the backend (it includes watchlist status); every
+                  generation is itself audited there. */}
+              {role === 'admin' && actor && (
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="h-8 gap-1.5 px-2.5 text-xs"
+                      onClick={() => {
+                        downloadSubjectDossier(actor.is_user ? 'user' : 'client_ip', actor.actor).catch(() =>
+                          toast.error(t('analytics.who.dossierDownloadFailed')),
+                        )
+                      }}
+                    >
+                      <ShieldQuestion className="h-3.5 w-3.5" aria-hidden="true" />
+                      {t('analytics.who.downloadDossier')}
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent>{t('analytics.who.downloadDossierHint')}</TooltipContent>
+                </Tooltip>
+              )}
+            </div>
           </div>
         </SheetHeader>
 
@@ -95,6 +116,7 @@ export function ActorDetailSheet({ actor, rangeParams, onOpenChange }: ActorDeta
                 <SummaryCard
                   label={t('analytics.metric.totalRequests')}
                   value={data.request_count}
+                  deltaPercent={data.request_count_pct_change}
                   icon={Activity}
                   tone="info"
                   formatValue={formatNumber}
@@ -102,6 +124,7 @@ export function ActorDetailSheet({ actor, rangeParams, onOpenChange }: ActorDeta
                 <SummaryCard
                   label={t('analytics.metric.blocked')}
                   value={data.blocked_count}
+                  deltaPercent={data.blocked_count_pct_change}
                   icon={ShieldX}
                   tone="warning"
                   formatValue={formatNumber}
@@ -109,6 +132,7 @@ export function ActorDetailSheet({ actor, rangeParams, onOpenChange }: ActorDeta
                 <SummaryCard
                   label={t('analytics.metric.downloaded')}
                   value={data.total_bytes}
+                  deltaPercent={data.total_bytes_pct_change}
                   icon={Download}
                   tone="purple"
                   formatValue={formatBytes}
@@ -116,6 +140,7 @@ export function ActorDetailSheet({ actor, rangeParams, onOpenChange }: ActorDeta
                 <SummaryCard
                   label={t('analytics.metric.uploaded')}
                   value={data.bytes_received > 0 ? data.bytes_received : null}
+                  deltaPercent={data.bytes_received_pct_change}
                   icon={Upload}
                   tone="purple"
                   formatValue={formatBytes}
@@ -130,6 +155,7 @@ export function ActorDetailSheet({ actor, rangeParams, onOpenChange }: ActorDeta
                   <SummaryCard
                     label={t('analytics.metric.blockedBytes')}
                     value={blockedBytesTotal > 0 ? blockedBytesTotal : null}
+                    deltaPercent={data.blocked_bytes_pct_change}
                     icon={ShieldX}
                     tone="warning"
                     formatValue={formatBytes}
@@ -234,6 +260,44 @@ export function ActorDetailSheet({ actor, rangeParams, onOpenChange }: ActorDeta
                   ))}
                 </ul>
               </section>
+
+              {data.top_domains.length > 0 && (
+                <section className="rounded-xl border border-border bg-card p-4">
+                  <h3 className="mb-2 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                    <Layers className="h-3.5 w-3.5" aria-hidden="true" />
+                    {t('analytics.overview.topDomains')}
+                  </h3>
+                  <ul className="flex flex-col divide-y divide-border">
+                    {data.top_domains.slice(0, 8).map((d) => (
+                      <li
+                        key={d.domain}
+                        className="-mx-2 flex items-center gap-2 rounded-md px-2 py-2 text-sm transition-colors hover:bg-muted/50"
+                      >
+                        <span
+                          className="h-2.5 w-2.5 shrink-0 rounded-full"
+                          style={{ backgroundColor: CATEGORY_COLORS[d.category] }}
+                          aria-hidden="true"
+                        />
+                        <span className="font-data min-w-0 flex-1 truncate">{d.domain}</span>
+                        {d.blocked_count > 0 && (
+                          <span className="font-data text-xs text-destructive">
+                            {formatNumber(d.blocked_count)} ✕
+                          </span>
+                        )}
+                        <span className="font-data text-xs text-muted-foreground">
+                          {formatNumber(d.request_count)}
+                        </span>
+                        <span className="font-data text-xs text-muted-foreground">
+                          {formatBytes(d.total_bytes)}
+                          {d.bytes_received > 0 && (
+                            <span className="text-info"> ↑{formatBytes(d.bytes_received)}</span>
+                          )}
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                </section>
+              )}
 
               {data.denied_domains.length > 0 && (
                 <section className="rounded-xl border border-destructive/30 bg-destructive/[0.04] p-4">

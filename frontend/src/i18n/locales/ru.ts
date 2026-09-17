@@ -338,6 +338,7 @@ export const ru = {
   'analytics.who.lastSeen': 'Последняя активность (в периоде)',
   'analytics.who.hourlyActivity': 'Активность по часам (UTC)',
   'analytics.who.deniedDomains': 'Заблокированные домены',
+  'analytics.who.viewAllEvents': 'Смотреть все события',
 
   'analytics.blocks.title': 'Отказы во времени',
   'analytics.blocks.empty': 'Нет отказов за этот период.',

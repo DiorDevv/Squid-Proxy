@@ -10,20 +10,36 @@ interface FiltersState {
   customTo: string | null
   /** null means "all branches" -- see useRangeSearchParams. */
   branch: string | null
+  /** One-shot handoff for "view all events for this actor" (ActorDetailSheet
+   * -> /events): set right before navigating, consumed (read then cleared)
+   * by EventsPage on mount -- same "shared store instead of a one-off
+   * query-string contract" reasoning as setCustomRange above, but this one
+   * self-clears so a later, unrelated visit to /events doesn't inherit a
+   * stale actor filter from a completely different navigation. */
+  pendingEventsSearch: string | null
   setRange: (range: RangeParam) => void
   setCustomRange: (from: string, to: string) => void
   setBranch: (branch: string | null) => void
+  setPendingEventsSearch: (value: string) => void
+  consumePendingEventsSearch: () => string | null
 }
 
-export const useFiltersStore = create<FiltersState>((set) => ({
+export const useFiltersStore = create<FiltersState>((set, get) => ({
   range: '24h',
   mode: 'preset',
   customFrom: null,
   customTo: null,
   branch: null,
+  pendingEventsSearch: null,
   setRange: (range) => set({ range, mode: 'preset' }),
   setCustomRange: (from, to) => set({ customFrom: from, customTo: to, mode: 'custom' }),
   setBranch: (branch) => set({ branch }),
+  setPendingEventsSearch: (value) => set({ pendingEventsSearch: value }),
+  consumePendingEventsSearch: () => {
+    const value = get().pendingEventsSearch
+    if (value !== null) set({ pendingEventsSearch: null })
+    return value
+  },
 }))
 
 /** Resolves the current filter selection into the query params every

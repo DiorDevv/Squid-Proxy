@@ -17,3 +17,14 @@ if (!Element.prototype.releasePointerCapture) {
 if (!Element.prototype.scrollIntoView) {
   Element.prototype.scrollIntoView = () => {}
 }
+
+// jsdom has no ResizeObserver -- Radix's Tooltip (positioning) needs one,
+// so any test that renders a real Tooltip/TooltipProvider throws without
+// this stub (no-op is fine: tests don't assert on measured layout).
+if (typeof globalThis.ResizeObserver === 'undefined') {
+  globalThis.ResizeObserver = class {
+    observe() {}
+    unobserve() {}
+    disconnect() {}
+  }
+}

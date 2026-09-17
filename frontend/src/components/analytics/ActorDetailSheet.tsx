@@ -49,9 +49,17 @@ export function ActorDetailSheet({ actor, rangeParams, onOpenChange }: ActorDeta
   const watchlistQuery = useWatchlist(role === 'admin')
   const createWatch = useCreateWatchlistEntry()
   const deleteWatch = useDeleteWatchlistEntry()
+  // "" (matching the currently selected branch filter, same as the create
+  // call below) or "" itself (an any-branch entry) -- without the branch
+  // check, an actor watched only in a *different* branch would still show
+  // "Watching" here, and clicking it would delete that unrelated entry.
+  const currentBranch = rangeParams.branch ?? ''
   const watchEntry = actor
     ? watchlistQuery.data?.find(
-        (e) => e.target_type === (actor.is_user ? 'user' : 'client_ip') && e.value === actor.actor,
+        (e) =>
+          e.target_type === (actor.is_user ? 'user' : 'client_ip') &&
+          e.value === actor.actor &&
+          (e.branch === '' || e.branch === currentBranch),
       )
     : undefined
 

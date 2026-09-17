@@ -32,4 +32,13 @@ class ClientMinuteAggregate(Base):
     user: Mapped[str | None] = mapped_column(String(255), nullable=True, index=True)
     request_count: Mapped[int] = mapped_column(Integer, default=0)
     blocked_count: Mapped[int] = mapped_column(Integer, default=0)
+    # Excludes blocked-request bytes (see aggregator.py's _ClientTotals) --
+    # "what this client actually downloaded/uploaded", not a denial page's
+    # byte count. blocked_bytes/blocked_bytes_received below are that
+    # excluded slice, tracked separately so it can be shown, not just
+    # dropped -- see ActorDetailSheet's Downloaded/Uploaded vs Blocked tiles.
     total_bytes: Mapped[int] = mapped_column(BigInteger, default=0)
+    # %>st -- bytes received from clients (upload); %<st is total_bytes above.
+    bytes_received: Mapped[int] = mapped_column(BigInteger, default=0)
+    blocked_bytes: Mapped[int] = mapped_column(BigInteger, default=0)
+    blocked_bytes_received: Mapped[int] = mapped_column(BigInteger, default=0)

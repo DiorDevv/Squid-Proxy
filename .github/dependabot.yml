@@ -1,26 +1,63 @@
 version: 2
+
+# Weekly, grouped, minor/patch only. Major bumps are deliberately *not*
+# raised as automatic PRs here: on a tool that handles employee traffic
+# data, a major-version jump (new default behaviour, dropped APIs, changed
+# security posture) needs a human deciding to take it, not a green CI run
+# auto-merging it. Check for majors by hand periodically, or temporarily
+# drop the `ignore` block below when you're ready to do a round of them.
+#
+# Security updates ignore the version-type filter regardless of the `ignore`
+# block (GitHub applies those from the advisory database), so a CVE fix that
+# only exists in a new major still gets a PR.
+
 updates:
   - package-ecosystem: "pip"
     directory: "/backend"
     schedule:
       interval: "weekly"
+    open-pull-requests-limit: 5
+    groups:
+      backend-deps:
+        patterns: ["*"]
+        update-types: ["minor", "patch"]
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
 
   - package-ecosystem: "npm"
     directory: "/frontend"
     schedule:
       interval: "weekly"
+    open-pull-requests-limit: 5
+    groups:
+      frontend-deps:
+        patterns: ["*"]
+        update-types: ["minor", "patch"]
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
 
   - package-ecosystem: "docker"
     directory: "/backend"
     schedule:
       interval: "weekly"
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
 
   - package-ecosystem: "docker"
     directory: "/frontend"
     schedule:
       interval: "weekly"
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
 
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:
       interval: "weekly"
+    groups:
+      actions:
+        patterns: ["*"]

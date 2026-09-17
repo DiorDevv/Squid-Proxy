@@ -53,7 +53,9 @@ async def test_domain_summary_rolls_up_all_clients(
     assert body["domain"] == "example.com"
     assert body["total_requests"] == 2
     assert body["blocked_requests"] == 1
-    assert body["total_bytes"] == 300
+    # 100, not 100+200=300: the blocked visit's bytes are excluded -- a
+    # denial page's byte count isn't "this domain transferred 200 bytes".
+    assert body["total_bytes"] == 100
     assert body["distinct_client_count"] == 2
     assert body["category"] == "uncategorized"
 

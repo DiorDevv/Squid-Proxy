@@ -171,6 +171,24 @@ async def test_events_free_text_search_matches_across_fields(
     assert body["items"][0]["domain"] == "findable.com"
 
 
+async def test_events_free_text_search_does_not_match_url_path(
+    app_client: AsyncClient, db_session: AsyncSession, admin_token, auth_headers
+):
+    # search is domain/user/IP/peer only -- a term that appears only in the
+    # full URL path (not the domain) must not match. See
+    # event_query_service.build_event_conditions.
+    ev = _make_raw_event(client_ip="10.0.4.7", domain="cdn.example", user=None)
+    ev.url = "http://cdn.example/downloads/secret-report.pdf"
+    db_session.add(ev)
+    await db_session.commit()
+
+    response = await app_client.get(
+        "/api/events?search=secret-report", headers=auth_headers(admin_token)
+    )
+    assert response.status_code == 200
+    assert response.json()["total"] == 0
+
+
 async def test_events_free_text_search_matches_peer_server_ip(
     app_client: AsyncClient, db_session: AsyncSession, admin_token, auth_headers
 ):

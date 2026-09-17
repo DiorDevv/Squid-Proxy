@@ -2,7 +2,7 @@
 
 from functools import lru_cache
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 INSECURE_DEFAULT_JWT_SECRET = "CHANGE_ME_INSECURE_DEV_SECRET"
@@ -38,7 +38,24 @@ class Settings(BaseSettings):
 
     # --- General ---
     ENVIRONMENT: str = "development"
+    # The refresh-token cookie's `Secure` flag defaults to ENVIRONMENT ==
+    # "production" (see auth.py's _cookie_kwargs) -- a browser only stores/
+    # sends a Secure cookie over HTTPS, so that default is right for a
+    # public-facing deployment but silently breaks the whole point of the
+    # cookie (surviving a page reload without a login form -- see
+    # auth-store.ts's docstring) for an internal deployment served over
+    # plain HTTP behind a firewall/VPN, which this project is routinely run
+    # as. None (default) keeps that ENVIRONMENT-based inference unchanged;
+    # set explicitly to override it either way regardless of ENVIRONMENT.
+    COOKIE_SECURE: bool | None = None
     LOG_LEVEL: str = "INFO"
+    # SQLite is the zero-config default for evaluating the project, but it's
+    # a single-writer file -- under the ~9 background jobs plus the
+    # aggregator all writing, a real deployment hits "database is locked".
+    # Production refuses to start on a sqlite DATABASE_URL unless this is
+    # explicitly set true (a genuinely tiny, low-write install). See
+    # _reject_insecure_production_config.
+    ALLOW_SQLITE_IN_PRODUCTION: bool = False
 
     # --- Squid log source(s) ---
     # LOG_FILE_PATH is the single-branch default. For multiple branches (each
@@ -83,6 +100,13 @@ class Settings(BaseSettings):
     # ARCHITECTURE.md for a worked example and recommended values.
     RING_BUFFER_MAX_EVENTS: int = 500_000
 
+    # --- Data policy (surfaced read-only at Settings -> Data policy, for an
+    # admin or auditor to show what this deployment collects, why, and for
+    # how long -- see app/api/routes/policy.py). Free text; unset renders as
+    # "not configured". ---
+    DATA_PROCESSING_PURPOSE: str | None = None
+    DATA_CONTROLLER: str | None = None
+
     # --- Retention ---
     # 30 days: long enough that an incident noticed a couple weeks late still
     # has per-request detail in the live, queryable database rather than
@@ -92,6 +116,27 @@ class Settings(BaseSettings):
     # per-day disk-cost math this scales from.
     RETENTION_DAYS_RAW_EVENTS: int = 30
     RETENTION_DAYS_AGGREGATES: int = 400
+    # The Analytics "Squid operations" per-minute aggregates (result codes,
+    # HTTP method/status, hierarchy, per-user category -- see
+    # app/services/analytics_service.py and the *_minute_aggregates tables
+    # they read). Higher row cardinality than the core minute/domain
+    # aggregates, and the Analytics UI never looks back more than a few
+    # days, so these get a shorter window of their own rather than riding
+    # the 400-day RETENTION_DAYS_AGGREGATES.
+    RETENTION_DAYS_OPS_AGGREGATES: int = 90
+    # Operational-failure history (system_events, shown at Settings ->
+    # System health). Kept long enough to review a run of failures weeks
+    # later, not indefinitely.
+    RETENTION_DAYS_SYSTEM_EVENTS: int = 90
+    # Directory the db-backup / db-offsite jobs drop their status JSON in
+    # (backup.json / offsite.json), read for Settings -> System health.
+    # "" disables the backup/off-site panels (they show "no data"). Set by
+    # docker-compose.yml; unset for a bare-metal install unless the backup
+    # units are given a matching --status-dir.
+    JOB_STATUS_DIR: str = ""
+    # System health flags the backup as stale (red) once the last
+    # successful one is older than this. Default just past a daily cadence.
+    SYSTEM_HEALTH_BACKUP_STALE_HOURS: int = 26
     # How often the ring buffer flushes to DB aggregates. Lower = less
     # runway needed in RING_BUFFER_MAX_EVENTS above per flush cycle, at the
     # cost of more frequent (still bulk-upsert, see db_upsert.py) writes.
@@ -140,16 +185,46 @@ class Settings(BaseSettings):
     # app/models/export_settings.py.
     # A wide range at real traffic volumes can produce a multi-hundred-MB
     # file and run for minutes; nothing stops several admins (or several
-    # browser tabs) from kicking off that many at once, and EXPORT_JOBS_DIR
-    # has no size cap of its own. This bounds how many PENDING/RUNNING jobs
-    # can exist at the same time so that can't fill the disk.
+    # browser tabs) from kicking off that many at once. This bounds how many
+    # PENDING/RUNNING jobs can exist at the same time...
     EXPORT_JOB_MAX_CONCURRENT: int = 3
+    # ...and this bounds the *total* on-disk footprint of EXPORT_JOBS_DIR
+    # (finished result files linger until the runtime cleanup policy removes
+    # them -- see /api/export-settings -- so MAX_CONCURRENT alone doesn't
+    # cap disk use). A new job is refused with 507 once the directory is at
+    # or over this size. 0 disables the check. On a real deployment this
+    # directory, the database, and ARCHIVE_OUTPUT_DIR should ideally be on
+    # separate volumes so a full export dir can't stall ingestion writes.
+    EXPORT_JOBS_MAX_TOTAL_MB: int = 2048
+
+    # --- /metrics access (see api/routes/metrics.py) ---
+    # /metrics and /api/health are both unauthenticated by design (internal
+    # monitoring infra scrapes them). If this list is non-empty, /metrics is
+    # additionally restricted to these client IPs / CIDRs (matched against
+    # the peer address, i.e. the reverse proxy's rewritten X-Forwarded-For
+    # when uvicorn runs with --proxy-headers -- same basis as the rate
+    # limiter). Empty = no IP restriction, unchanged from before. /api/health
+    # is deliberately left open regardless: the frontend health banner polls
+    # it from browsers.
+    METRICS_ALLOWED_IPS: list[str] = Field(default_factory=list)
     # How long a share link (see export_job_service.create_share_link) stays
     # valid for once an admin issues one -- deliberately an env var, not an
     # admin-tunable setting like ExportSettings' cleanup policy: this is a
     # security boundary (how long a no-login download stays reachable), the
     # same category as ACCESS_TOKEN_EXPIRE_MINUTES above, not business policy.
     EXPORT_SHARE_LINK_TTL_HOURS: int = 24
+    # Base64url-encoded 32-byte Ed25519 private-key seed. Unset (default) --
+    # exports are still checksummed but not cryptographically signed. Set to
+    # sign every finished export's manifest, so a copy handed to a third
+    # party can be verified offline against the published public key (see
+    # app/services/export_signing.py, scripts/verify_export.py). Generate
+    # with: python3 -c "import base64, secrets;
+    # print(base64.urlsafe_b64encode(secrets.token_bytes(32)).decode())"
+    # Losing this key doesn't invalidate past exports (their signatures
+    # stay valid against the matching public key) but means new exports
+    # can't be signed until a key exists again -- back it up like
+    # ARCHIVE_ENCRYPTION_KEY.
+    EXPORT_SIGNING_PRIVATE_KEY: str | None = None
 
     # --- Time-spent-per-domain estimation ---
     # Consecutive requests to the same domain more than this many minutes
@@ -159,10 +234,23 @@ class Settings(BaseSettings):
 
     # --- Auth / JWT ---
     JWT_SECRET: str = INSECURE_DEFAULT_JWT_SECRET
+    # Set to the *old* JWT_SECRET for one ACCESS_TOKEN_EXPIRE_MINUTES window
+    # after rotating JWT_SECRET, then clear it. Access tokens are verified
+    # against JWT_SECRET first and this second, so a rotation doesn't break
+    # every logged-in session the instant it lands. Verify-only -- new
+    # tokens are always signed with JWT_SECRET.
+    JWT_SECRET_PREVIOUS: str | None = None
     JWT_ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 20
     REFRESH_TOKEN_EXPIRE_DAYS: int = 14
     WS_TICKET_EXPIRE_SECONDS: int = 30
+    # bcrypt work factor for password hashing (see app/core/security.py).
+    # 12 is the sane production default; the only reason this is tunable is
+    # the test suite, which overrides it to 4 (tests/conftest.py) so the
+    # hundreds of login/hash round-trips across ~600 tests don't spend
+    # minutes in deliberate key-stretching. Never lower it in a real
+    # deployment -- it's the whole point of bcrypt.
+    BCRYPT_ROUNDS: int = 12
 
     # --- Bootstrap admin (first-boot convenience only) ---
     ADMIN_EMAIL: str | None = None
@@ -174,9 +262,29 @@ class Settings(BaseSettings):
     # --- Rate limiting ---
     LOGIN_RATE_LIMIT: str = "5/minute"
     SENSITIVE_ACTION_RATE_LIMIT: str = "20/minute"
+    # Per-account brute-force throttle (app/core/security.py:LoginThrottle),
+    # on top of the per-IP LOGIN_RATE_LIMIT above -- a distributed attacker
+    # spreads guesses across IPs but still targets one email. After
+    # THRESHOLD failed logins for an email within WINDOW seconds, that email
+    # is allowed only one attempt per INTERVAL seconds until it's quiet for a
+    # full window. No hard lock: a correct password is still accepted and
+    # clears the record, so knowing an email can't lock its owner out.
+    LOGIN_ACCOUNT_FAILURE_THRESHOLD: int = 10
+    LOGIN_ACCOUNT_FAILURE_WINDOW_SECONDS: int = 900
+    LOGIN_ACCOUNT_THROTTLED_INTERVAL_SECONDS: int = 60
 
     # --- Insights / anomaly detection ---
-    INSIGHTS_PROVIDER: str = "noop"
+    # "noop" silently disables every anomaly check (built-in and
+    # admin-defined custom rules alike) with no error and nothing logged --
+    # a deployment that never sets this is easy to mistake for "anomaly
+    # detection is broken" when it's actually just off. Defaults on.
+    INSIGHTS_PROVIDER: str = "statistical"
+
+    # --- Analytics ---
+    # Above this many time buckets, /api/analytics/category-trend coarsens
+    # an hourly request to daily rather than returning a huge point series
+    # (the response echoes the granularity it actually used).
+    CATEGORY_TREND_MAX_BUCKETS: int = 1500
 
     # --- Alerting (optional; no-op unless ALERT_WEBHOOK_URL is set) ---
     ALERT_WEBHOOK_URL: str | None = None
@@ -219,6 +327,12 @@ class Settings(BaseSettings):
     # anything is admin-configurable at runtime via /api/alert-settings,
     # same as the two intervals above.
     UNCATEGORIZED_DOMAIN_MONITOR_INTERVAL_SECONDS: int = 86400
+    # How often the watchlist monitor (app/services/watchlist_monitor.py)
+    # re-checks whether a watched client/domain/user has been active, and
+    # the minimum gap between two anomalies for the same watched target so
+    # an ongoing presence isn't re-alerted every interval.
+    WATCHLIST_MONITOR_INTERVAL_SECONDS: int = 300
+    WATCHLIST_ALERT_COOLDOWN_SECONDS: int = 3600
     # How often to check for undownloaded export jobs (see
     # app/services/undownloaded_export_monitor.py) -- the threshold that
     # actually gates whether this raises anything
@@ -256,15 +370,47 @@ class Settings(BaseSettings):
             return self.LOG_SOURCES
         return [LogSource(branch=DEFAULT_BRANCH, path=self.LOG_FILE_PATH)]
 
+    @field_validator("COOKIE_SECURE", mode="before")
+    @classmethod
+    def _blank_cookie_secure_means_unset(cls, value: object) -> object:
+        # docker-compose.yml passes this through as `${COOKIE_SECURE:-}`,
+        # which is an empty string (not an absent key) when unset in .env --
+        # Pydantic would otherwise reject "" as an invalid bool instead of
+        # falling back to the field's None default.
+        if value == "":
+            return None
+        return value
+
     @model_validator(mode="after")
-    def _reject_insecure_production_secret(self) -> "Settings":
+    def _reject_insecure_production_config(self) -> "Settings":
         if self.ENVIRONMENT != "production":
             return self
+        if self.DATABASE_URL.startswith("sqlite") and not self.ALLOW_SQLITE_IN_PRODUCTION:
+            raise ValueError(
+                "DATABASE_URL is SQLite, which is a single-writer file and will "
+                "hit 'database is locked' under this app's background jobs. Point "
+                "DATABASE_URL at PostgreSQL for production, or set "
+                "ALLOW_SQLITE_IN_PRODUCTION=true if this really is a tiny, "
+                "low-write install."
+            )
         if self.JWT_SECRET == INSECURE_DEFAULT_JWT_SECRET:
             raise ValueError(
                 "JWT_SECRET is still the insecure default. Set a real secret "
-                "(python3 -c \"import secrets; print(secrets.token_urlsafe(48))\") "
+                '(python3 -c "import secrets; print(secrets.token_urlsafe(48))") '
                 "before running with ENVIRONMENT=production."
+            )
+        if len(self.JWT_SECRET) < 32:
+            raise ValueError(
+                "JWT_SECRET is shorter than 32 characters -- too little entropy to "
+                "sign session tokens with. Use "
+                'python3 -c "import secrets; print(secrets.token_urlsafe(48))".'
+            )
+        if "*" in self.CORS_ORIGINS:
+            raise ValueError(
+                'CORS_ORIGINS contains "*", which with allow_credentials=True lets '
+                "any website make authenticated requests to this API. List the exact "
+                "dashboard origin(s) instead, e.g. "
+                'CORS_ORIGINS=["https://dashboard.example.com"].'
             )
         if self.ADMIN_PASSWORD == INSECURE_DEFAULT_ADMIN_PASSWORD:
             raise ValueError(

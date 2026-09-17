@@ -14,6 +14,7 @@ import type {
   DomainCategoryImportResponse,
   DomainCategoryLabel,
   ExportJob,
+  ExportManifest,
   ExportShareLink,
   UserSummary,
 } from '@/types/api'
@@ -277,6 +278,47 @@ export async function downloadExportJob(jobId: string): Promise<void> {
   const link = document.createElement('a')
   link.href = objectUrl
   link.download = filename
+  document.body.appendChild(link)
+  link.click()
+  link.remove()
+  URL.revokeObjectURL(objectUrl)
+}
+
+/** Downloads GET /api/subject-access/dossier as a .dossier.json file --
+ * everything this deployment currently knows about one client IP or user,
+ * signed the same way an export manifest is (see downloadExportManifest,
+ * scripts/verify_export.py's signature-check logic applies to this JSON
+ * body too). Admin-only on the backend; every call is audited there. */
+export async function downloadSubjectDossier(
+  subjectType: 'client_ip' | 'user',
+  value: string,
+): Promise<void> {
+  const dossier = await apiFetch<Record<string, unknown>>('/api/subject-access/dossier', {
+    searchParams: { subject_type: subjectType, value },
+  })
+  const blob = new Blob([JSON.stringify(dossier, null, 2)], { type: 'application/json' })
+  const objectUrl = URL.createObjectURL(blob)
+  const link = document.createElement('a')
+  link.href = objectUrl
+  link.download = `${subjectType}-${value}.dossier.json`
+  document.body.appendChild(link)
+  link.click()
+  link.remove()
+  URL.revokeObjectURL(objectUrl)
+}
+
+/** Downloads GET /api/export/jobs/{id}/manifest as a .manifest.json file --
+ * hand this, alongside the export file itself, to whoever needs to verify
+ * it later (offline, with scripts/verify_export.py; see that script and
+ * ExportManifest). A plain JSON GET, but saved as a file (not just
+ * returned) so the download UX matches downloadExportJob's. */
+export async function downloadExportManifest(jobId: string): Promise<void> {
+  const manifest = await apiFetch<ExportManifest>(`/api/export/jobs/${jobId}/manifest`)
+  const blob = new Blob([JSON.stringify(manifest, null, 2)], { type: 'application/json' })
+  const objectUrl = URL.createObjectURL(blob)
+  const link = document.createElement('a')
+  link.href = objectUrl
+  link.download = `${jobId}.manifest.json`
   document.body.appendChild(link)
   link.click()
   link.remove()

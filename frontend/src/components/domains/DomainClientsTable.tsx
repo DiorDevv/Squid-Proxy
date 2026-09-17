@@ -47,9 +47,17 @@ export function DomainClientsTable({
       {
         accessorKey: 'user',
         header: t('clients.columnUser'),
-        cell: ({ getValue }) => (
-          <span className="font-data text-muted-foreground">{getValue<string | null>() ?? '—'}</span>
-        ),
+        cell: ({ getValue }) => {
+          const v = getValue<string | null>()
+          return (
+            <span
+              className="font-data block max-w-[12rem] truncate text-muted-foreground"
+              title={v ?? undefined}
+            >
+              {v ?? '—'}
+            </span>
+          )
+        },
       },
       {
         accessorKey: 'visit_count',

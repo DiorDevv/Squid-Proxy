@@ -17,17 +17,20 @@ def register_exception_handlers(app: FastAPI) -> None:
         return JSONResponse(status_code=exc.status_code, content={"detail": exc.detail})
 
     @app.exception_handler(RequestValidationError)
-    async def validation_exception_handler(
-        request: Request, exc: RequestValidationError
-    ) -> JSONResponse:
+    async def validation_exception_handler(request: Request, exc: RequestValidationError) -> JSONResponse:
+        # Pydantic v2's error dicts also carry `input` (the offending value
+        # verbatim) and `ctx` (which can hold the raw exception object) --
+        # echoing `input` back reflects whatever the caller submitted,
+        # including a malformed credential on an auth route, so keep only the
+        # location, message, and type. jsonable_encoder still guards against
+        # a non-serialisable `msg`/`type`.
+        safe_errors = [
+            {"loc": err.get("loc", []), "msg": err.get("msg", ""), "type": err.get("type", "")}
+            for err in exc.errors()
+        ]
         return JSONResponse(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            # exc.errors() can embed the raw exception object in ctx.error for
-            # validators that raise ValueError directly (e.g. field_validator
-            # bodies) -- jsonable_encoder is what FastAPI's own default
-            # handler uses to make that JSON-safe; a plain dict here works
-            # for the common cases but crashes on that one.
-            content={"detail": "Invalid request parameters.", "errors": jsonable_encoder(exc.errors())},
+            content={"detail": "Invalid request parameters.", "errors": jsonable_encoder(safe_errors)},
         )
 
     @app.exception_handler(Exception)

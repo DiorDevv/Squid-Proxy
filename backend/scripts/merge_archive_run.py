@@ -57,7 +57,10 @@ async def merge_archive_run(from_branch: str, to_branch: str) -> None:
             session.add(new)
             await session.delete(old)
             await session.commit()
-            print(f"\nNo existing {to_branch!r} row -- renamed in place: archived_until = {old.archived_until}")
+            print(
+                f"\nNo existing {to_branch!r} row -- renamed in place: "
+                f"archived_until = {old.archived_until}"
+            )
             return
 
         safest = min(old.archived_until, new.archived_until)

@@ -1,0 +1,191 @@
+"""Response models for the Analytics section's Squid-operational views
+("Traffic & cache", "Blocks", "Who"). Backed by
+app/services/squid_ops_service.py and the *_minute_aggregates tables from
+migration f3b8d1c6a274 -- no new per-request scanning except the drill-down
+detail, which reads raw_events for one selected actor.
+"""
+
+from datetime import datetime
+
+from pydantic import BaseModel
+
+from app.models.domain_category import DomainCategoryLabel
+from app.schemas.analytics import TrendGranularity
+
+
+class NamedCount(BaseModel):
+    """Generic (label, count, bytes, %) row -- result codes, methods,
+    status codes, hierarchy codes all share this shape."""
+
+    label: str
+    request_count: int
+    total_bytes: int
+    pct: float
+
+
+class TimeBucketCounts(BaseModel):
+    bucket_ts: datetime
+    # label -> request count in that bucket
+    values: dict[str, int]
+
+
+class ResultCodeResponse(BaseModel):
+    granularity: TrendGranularity
+    # cache-relevant grouping over the whole window
+    hit_ratio: float | None
+    byte_hit_ratio: float | None
+    denied_ratio: float
+    tunnel_ratio: float
+    codes: list[NamedCount]
+    series_labels: list[str]
+    series: list[TimeBucketCounts]
+
+
+class ResponseTimePoint(BaseModel):
+    bucket_ts: datetime
+    p50: float
+    p95: float
+    p99: float
+    mean: float
+    request_count: int
+
+
+class ResponseTimeResponse(BaseModel):
+    granularity: TrendGranularity
+    # over the whole window
+    overall_p50: float
+    overall_p95: float
+    overall_p99: float
+    overall_mean: float
+    sample_count: int
+    # histogram band counts over the whole window, in band order
+    bands: list[NamedCount]
+    series: list[ResponseTimePoint]
+
+
+class ActorRow(BaseModel):
+    """One row of the "who is doing what" leaderboard -- a proxy-auth user
+    or, when the deployment has no auth, a client IP."""
+
+    actor: str
+    is_user: bool
+    request_count: int
+    blocked_count: int
+    blocked_ratio: float
+    total_bytes: int          # %<st -- downloaded
+    bytes_received: int       # %>st -- uploaded (0 on branches whose log omits it)
+    top_category: DomainCategoryLabel | None
+
+
+class ActorLeaderboardResponse(BaseModel):
+    # "user" when at least one authenticated user was seen in the window,
+    # else "client_ip" -- tells the frontend which column header to show.
+    actor_kind: str
+    rows: list[ActorRow]
+    # When actor_kind == "user" and proxy auth is only partial, this is how
+    # many requests in the window had no user and so aren't represented by
+    # any row above (0 for the client_ip view). The frontend surfaces it so
+    # the row totals visibly don't have to reconcile with the Overview tab.
+    unattributed_requests: int = 0
+
+
+class ActorDomainRow(BaseModel):
+    domain: str
+    category: DomainCategoryLabel
+    request_count: int
+    blocked_count: int
+    total_bytes: int          # %<st -- downloaded
+    bytes_received: int       # %>st -- uploaded
+
+
+class ActorCategorySlice(BaseModel):
+    category: DomainCategoryLabel
+    # request_count / total_bytes are exact for the range (per-category
+    # aggregate). bytes_received is summed from `domains` below.
+    request_count: int
+    total_bytes: int          # %<st -- downloaded
+    bytes_received: int       # %>st -- uploaded
+    # A sample of the actor's busiest domains that resolved to this category
+    # (from raw_events, bounded by _ACTOR_CATEGORY_DOMAIN_LIMIT and the
+    # raw-event retention window) -- it does NOT necessarily sum to
+    # request_count / total_bytes above.
+    domains: list[ActorDomainRow]
+
+
+class ActorDetailResponse(BaseModel):
+    actor: str
+    is_user: bool
+    first_seen: datetime | None
+    last_seen: datetime | None
+    request_count: int
+    blocked_count: int
+    total_bytes: int          # %<st -- downloaded (excludes blocked-request bytes)
+    bytes_received: int       # %>st -- uploaded (excludes blocked-request bytes)
+    # The excluded slice above, shown as its own figure rather than just
+    # dropped -- see ClientMinuteAggregate.blocked_bytes.
+    blocked_bytes: int
+    blocked_bytes_received: int
+    # vs. the equal-length period immediately before [since, until] -- same
+    # convention as AnalyticsOverview's MetricDelta.pct_change: null means
+    # no comparison available (the previous window had zero to divide by),
+    # never a misleading 0%.
+    request_count_pct_change: float | None
+    blocked_count_pct_change: float | None
+    total_bytes_pct_change: float | None
+    bytes_received_pct_change: float | None
+    # Combined blocked_bytes + blocked_bytes_received, matching how the
+    # frontend already displays that pair as one "Blocked traffic" figure.
+    blocked_bytes_pct_change: float | None
+    categories: list[ActorCategorySlice]
+    top_domains: list[ActorDomainRow]
+    denied_domains: list[ActorDomainRow]
+    # 24-slot UTC hour-of-day request counts
+    hourly: list[int]
+
+
+class NewEntitiesResponse(BaseModel):
+    since: datetime
+    until: datetime
+    new_users: list[str]
+    new_clients: list[str]
+    # how many were found before the caps above were applied
+    new_users_total: int
+    new_clients_total: int
+
+
+# `acl_denied` is the count of 403 responses. The wire name is kept for
+# backward compatibility, but it means "forbidden (403)", not "a proxy ACL
+# forbade it" -- a 403 can equally be the destination server's own refusal.
+# See squid_ops_service.get_denials and ARCHITECTURE.md; the UI labels it
+# "Forbidden (403)".
+class DenialReasonPoint(BaseModel):
+    bucket_ts: datetime
+    acl_denied: int
+    proxy_auth: int
+    other_blocked: int
+
+
+class DenialsResponse(BaseModel):
+    granularity: TrendGranularity
+    total_denied: int
+    acl_denied: int  # 403 count -- "forbidden", proxy OR origin; see DenialReasonPoint
+    proxy_auth: int
+    other_blocked: int
+    series: list[DenialReasonPoint]
+    top_domains: list[ActorDomainRow]
+    top_categories: list[ActorCategorySlice]
+    top_actors: list[ActorRow]
+
+
+class BranchIngestRow(BaseModel):
+    branch: str
+    tailer_alive: bool
+    parse_failure_rate: float | None
+    lines_seen: int
+    lines_parsed: int
+
+
+class IngestHealthResponse(BaseModel):
+    aggregator_backlog_ratio: float
+    aggregator_events_likely_lost: bool
+    branches: list[BranchIngestRow]

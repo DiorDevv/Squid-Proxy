@@ -6,16 +6,21 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import CurrentUser, get_current_user, get_db, require_admin
 from app.core.config import DEFAULT_BRANCH, get_settings
+from app.models.alert_rule import AlertRule
 from app.models.alert_settings import AlertSettings
 from app.models.telegram_link_code import TelegramLinkCode, TelegramLinkTarget
 from app.schemas.alerts import (
+    AlertRuleOut,
     AlertSettingsOut,
+    CreateAlertRuleRequest,
     TelegramLinkCodeOut,
     TelegramLinkStatusOut,
     TelegramSuperAdminOut,
+    UpdateAlertRuleRequest,
     UpdateAlertSettingsRequest,
 )
 from app.services import (
+    alert_rule_service,
     alert_settings_service,
     telegram_alerting,
     telegram_global_settings_service,
@@ -79,6 +84,21 @@ def _to_out(row: AlertSettings) -> AlertSettingsOut:
     )
 
 
+def _rule_to_out(row: AlertRule) -> AlertRuleOut:
+    return AlertRuleOut(
+        id=row.id,
+        branch=row.branch,
+        name=row.name,
+        scope=row.scope,
+        metric=row.metric,
+        window_minutes=row.window_minutes,
+        threshold=row.threshold,
+        severity=row.severity,
+        enabled=row.enabled,
+        updated_at=row.updated_at,
+    )
+
+
 @router.get("", response_model=AlertSettingsOut)
 async def read_alert_settings(
     branch: str = Depends(_scoped_branch), db: AsyncSession = Depends(get_db)
@@ -105,6 +125,75 @@ async def update_alert_settings(
         branch=branch,
     )
     return _to_out(row)
+
+
+@router.get("/rules", response_model=list[AlertRuleOut])
+async def read_alert_rules(
+    branch: str = Depends(_scoped_branch), db: AsyncSession = Depends(get_db)
+) -> list[AlertRuleOut]:
+    rows = await alert_rule_service.list_rules(db, branch)
+    return [_rule_to_out(row) for row in rows]
+
+
+@router.post("/rules", response_model=AlertRuleOut, status_code=status.HTTP_201_CREATED)
+async def create_alert_rule(
+    body: CreateAlertRuleRequest,
+    branch: str = Depends(_scoped_branch),
+    db: AsyncSession = Depends(get_db),
+    current_user: CurrentUser = Depends(get_current_user),
+) -> AlertRuleOut:
+    row = await alert_rule_service.create_rule(
+        db,
+        branch=branch,
+        name=body.name,
+        scope=body.scope,
+        metric=body.metric,
+        window_minutes=body.window_minutes,
+        threshold=body.threshold,
+        severity=body.severity,
+        enabled=body.enabled,
+        actor_user_id=current_user.user_id,
+    )
+    return _rule_to_out(row)
+
+
+@router.put("/rules/{rule_id}", response_model=AlertRuleOut)
+async def update_alert_rule(
+    rule_id: int,
+    body: UpdateAlertRuleRequest,
+    branch: str = Depends(_scoped_branch),
+    db: AsyncSession = Depends(get_db),
+    current_user: CurrentUser = Depends(get_current_user),
+) -> AlertRuleOut:
+    row = await alert_rule_service.get_rule(db, rule_id, branch)
+    if row is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Rule not found.")
+    row = await alert_rule_service.update_rule(
+        db,
+        row,
+        name=body.name,
+        scope=body.scope,
+        metric=body.metric,
+        window_minutes=body.window_minutes,
+        threshold=body.threshold,
+        severity=body.severity,
+        enabled=body.enabled,
+        actor_user_id=current_user.user_id,
+    )
+    return _rule_to_out(row)
+
+
+@router.delete("/rules/{rule_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_alert_rule(
+    rule_id: int,
+    branch: str = Depends(_scoped_branch),
+    db: AsyncSession = Depends(get_db),
+    current_user: CurrentUser = Depends(get_current_user),
+) -> None:
+    row = await alert_rule_service.get_rule(db, rule_id, branch)
+    if row is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Rule not found.")
+    await alert_rule_service.delete_rule(db, row, actor_user_id=current_user.user_id)
 
 
 class TestTelegramAlertRequest(BaseModel):

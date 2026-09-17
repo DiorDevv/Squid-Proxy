@@ -295,3 +295,76 @@ def test_native_epoch_line_is_untouched_by_alt_normaliser():
     assert event.hierarchy == "HIER_DIRECT"
     assert event.peer == "149.154.167.41"
     assert event.timestamp == datetime.fromtimestamp(1788430186.871, tz=UTC)
+
+
+def test_plain_format_has_no_bytes_received():
+    line = "1737100800.123 45 10.0.0.5 TCP_MISS/200 1024 GET http://example.com/ alice HIER_DIRECT/1.2.3.4 text/html"
+    event = parse_line(line)
+
+    assert event is not None
+    assert event.bytes_received is None
+
+
+def test_two_size_variant_denied_connect_maps_both_byte_columns():
+    # Real line: ... TCP_DENIED/403 <%>st> <%<st> CONNECT host:443 - HIER_NONE/- text/html
+    line = (
+        "1788959760.199 0 172.20.33.6 TCP_DENIED/403 101 3884 CONNECT "
+        "geo.prod.do.dsp.mp.microsoft.com:443 - HIER_NONE/- text/html"
+    )
+    event = parse_line(line)
+
+    assert event is not None
+    assert event.bytes_received == 101          # %>st -- request bytes from client
+    assert event.bytes == 3884                  # %<st -- reply bytes to client
+    assert event.method == "CONNECT"
+    assert event.domain == "geo.prod.do.dsp.mp.microsoft.com"
+    assert event.user is None
+    assert event.hierarchy == "HIER_NONE"
+    assert event.peer is None
+    assert event.content_type == "text/html"
+    assert event.blocked is True
+
+
+def test_two_size_variant_get_line():
+    line = (
+        "1788959760.249 530 172.20.9.81 TCP_MISS/206 379 2101 GET "
+        "http://www.google.com/dl/release2/x.crx3 - HIER_DIRECT/142.251.155.119 "
+        "application/vnd.google.octet-stream-compressible"
+    )
+    event = parse_line(line)
+
+    assert event is not None
+    assert event.bytes_received == 379
+    assert event.bytes == 2101
+    assert event.method == "GET"
+    assert event.domain == "www.google.com"
+    assert event.status_code == 206
+
+
+def test_two_size_variant_with_spaced_content_type():
+    line = (
+        "1737100800.123 45 10.0.0.5 TCP_MISS/200 300 1024 GET http://example.com/ "
+        "alice HIER_DIRECT/1.2.3.4 text/html; charset=UTF-8"
+    )
+    event = parse_line(line)
+
+    assert event is not None
+    assert event.bytes_received == 300
+    assert event.bytes == 1024
+    assert event.content_type == "text/html; charset=UTF-8"
+    assert event.user == "alice"
+
+
+def test_ten_field_line_with_spaced_content_type_is_not_read_as_two_size():
+    # 11 tokens, but tokens[5] is the method "GET", not an integer -- must
+    # stay the single-size reading, bytes_received None.
+    line = (
+        "1737100800.123 45 10.0.0.5 TCP_MISS/200 1024 GET http://example.com/ "
+        "alice HIER_DIRECT/1.2.3.4 text/html; charset=UTF-8"
+    )
+    event = parse_line(line)
+
+    assert event is not None
+    assert event.bytes_received is None
+    assert event.bytes == 1024
+    assert event.content_type == "text/html; charset=UTF-8"

@@ -19,6 +19,31 @@ export const CATEGORY_OPTIONS: DomainCategoryLabel[] = [
   'other',
 ]
 
+/** Fixed hex per category for multi-series charts (the category trend
+ * stacked area). Deliberately literal hex, not theme tokens: the same
+ * category must keep the same color across brand themes so a stacked chart
+ * stays readable. The two sensitive categories are intentionally red/pink
+ * so "risky" traffic reads as risky at a glance. */
+export const CATEGORY_COLORS: Record<DomainCategoryLabel, string> = {
+  uncategorized: '#94a3b8',
+  social_media: '#3b82f6',
+  video_streaming: '#a855f7',
+  music_streaming: '#14b8a6',
+  gaming: '#f59e0b',
+  work_tools: '#22c55e',
+  shopping: '#eab308',
+  news: '#6366f1',
+  gambling: '#ef4444',
+  adult_content: '#db2777',
+  other: '#64748b',
+}
+
+/** Categories treated as inherently higher-risk -- surfaced in red on the
+ * analytics views and weighted into the per-branch risk score's
+ * "sensitive traffic" signal (see backend alert_settings; an admin can
+ * additionally mark any category sensitive per branch). */
+export const SENSITIVE_CATEGORIES: DomainCategoryLabel[] = ['gambling', 'adult_content']
+
 export const CATEGORY_LABEL_KEYS: Record<DomainCategoryLabel, TranslationKey> = {
   uncategorized: 'category.uncategorized',
   social_media: 'category.socialMedia',

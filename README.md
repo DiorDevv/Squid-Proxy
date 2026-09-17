@@ -1,12 +1,16 @@
-# Squid Watch — Squid Proxy Log Analytics Dashboard
+# Squid Watch — the proxy access record for Squid
 
 [![CI](https://github.com/DiorDevv/Squid-Proxy/actions/workflows/ci.yml/badge.svg)](https://github.com/DiorDevv/Squid-Proxy/actions/workflows/ci.yml)
 [![CodeQL](https://github.com/DiorDevv/Squid-Proxy/actions/workflows/codeql.yml/badge.svg)](https://github.com/DiorDevv/Squid-Proxy/actions/workflows/codeql.yml)
 [![License: MIT](https://img.shields.io/github/license/DiorDevv/Squid-Proxy)](LICENSE)
 
-A real-time log analytics dashboard for Squid Proxy: tails `access.log`, parses and aggregates
-traffic, and serves a live "Network Operations Center" style dashboard for a security/compliance
-team to see who accessed (or tried to access) what, and what got blocked.
+Squid Watch is the **system of record** for what people on a network were allowed to reach, what
+they were stopped from reaching, and who reviewed that information. It tails `access.log`, parses
+and aggregates traffic, and serves it to a security/compliance team as **trustworthy, defensible
+evidence** — numbers that reconcile, exports that can be verified, and an audit trail of who
+looked at whom. It has a live view for triage, but producing the record is the job, not the
+real-time console. See [docs/PRODUCT.md](docs/PRODUCT.md) for the product thesis and what it
+means for the roadmap.
 
 The UI ships in Uzbek, Russian, and English (switchable per-user, from the sidebar user menu) —
 including anomaly/insight text, not just static labels.
@@ -36,6 +40,8 @@ See [ARCHITECTURE.md](ARCHITECTURE.md) for the reasoning behind the major design
 - [Category/quota alerting and scheduled reports](#categoryquota-alerting-and-scheduled-reports)
 - [Archiving raw event detail before it's purged](#archiving-raw-event-detail-before-its-purged)
 - [Database backups](#database-backups)
+- [Off-site copies](#off-site-copies)
+- [Verifiable exports](#verifiable-exports)
 - [Operator failure notifications](#operator-failure-notifications)
 - [API surface](#api-surface)
 - [Deploying without Docker](#deploying-without-docker)
@@ -154,6 +160,15 @@ Both `.conf` files use TLS client-cert auth between branch and central — Squid
 client IPs and visited URLs, which is sensitive even on a private network. Generate your own
 private CA and per-server certs (e.g. with `openssl req`); this repo doesn't ship real certs or
 keys.
+
+**Simpler alternative: SSH-pull.** If standing up a CA and managing certs per branch is more than
+a given deployment needs, `deploy/systemd/squid-ssh-stream@.service` pulls a branch's log over a
+persistent `ssh ... tail -F` pipe instead — one SSH keypair per branch, no rsyslog/TLS setup at
+all. Read that file's own header comment before choosing it over rsyslog above: it's simpler to
+set up, but a dropped connection loses whatever the branch wrote during the outage (`tail -F`
+resumes from the current end of the file on reconnect, it doesn't replay the gap) — rsyslog's
+disk-queued forwarding doesn't have that gap. Use SSH-pull when simplicity matters more than that
+guarantee; use rsyslog when it doesn't.
 
 ### Rollout checklist (per branch)
 
@@ -291,8 +306,12 @@ Key ones to know:
 | `LOG_FILE_PATH` | Path to the Squid `access.log` to tail — must be written in the `squid` logformat, see above |
 | `DATABASE_URL` | `sqlite+aiosqlite:///...` (default) or `postgresql+asyncpg://...` |
 | `JWT_SECRET` | Signs access tokens — must be set to a real secret in any non-dev environment |
-| `RETENTION_DAYS_RAW_EVENTS` / `RETENTION_DAYS_AGGREGATES` | How long raw vs. aggregated data is kept |
+| `COOKIE_SECURE` | The refresh-token cookie's `Secure` flag — defaults to `ENVIRONMENT == "production"`. A browser only stores/sends a `Secure` cookie over HTTPS, so leave this unset once actually served over HTTPS; set it to `false` if this is served over plain HTTP (internal-only, behind a firewall/VPN) — otherwise staying logged in across a page reload silently breaks, since the access token is memory-only by design and the refresh cookie is what's supposed to restore it |
+| `RETENTION_DAYS_RAW_EVENTS` / `RETENTION_DAYS_AGGREGATES` | How long raw vs. aggregated data is kept. `RETENTION_DAYS_RAW_EVENTS` only **seeds** the initial value — once an admin saves at **Settings → Retention** (`GET/PUT /api/retention-settings`), the DB row is authoritative and this env var is inert. That page also holds the `halt_purge_if_archive_lag_days` guard: when set, the `raw_events` purge is skipped for any cycle where archiving is more than that many days behind (so a broken archive job can't quietly delete per-request detail — leave off on a bounded-disk install). |
+| `RETENTION_DAYS_OPS_AGGREGATES` | How long the Analytics per-minute operational aggregates (result codes, HTTP, hierarchy, per-user category) are kept — shorter (default 90d) than the core aggregates |
 | `ADMIN_EMAIL` / `ADMIN_PASSWORD` | First-boot admin bootstrap (only used if the `users` table is empty) |
+| `METRICS_ALLOWED_IPS` | JSON array of IPs/CIDRs allowed to scrape `/metrics` — empty (default) means no IP restriction; `/api/health` stays open regardless |
+| `EXPORT_JOBS_MAX_TOTAL_MB` | Total on-disk cap for the export-jobs directory (default 2048); a new export is refused with `507` once it's reached |
 | `RING_BUFFER_MAX_EVENTS` / `AGGREGATION_INTERVAL_SECONDS` | In-memory event buffer size and flush interval — see "Capacity planning" below |
 | `DATABASE_POOL_SIZE` / `DATABASE_MAX_OVERFLOW` | Postgres connection pool sizing (ignored for SQLite) — see "Capacity planning" below |
 | `OPS_ALERT_WEBHOOK_URL` | Notified when something breaks operationally (tailer down, backup/retention/archiving failed) — see "Operator failure notifications" below |
@@ -323,6 +342,13 @@ and copy the Postgres write-heavy-workload tuning flags (`shared_buffers`, `effe
 `max_wal_size`) from `docker-compose.override.yml.example` — the only part of large-deployment
 sizing that still needs an override file rather than a plain `.env` variable.
 
+Every service also sets a `*_CPU_SHARES` (e.g. `POSTGRES_CPU_SHARES`, `BACKEND_CPU_SHARES`) — a
+relative weight, distinct from the hard `*_CPU_LIMIT` ceiling above. The ceiling caps what a
+service can ever use; shares only matter once the host itself is out of spare CPU, deciding who
+gets priority in that moment (postgres and backend outweigh the bursty daily backup/offsite jobs,
+which outweigh the frontend) instead of leaving it to chance. See `.env.example` for the full set
+and defaults.
+
 **Required host sizing at this scale** (see `ARCHITECTURE.md` for the derivation):
 
 | Resource | Approximate requirement | Why |
@@ -331,7 +357,7 @@ sizing that still needs an override file rather than a plain `.env` variable.
 | Backend CPU | ~2 cores | Off-event-loop log parsing (`asyncio.to_thread`) + API serving |
 | Postgres RAM | ~8GB | Write-heavy bulk-upsert workload (every `AGGREGATION_INTERVAL_SECONDS`) |
 | Postgres CPU | ~4 cores | Same, plus hourly batched retention purge |
-| Disk (`raw_events`) | ~150-200GB | 7-day default retention at the computed request volume — see the formula in `ARCHITECTURE.md`; lower `RETENTION_DAYS_RAW_EVENTS` or rely on `ARCHIVE_ENABLED`'s compression path if disk is constrained |
+| Disk (`raw_events`) | ~150-200GB at ~7-day retention (the 30-day default is ~4×) | ~25-30GB/day of raw per-request detail at the computed request volume — see the formula in `ARCHITECTURE.md`. At this scale lower `RETENTION_DAYS_RAW_EVENTS` from its 30-day default and lean on `ARCHIVE_ENABLED`'s compression path for older detail |
 
 **Verifying this actually holds up, before go-live:**
 
@@ -472,9 +498,10 @@ a deployment predating this setting already wrote.
 under [Database backups](#database-backups) below both default to local Docker volumes — on the
 *same* disk as the live database. Encrypting archives protects them from someone reading the
 disk; it does nothing if the disk itself is lost (hardware failure, a deleted VM, ransomware).
-Copying archives and backups to storage on a different machine — another server, an S3-compatible
-bucket, anything not on this host — is a deliberate step you still need to add yourself; nothing
-here does it for you.
+Getting a copy onto storage that isn't this host is what [Off-site copies](#off-site-copies)
+below does — a `restic` push of both the archives and the database backups to another server, an
+S3-compatible bucket, or an rclone remote. It's off by default (it needs a destination only you
+can choose), but it's the piece that turns the two local mechanisms into an actual recovery plan.
 
 If you'd rather manage this fully yourself instead — a different external destination, your own
 cron/systemd timer, tighter control over exactly when it runs — set `ARCHIVE_ENABLED=false` and
@@ -548,7 +575,12 @@ permanently.
 (not the Python backend image), so `pg_dump` is guaranteed to match the server's exact version. Dumps
 land in the `db_backup_data` volume as `squid-dashboard-backup-<timestamp>.dump` (Postgres custom
 format — compressed, supports selective restore), once a day by default
-(`BACKUP_INTERVAL_SECONDS`), pruned after `BACKUP_KEEP_DAYS` (default 30).
+(`BACKUP_INTERVAL_SECONDS`), pruned after `BACKUP_KEEP_DAYS` (default 30). The loop waits for
+Postgres to be reachable before each dump and, on a failed cycle, retries after
+`BACKUP_RETRY_SECONDS` (default 10 min) instead of losing the whole day; set `BACKUP_AT_HOUR`
+(0–23, UTC) to pin the run to a fixed time so it can't drift across restarts. A failure alerts
+via `OPS_ALERT_WEBHOOK_URL` on the first miss and then roughly hourly until it recovers — so set
+that webhook, or a silently broken backup stays silent.
 
 **Without Docker**: install `postgresql-client` (matching your server's major version) or `sqlite3`,
 whichever `DATABASE_URL` calls for, then run `backend/scripts/backup_database.py` on a schedule —
@@ -600,32 +632,226 @@ A failed verification (or a failed backup itself, or a failed retention/archive 
 tailer dying) posts to `OPS_ALERT_WEBHOOK_URL` if configured — see "Operator failure
 notifications" below.
 
+## Off-site copies
+
+**Everything above still lives on one disk.** The archives (`ARCHIVE_OUTPUT_DIR`) and the
+database backups both default to local storage on the *same host* as the live database — a Docker
+volume or a plain directory. That survives a dropped table or a bad migration; it does not
+survive the disk, the VM, or the host itself being lost (hardware failure, a deleted cloud
+instance, ransomware, a datacentre fire). Getting a copy somewhere else is the step that turns
+the two local mechanisms into a recovery plan, and it's the one piece nothing here can do for
+you by default — only you can pick the destination.
+
+`backend/scripts/offsite_sync.py` (bare-metal) and the `db-offsite` service in
+`docker-compose.yml` (Docker) both push the archives **and** the database backups to a
+[restic](https://restic.net) repository on storage that isn't this host. restic rather than a
+plain `rsync` because:
+
+- **the repository is encrypted end-to-end** — an S3 bucket or a rented box holding it never sees
+  plaintext. The `pg_dump` files themselves aren't encrypted at rest the way
+  `ARCHIVE_ENCRYPTION_KEY` can make the archives, and off-site is exactly where that matters;
+- **dedup + content-defined chunking** — a daily multi-GB dump that barely changes day to day
+  costs kilobytes per run, not the whole dump again;
+- **`restic forget --prune`** gives a real grandfather-father-son retention policy on the
+  off-site copy (`OFFSITE_KEEP_DAILY`/`_WEEKLY`/`_MONTHLY`, default 7/8/12), independent of the
+  local `--keep-days`;
+- **`restic check`** verifies the remote repository is still restorable without pulling all of it
+  back.
+
+Supported destinations are whatever restic supports — an `sftp:` host, an `s3:` /
+S3-compatible bucket, a `b2:` bucket, an `rclone:` remote, a restic REST server. It's **inert
+until you set a repository and a passphrase**:
+
+```bash
+# .env (Docker) or backend/.env (bare-metal):
+OFFSITE_RESTIC_REPOSITORY=sftp:backup-user@backup-host:/srv/squid-watch-offsite
+OFFSITE_RESTIC_PASSWORD=$(python3 -c "import secrets; print(secrets.token_urlsafe(48))")
+# ...or, since docker-compose.yml already mounts ./deploy/offsite read-only into the
+# db-offsite container at /offsite-config:
+OFFSITE_RESTIC_PASSWORD_FILE=/offsite-config/restic-password
+```
+
+**Keep a copy of that passphrase off this host** — a password manager, a separate secrets store.
+It's the only thing between the off-site copy and being unrestorable, exactly like
+`ARCHIVE_ENCRYPTION_KEY`.
+
+**Choosing `sftp:` (another server you control over SSH)** additionally needs SSH key auth set
+up, since `db-offsite` runs unattended — there's no terminal to type a password or confirm a host
+key into. On the target server:
+
+```bash
+# Target server: a dedicated user, ideally with a restricted shell (rssh/scponly) and its
+# own directory -- don't point this at a login account.
+sudo useradd -m -s /usr/sbin/nologin squidoffsite   # or a restricted shell if you have one
+sudo install -d -o squidoffsite -g squidoffsite /srv/squid-watch-offsite
+```
+
+Then, wherever `db-offsite` runs (the Docker host, or the box `offsite_sync.py` runs on
+bare-metal):
+
+```bash
+# A dedicated, passphrase-less keypair -- unattended, so no passphrase prompt; don't reuse
+# a key that's used anywhere else (e.g. the squidreader ingest keys).
+mkdir -p deploy/offsite/ssh
+ssh-keygen -t ed25519 -N "" -f deploy/offsite/ssh/id_ed25519 -C squid-watch-offsite
+chmod 600 deploy/offsite/ssh/id_ed25519
+
+# Install the public half on the target server (paste it into
+# /home/squidoffsite/.ssh/authorized_keys if ssh-copy-id isn't available):
+ssh-copy-id -i deploy/offsite/ssh/id_ed25519.pub squidoffsite@backup-host
+
+# Pre-populate known_hosts so the first connection doesn't need an interactive
+# "yes" -- run this from the machine that will actually make the connection.
+ssh-keyscan -H backup-host >> deploy/offsite/ssh/known_hosts
+```
+
+`OFFSITE_RESTIC_REPOSITORY=sftp:squidoffsite@backup-host:/srv/squid-watch-offsite` in `.env`.
+
+**Docker**: nothing else to do — `db-offsite` comes up with `docker compose up`, notices the
+repository is configured, runs `restic init` once, then syncs every `OFFSITE_INTERVAL_SECONDS`
+(default daily) and runs `restic check` every `OFFSITE_CHECK_EVERY` cycles (default 7th). By
+default that "daily" is relative to whenever the container last started, same drift problem
+`BACKUP_AT_HOUR` fixes for `db-backup` above — set `OFFSITE_AT_HOUR` (0–23, UTC) to pin it to a
+fixed time instead, ideally an hour or two after `BACKUP_AT_HOUR` so the day's dump is already on
+disk before this pushes it out. It's on
+its own Docker network with outbound internet but no path to any other service in the stack — it
+only reads the backup volume and `./archives` (both mounted read-only) and pushes out. For an
+`s3:`/`b2:` repository, add the matching `AWS_ACCESS_KEY_ID`/`AWS_SECRET_ACCESS_KEY` (or
+`B2_ACCOUNT_ID`/`B2_ACCOUNT_KEY`) to `.env`. For an `sftp:` repository, `docker-compose.yml`
+already mounts `./deploy/offsite/ssh` to `/root/.ssh:ro` in the `db-offsite` container — the
+container's own `ssh`/`sftp` binaries read the key and `known_hosts` from there the same way any
+ssh client does; just populate that directory as shown above before bringing the service up.
+
+**Without Docker**: install `restic` (`apt install restic`), then run `offsite_sync.py` on a
+schedule just after the backup timer, plus `--check` weekly —
+`deploy/systemd/squid-dashboard-offsite.{service,timer}` and
+`squid-dashboard-offsite-check.{service,timer}` do exactly this:
+
+```bash
+sudo cp deploy/systemd/squid-dashboard-offsite.{service,timer} /etc/systemd/system/
+sudo cp deploy/systemd/squid-dashboard-offsite-check.{service,timer} /etc/systemd/system/
+sudo install -d -o squid-dashboard -g squid-dashboard /opt/squid-dashboard/offsite-cache
+sudo systemctl daemon-reload
+sudo systemctl enable --now squid-dashboard-offsite.timer squid-dashboard-offsite-check.timer
+```
+
+Or manually / via your own cron:
+
+```bash
+cd backend
+.venv/bin/python scripts/offsite_sync.py --backup-dir /var/backups/squid-watch
+.venv/bin/python scripts/offsite_sync.py --check          # verify the remote repo
+```
+
+**Restoring from the off-site copy** — you need `restic` and the passphrase, nothing else from
+this project:
+
+```bash
+export RESTIC_REPOSITORY=sftp:backup-user@backup-host:/srv/squid-watch-offsite
+export RESTIC_PASSWORD=...                 # the OFFSITE_RESTIC_PASSWORD you set
+restic snapshots                           # find the snapshot to restore
+restic restore latest --target ./restored  # pulls back the backup + archive files
+# then follow "Restoring" under Database backups above with the file under ./restored
+```
+
+A failed sync, a failed `restic check`, or a repository that can't be reached at all posts to
+`OPS_ALERT_WEBHOOK_URL` (`source: offsite` / `offsite-check`) if configured — see below.
+
+## Verifiable exports
+
+Every finished export job (Settings → Export) is checksummed (SHA-256) so a recipient can confirm
+a file wasn't altered in transit. Set `EXPORT_SIGNING_PRIVATE_KEY` to go further: every export's
+manifest (job id, range, filters, row/byte counts, content hash) is signed with Ed25519, so a copy
+handed to a third party — legal, compliance, an auditor with no login to this system — can be
+proven authentic **offline**, with no network path back here:
+
+```bash
+# Generate a signing key once, keep it in .env (back it up like ARCHIVE_ENCRYPTION_KEY):
+python3 -c "import base64, secrets; print(base64.urlsafe_b64encode(secrets.token_bytes(32)).decode())"
+```
+
+Download both the export file and its manifest (the shield icon in the Export Jobs table), hand
+both to the recipient, and they verify with the standalone script — no Squid Watch installation
+needed, just `pip install cryptography`:
+
+```bash
+python3 backend/scripts/verify_export.py --export squid-events-2026-09-01_2026-09-04.zip \
+    --manifest squid-events-2026-09-01_2026-09-04.manifest.json
+```
+
+It checks both that the file's content matches the manifest's recorded hash (integrity) and that
+the manifest's signature is valid under the embedded public key (authenticity), and exits non-zero
+if either fails. For real assurance, get the public key through a separate channel (publish it,
+or hand it over out of band) and pass `--public-key` to require an exact match rather than
+trusting whatever the manifest file claims.
+
 ## Operator failure notifications
 
 Distinct from the traffic-anomaly `ALERT_WEBHOOK_URL` above: `OPS_ALERT_WEBHOOK_URL` (falls back to
 `ALERT_WEBHOOK_URL` if unset, so a single-webhook operator needs zero new config) is posted to
 whenever something operational breaks — the log tailer dies, a background job (retention,
-archiving, category/quota/UT1 checks) errors out, a backup or backup-restore-verification fails.
+archiving, category/quota/UT1 checks) errors out, a backup or backup-restore-verification fails,
+an off-site sync or `restic check` fails.
 Every one of these already logged the failure and retried on its own schedule; this is what
 actually reaches a human instead of only whoever happens to be reading `docker logs`/`journalctl`
 at that moment. Off by default, same as `ALERT_WEBHOOK_URL`.
+
+Whether or not that webhook is set, every one of these failures is now also written to a
+`system_events` row (pruned after `RETENTION_DAYS_SYSTEM_EVENTS`, default 90) and surfaced —
+along with database size and 24h growth, disk free, per-branch ingestion (last event time,
+parse-failure rate, tailer liveness), each background job's health, and the backup / off-site
+status — at **Settings → System health** (`GET /api/system-health`, admin/auditor). The backup
+and off-site panels read `backup.json` / `offsite.json` that the `db-backup` / `db-offsite`
+jobs write to a shared volume (`JOB_STATUS_DIR`); they show "no data" until those have run. The
+backup is flagged stale once the last successful one is older than
+`SYSTEM_HEALTH_BACKUP_STALE_HOURS` (default 26).
 
 ## API surface
 
 All endpoints are under `/api`, JWT-protected except `/api/health`. See
 `backend/app/api/routes/` for the full set: `auth`, `summary`, `timeseries`, `domains` (top
 visited/blocked, by-category, per-domain detail), `clients` (+ per-client activity, time-spent by
-domain/category), `alert-settings`, `export-settings`, `reports` (status, send-now), `events`
-(recent, ring-buffer-backed), `export` (admin-only CSV/JSON), plus the `/ws/live` WebSocket for real-time
-push. Interactive docs are available at `/docs` when the backend is running (FastAPI's built-in
-Swagger UI).
+domain/category), `analytics` (see below), `alert-settings`, `export-settings`, `reports` (status,
+send-now), `events` (recent, ring-buffer-backed), `export` (admin-only CSV/JSON), plus the
+`/ws/live` WebSocket for real-time push. Interactive docs are available at `/docs` when the backend
+is running (FastAPI's built-in Swagger UI).
 
-**`GET /api/audit-log`** (admin-only) is the who-did-what trail for admin actions: user
+**`GET /api/analytics/*`** backs the Analytics section of the dashboard. Usage rollups —
+`overview` (period-over-period comparison + top categories/domains + biggest movers),
+`category-trend` (stacked traffic-by-category; an hourly request over a window wider than
+`CATEGORY_TREND_MAX_BUCKETS` is auto-coarsened to daily), `branch-breakdown`, `branch-signals`
+(the raw per-branch attention signals — blocked ratio, sensitive-traffic share, anomaly count,
+quota breaches, uncategorized-domain count — side by side, no composite score), `activity-heatmap`
+(hour × weekday volume; pass `tz_offset_minutes` for a non-UTC split). Squid-operational views —
+`result-codes` (`%Ss` mix over time + request/byte cache hit rate + denied share),
+`response-time` (approximate
+p50/p95/p99 from a per-minute latency histogram), `actors` + `actor-detail` (per-user/per-IP
+leaderboard and drill-down), `new-entities`, `denials` (blocked requests over time by reason +
+top blocked domains/categories/clients), `ingest-health` (per-branch tailer/parse/backlog status),
+`config-advisor` (heuristic squid.conf misconfiguration checks over the last 24h — no caching, no
+proxy auth, nothing denied, sensitive categories allowed, one domain dominating). All read-only
+and branch-scoped; the operational views read the per-minute aggregate tables
+(`result_code_`/`http_`/`hierarchy_`/`user_category_minute_aggregates`, retained
+`RETENTION_DAYS_OPS_AGGREGATES` days) rather than scanning raw events.
+
+**`GET/POST/PATCH/DELETE /api/watchlist`** (admin-only) manages the watchlist — client IPs,
+domains or users flagged so that `WatchlistMonitorJob` raises an anomaly the next time one is
+active (see `WATCHLIST_MONITOR_INTERVAL_SECONDS` / `WATCHLIST_ALERT_COOLDOWN_SECONDS`).
+
+**`GET /api/audit-log`** (admin/auditor) is the who-did-what trail for admin actions: user
 management (create/role-change/password-reset/delete), the full export lifecycle
 (create/download/share/cancel/share-revoke), and every settings change that affects what gets
 flagged or exported (alert settings, domain categories, export cleanup policy, "send report now").
 Not a data-retention log — entries survive the account or resource they describe (see
 `app/models/audit_log.py`).
+
+Each entry is **hash-chained**: `entry_hash` is SHA-256 over that row's fields plus the previous
+entry's `entry_hash`, so altering, inserting, or deleting any row breaks the chain from that
+point on. **`GET /api/audit-log/verify`** (admin/auditor) — and `backend/scripts/verify_audit_chain.py`
+for an offline check with only DB access — walks the whole chain and reports the first break, if
+any. The chain makes tampering *detectable*; to also make it *harder*, on Postgres run
+`REVOKE UPDATE, DELETE ON audit_log_entries FROM <app_db_user>` — the application only ever
+`INSERT`s into this table (retention never touches it), so nothing legitimate needs those rights.
 
 **`GET /metrics`** (unauthenticated, same trust boundary as `/api/health`) exposes the same
 operational numbers `/api/health` reports — log lines seen/parsed per branch, parse failure rate,
@@ -685,8 +911,15 @@ Alembic's bookkeeping table recording it.
 ## Security notes
 
 - Access tokens are short-lived (default 20 min) and kept in memory on the frontend only, never
-  `localStorage`. Refresh tokens are `httpOnly` cookies, rotated on every use.
-- The login endpoint is rate-limited (`LOGIN_RATE_LIMIT`, default 5/minute per IP).
+  `localStorage`. Refresh tokens are `httpOnly` cookies, rotated on every use. Tokens are signed
+  and verified with PyJWT (`JWT_SECRET`); `JWT_SECRET_PREVIOUS` lets you rotate the secret without
+  logging every session out at once (set it to the old value for one access-token lifetime).
+- The login endpoint is rate-limited per IP (`LOGIN_RATE_LIMIT`, default 5/minute) **and** per
+  account (`LOGIN_ACCOUNT_FAILURE_*`): after enough failed logins for one email, that email is
+  throttled to one attempt per minute regardless of source IP, so a distributed attacker can't
+  brute-force a single account by spreading guesses across IPs. It's a throttle, not a lock — the
+  correct password is still accepted and clears it, so no one can lock an account out by knowing
+  its address.
 - **Optional TOTP two-factor authentication** — any account (admin or viewer) can enable it
   self-service from the account menu (scan a QR code, confirm a code, save the one-time recovery
   codes shown). Off by default per account; not an org-wide policy toggle.

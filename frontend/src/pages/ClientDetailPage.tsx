@@ -264,11 +264,14 @@ export default function ClientDetailPage() {
           }
         >
           <PanelErrorBoundary panelLabel={t('clientDetail.timeSpent')}>
-            {timeSpentView === 'domain' ? (
-              <TimeSpentByDomain clientIp={clientIp} rangeParams={rangeParams} />
-            ) : (
-              <TimeSpentByCategory clientIp={clientIp} rangeParams={rangeParams} />
-            )}
+            <div className="flex flex-col gap-2">
+              <p className="text-xs text-muted-foreground">{t('clientDetail.timeSpentEstimateNote')}</p>
+              {timeSpentView === 'domain' ? (
+                <TimeSpentByDomain clientIp={clientIp} rangeParams={rangeParams} />
+              ) : (
+                <TimeSpentByCategory clientIp={clientIp} rangeParams={rangeParams} />
+              )}
+            </div>
           </PanelErrorBoundary>
         </Panel>
       </div>

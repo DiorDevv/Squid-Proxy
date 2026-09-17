@@ -1,0 +1,16 @@
+# Fires squid-ssh-stream-watchdog.service every 5 minutes (and shortly
+# after boot). Worst-case detection lag for a wedged stream is therefore
+# ~5 min + WATCHDOG_MAX_STALE_SECONDS.
+#
+#   sudo systemctl enable --now squid-ssh-stream-watchdog.timer
+
+[Unit]
+Description=Periodic check for wedged squid-ssh-stream instances
+
+[Timer]
+OnBootSec=5min
+OnUnitActiveSec=5min
+AccuracySec=30s
+
+[Install]
+WantedBy=timers.target

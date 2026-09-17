@@ -28,6 +28,12 @@ from app.models.db import AsyncSessionLocal
 from app.models.domain_aggregate import DomainMinuteAggregate
 from app.models.domain_category import DomainCategoryLabel
 from app.models.minute_aggregate import MinuteAggregate
+from app.models.ops_aggregate import (
+    HierarchyMinuteAggregate,
+    HttpMinuteAggregate,
+    ResultCodeMinuteAggregate,
+    UserCategoryMinuteAggregate,
+)
 from app.models.raw_event import RawEvent
 from app.services import insights_service
 from app.services.alerting import maybe_alert
@@ -45,8 +51,23 @@ class _MinuteTotals:
     blocked: int = 0
     allowed: int = 0
     bytes_: int = 0
+    bytes_recv: int = 0
+    # bytes_/bytes_recv include blocked-request bytes (Overview-wide bandwidth
+    # total); these exclude them (per-branch attribution -- see MinuteAggregate).
+    allowed_bytes_: int = 0
+    allowed_bytes_recv: int = 0
     hit: int = 0
     miss: int = 0
+    # Response-time histogram (see MinuteAggregate's perf columns) -- six
+    # disjoint bands plus the raw sum, enough for an approximate
+    # p50/p95/p99 and an exact mean.
+    dur_sum: int = 0
+    dur_lt_100: int = 0
+    dur_lt_300: int = 0
+    dur_lt_1000: int = 0
+    dur_lt_3000: int = 0
+    dur_lt_10000: int = 0
+    dur_gte_10000: int = 0
 
 
 @dataclass
@@ -54,6 +75,7 @@ class _DomainTotals:
     count: int = 0
     blocked: int = 0
     bytes_: int = 0
+    bytes_recv: int = 0
 
 
 @dataclass
@@ -61,12 +83,54 @@ class _ClientTotals:
     count: int = 0
     blocked: int = 0
     bytes_: int = 0
+    bytes_recv: int = 0
+    # The excluded-from-bytes_/bytes_recv slice (blocked events) -- kept so
+    # the "Kim" actor detail sheet can show blocked traffic as its own
+    # figure instead of it just vanishing from Downloaded/Uploaded.
+    blocked_bytes_: int = 0
+    blocked_bytes_recv: int = 0
 
 
 @dataclass
 class _CategoryTotals:
     count: int = 0
     bytes_: int = 0
+
+
+@dataclass
+class _CountBytes:
+    """Shared shape for the four Squid-operational per-minute buckets
+    (result code, HTTP method/status, hierarchy, per-user category) -- all
+    only ever need a request count and a byte total."""
+
+    count: int = 0
+    bytes_: int = 0
+
+
+def _hierarchy_code(raw: str | None) -> str:
+    """The code prefix of Squid's hierarchy field ("HIER_DIRECT/1.2.3.4" ->
+    "HIER_DIRECT"); "-" / empty -> "NONE"."""
+    if not raw or raw == "-":
+        return "NONE"
+    return raw.split("/", 1)[0].strip() or "NONE"
+
+
+def _add_duration(totals: _MinuteTotals, duration_ms: int | None) -> None:
+    if duration_ms is None or duration_ms < 0:
+        return
+    totals.dur_sum += duration_ms
+    if duration_ms < 100:
+        totals.dur_lt_100 += 1
+    elif duration_ms < 300:
+        totals.dur_lt_300 += 1
+    elif duration_ms < 1000:
+        totals.dur_lt_1000 += 1
+    elif duration_ms < 3000:
+        totals.dur_lt_3000 += 1
+    elif duration_ms < 10000:
+        totals.dur_lt_10000 += 1
+    else:
+        totals.dur_gte_10000 += 1
 
 
 @dataclass
@@ -224,14 +288,26 @@ class Aggregator:
             # disk queue after a branch/central link outage, same scenario
             # log_tailer.py's module docstring describes) doesn't stall the
             # event loop for the ~400ms/150k-events this loop measured at.
-            minute_buckets, domain_buckets, client_buckets, category_buckets, raw_rows = (
-                await asyncio.to_thread(self._build_buckets, events, overrides)
-            )
+            (
+                minute_buckets,
+                domain_buckets,
+                client_buckets,
+                category_buckets,
+                code_buckets,
+                http_buckets,
+                hier_buckets,
+                usercat_buckets,
+                raw_rows,
+            ) = await asyncio.to_thread(self._build_buckets, events, overrides)
 
             await self._bulk_upsert_minute(session, minute_buckets)
             await self._bulk_upsert_domain(session, domain_buckets)
             await self._bulk_upsert_client(session, client_buckets)
             await self._bulk_upsert_category(session, category_buckets)
+            await self._bulk_upsert_result_code(session, code_buckets)
+            await self._bulk_upsert_http(session, http_buckets)
+            await self._bulk_upsert_hierarchy(session, hier_buckets)
+            await self._bulk_upsert_user_category(session, usercat_buckets)
             # Core bulk insert (plain dicts), not session.add_all() with ORM
             # objects -- for a large backlog, add_all()'s identity-map/
             # unit-of-work bookkeeping is itself a real synchronous CPU cost
@@ -337,6 +413,10 @@ class Aggregator:
         dict[tuple[datetime, str, str], _DomainTotals],
         dict[tuple[datetime, str, str, str | None], _ClientTotals],
         dict[tuple[datetime, str, str, DomainCategoryLabel], _CategoryTotals],
+        dict[tuple[datetime, str, str], _CountBytes],
+        dict[tuple[datetime, str, str, int], _CountBytes],
+        dict[tuple[datetime, str, str], _CountBytes],
+        dict[tuple[datetime, str, str, DomainCategoryLabel], _CountBytes],
         list[dict],
     ]:
         """Runs inside a worker thread (see flush()) -- pure in-memory
@@ -350,41 +430,84 @@ class Aggregator:
         category_buckets: dict[
             tuple[datetime, str, str, DomainCategoryLabel], _CategoryTotals
         ] = defaultdict(_CategoryTotals)
+        # Squid-operational buckets (see app/models/ops_aggregate.py).
+        code_buckets: dict[tuple[datetime, str, str], _CountBytes] = defaultdict(_CountBytes)
+        http_buckets: dict[tuple[datetime, str, str, int], _CountBytes] = defaultdict(_CountBytes)
+        hier_buckets: dict[tuple[datetime, str, str], _CountBytes] = defaultdict(_CountBytes)
+        usercat_buckets: dict[
+            tuple[datetime, str, str, DomainCategoryLabel], _CountBytes
+        ] = defaultdict(_CountBytes)
         raw_rows: list[dict] = []
 
         for stored in events:
             ev = stored.event
             bucket = self._bucket(ev.timestamp)
 
+            recv = ev.bytes_received or 0
+
             mb = minute_buckets[(bucket, ev.branch)]
             mb.total += 1
             mb.bytes_ += ev.bytes
+            mb.bytes_recv += recv
             if ev.blocked:
                 mb.blocked += 1
             else:
                 mb.allowed += 1
+                mb.allowed_bytes_ += ev.bytes
+                mb.allowed_bytes_recv += recv
             if _is_cache_hit(ev.action):
                 mb.hit += 1
             elif _is_cache_miss(ev.action):
                 mb.miss += 1
+            _add_duration(mb, ev.duration_ms)
 
+            rc = code_buckets[(bucket, ev.branch, ev.action or "NONE")]
+            rc.count += 1
+            rc.bytes_ += ev.bytes
+
+            hb = http_buckets[(bucket, ev.branch, ev.method or "NONE", ev.status_code or 0)]
+            hb.count += 1
+            hb.bytes_ += ev.bytes
+
+            hr = hier_buckets[(bucket, ev.branch, _hierarchy_code(ev.hierarchy))]
+            hr.count += 1
+            hr.bytes_ += ev.bytes
+
+            # domain/category/client bytes_ (and bytes_recv) deliberately
+            # exclude blocked events below -- unlike mb above, these totals
+            # are always read as "what this domain/category/client actually
+            # transferred", never as an Overview-wide bandwidth figure, so a
+            # denial page's bytes have nowhere legitimate to hide. blocked
+            # count/blocked flag is still tracked as before.
             if ev.domain:
                 db = domain_buckets[(bucket, ev.domain, ev.branch)]
                 db.count += 1
-                db.bytes_ += ev.bytes
                 if ev.blocked:
                     db.blocked += 1
+                else:
+                    db.bytes_ += ev.bytes
+                    db.bytes_recv += recv
 
                 category = effective_category(ev.domain, overrides)
                 ctb = category_buckets[(bucket, ev.client_ip, ev.branch, category)]
                 ctb.count += 1
-                ctb.bytes_ += ev.bytes
+                if not ev.blocked:
+                    ctb.bytes_ += ev.bytes
+
+                ucb = usercat_buckets[(bucket, ev.branch, ev.user or "", category)]
+                ucb.count += 1
+                if not ev.blocked:
+                    ucb.bytes_ += ev.bytes
 
             cb = client_buckets[(bucket, ev.client_ip, ev.branch, ev.user)]
             cb.count += 1
-            cb.bytes_ += ev.bytes
             if ev.blocked:
                 cb.blocked += 1
+                cb.blocked_bytes_ += ev.bytes
+                cb.blocked_bytes_recv += recv
+            else:
+                cb.bytes_ += ev.bytes
+                cb.bytes_recv += recv
 
             raw_rows.append(
                 {
@@ -395,6 +518,7 @@ class Aggregator:
                     "action": ev.action,
                     "status_code": ev.status_code,
                     "bytes": ev.bytes,
+                    "bytes_received": ev.bytes_received,
                     "method": ev.method,
                     "url": ev.url,
                     "domain": ev.domain,
@@ -406,7 +530,17 @@ class Aggregator:
                 }
             )
 
-        return minute_buckets, domain_buckets, client_buckets, category_buckets, raw_rows
+        return (
+            minute_buckets,
+            domain_buckets,
+            client_buckets,
+            category_buckets,
+            code_buckets,
+            http_buckets,
+            hier_buckets,
+            usercat_buckets,
+            raw_rows,
+        )
 
     async def _run_insights(self, events: list[StoredEvent]) -> None:
         """Anomaly detection over the window just flushed. Best-effort: a
@@ -442,8 +576,18 @@ class Aggregator:
                 "blocked_requests": totals.blocked,
                 "allowed_requests": totals.allowed,
                 "total_bytes": totals.bytes_,
+                "bytes_received": totals.bytes_recv,
+                "allowed_bytes": totals.allowed_bytes_,
+                "allowed_bytes_received": totals.allowed_bytes_recv,
                 "hit_requests": totals.hit,
                 "miss_requests": totals.miss,
+                "duration_sum_ms": totals.dur_sum,
+                "dur_lt_100": totals.dur_lt_100,
+                "dur_lt_300": totals.dur_lt_300,
+                "dur_lt_1000": totals.dur_lt_1000,
+                "dur_lt_3000": totals.dur_lt_3000,
+                "dur_lt_10000": totals.dur_lt_10000,
+                "dur_gte_10000": totals.dur_gte_10000,
             }
             for (bucket, branch), totals in minute_buckets.items()
         ]
@@ -457,9 +601,139 @@ class Aggregator:
                 "blocked_requests",
                 "allowed_requests",
                 "total_bytes",
+                "bytes_received",
+                "allowed_bytes",
+                "allowed_bytes_received",
                 "hit_requests",
                 "miss_requests",
+                "duration_sum_ms",
+                "dur_lt_100",
+                "dur_lt_300",
+                "dur_lt_1000",
+                "dur_lt_3000",
+                "dur_lt_10000",
+                "dur_gte_10000",
             ],
+        )
+
+    async def _bulk_upsert_result_code(
+        self,
+        session: AsyncSession,
+        code_buckets: dict[tuple[datetime, str, str], _CountBytes],
+    ) -> None:
+        if not code_buckets:
+            return
+        rows = [
+            {
+                "bucket_ts": bucket,
+                "branch": branch,
+                "action": action,
+                "request_count": totals.count,
+                "total_bytes": totals.bytes_,
+            }
+            for (bucket, branch, action), totals in code_buckets.items()
+        ]
+        await bulk_upsert_sum(
+            session,
+            declared_table(ResultCodeMinuteAggregate),
+            rows,
+            index_elements=[
+                ResultCodeMinuteAggregate.bucket_ts,
+                ResultCodeMinuteAggregate.branch,
+                ResultCodeMinuteAggregate.action,
+            ],
+            sum_columns=["request_count", "total_bytes"],
+        )
+
+    async def _bulk_upsert_http(
+        self,
+        session: AsyncSession,
+        http_buckets: dict[tuple[datetime, str, str, int], _CountBytes],
+    ) -> None:
+        if not http_buckets:
+            return
+        rows = [
+            {
+                "bucket_ts": bucket,
+                "branch": branch,
+                "method": method,
+                "status_code": status_code,
+                "request_count": totals.count,
+                "total_bytes": totals.bytes_,
+            }
+            for (bucket, branch, method, status_code), totals in http_buckets.items()
+        ]
+        await bulk_upsert_sum(
+            session,
+            declared_table(HttpMinuteAggregate),
+            rows,
+            index_elements=[
+                HttpMinuteAggregate.bucket_ts,
+                HttpMinuteAggregate.branch,
+                HttpMinuteAggregate.method,
+                HttpMinuteAggregate.status_code,
+            ],
+            sum_columns=["request_count", "total_bytes"],
+        )
+
+    async def _bulk_upsert_hierarchy(
+        self,
+        session: AsyncSession,
+        hier_buckets: dict[tuple[datetime, str, str], _CountBytes],
+    ) -> None:
+        if not hier_buckets:
+            return
+        rows = [
+            {
+                "bucket_ts": bucket,
+                "branch": branch,
+                "hierarchy_code": code,
+                "request_count": totals.count,
+                "total_bytes": totals.bytes_,
+            }
+            for (bucket, branch, code), totals in hier_buckets.items()
+        ]
+        await bulk_upsert_sum(
+            session,
+            declared_table(HierarchyMinuteAggregate),
+            rows,
+            index_elements=[
+                HierarchyMinuteAggregate.bucket_ts,
+                HierarchyMinuteAggregate.branch,
+                HierarchyMinuteAggregate.hierarchy_code,
+            ],
+            sum_columns=["request_count", "total_bytes"],
+        )
+
+    async def _bulk_upsert_user_category(
+        self,
+        session: AsyncSession,
+        usercat_buckets: dict[tuple[datetime, str, str, DomainCategoryLabel], _CountBytes],
+    ) -> None:
+        if not usercat_buckets:
+            return
+        rows = [
+            {
+                "bucket_ts": bucket,
+                "branch": branch,
+                "user": user,
+                "category": category,
+                "request_count": totals.count,
+                "total_bytes": totals.bytes_,
+            }
+            for (bucket, branch, user, category), totals in usercat_buckets.items()
+        ]
+        await bulk_upsert_sum(
+            session,
+            declared_table(UserCategoryMinuteAggregate),
+            rows,
+            index_elements=[
+                UserCategoryMinuteAggregate.bucket_ts,
+                UserCategoryMinuteAggregate.branch,
+                UserCategoryMinuteAggregate.user,
+                UserCategoryMinuteAggregate.category,
+            ],
+            sum_columns=["request_count", "total_bytes"],
         )
 
     async def _bulk_upsert_domain(
@@ -477,6 +751,7 @@ class Aggregator:
                 "request_count": totals.count,
                 "blocked_count": totals.blocked,
                 "total_bytes": totals.bytes_,
+                "bytes_received": totals.bytes_recv,
             }
             for (bucket, domain, branch), totals in domain_buckets.items()
         ]
@@ -489,7 +764,7 @@ class Aggregator:
                 DomainMinuteAggregate.domain,
                 DomainMinuteAggregate.branch,
             ],
-            sum_columns=["request_count", "blocked_count", "total_bytes"],
+            sum_columns=["request_count", "blocked_count", "total_bytes", "bytes_received"],
         )
 
     async def _bulk_upsert_category(
@@ -541,6 +816,9 @@ class Aggregator:
                 "request_count": totals.count,
                 "blocked_count": totals.blocked,
                 "total_bytes": totals.bytes_,
+                "bytes_received": totals.bytes_recv,
+                "blocked_bytes": totals.blocked_bytes_,
+                "blocked_bytes_received": totals.blocked_bytes_recv,
             }
             for (bucket, client_ip, branch, user), totals in client_buckets.items()
         ]
@@ -562,5 +840,12 @@ class Aggregator:
                 ClientMinuteAggregate.branch,
                 func.coalesce(ClientMinuteAggregate.user, literal_column("''")),
             ],
-            sum_columns=["request_count", "blocked_count", "total_bytes"],
+            sum_columns=[
+                "request_count",
+                "blocked_count",
+                "total_bytes",
+                "bytes_received",
+                "blocked_bytes",
+                "blocked_bytes_received",
+            ],
         )

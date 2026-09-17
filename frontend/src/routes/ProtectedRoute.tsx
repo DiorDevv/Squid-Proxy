@@ -5,7 +5,8 @@ import { useTranslation } from '@/i18n'
 import type { Role } from '@/types/auth'
 
 interface ProtectedRouteProps {
-  requiredRole?: Role
+  /** One role, or any-of a list. Omitted = any authenticated user. */
+  requiredRole?: Role | Role[]
 }
 
 export function ProtectedRoute({ requiredRole }: ProtectedRouteProps) {
@@ -26,8 +27,11 @@ export function ProtectedRoute({ requiredRole }: ProtectedRouteProps) {
     return <Navigate to="/login" replace />
   }
 
-  if (requiredRole && role !== requiredRole) {
-    return <Navigate to="/" replace />
+  if (requiredRole) {
+    const allowed = Array.isArray(requiredRole) ? requiredRole : [requiredRole]
+    if (!role || !allowed.includes(role)) {
+      return <Navigate to="/" replace />
+    }
   }
 
   return <Outlet />

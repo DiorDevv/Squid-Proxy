@@ -11,7 +11,7 @@ from app.models.audit_log import AuditAction
 from app.models.domain_category import DomainCategoryLabel
 from app.models.export_job import ExportJob, ExportJobStatus
 from app.schemas.common import EffectiveRange, resolve_range
-from app.schemas.export import ExportJobOut, ExportShareLinkOut
+from app.schemas.export import ExportJobOut, ExportManifestOut, ExportShareLinkOut
 from app.services import audit_service, export_job_service
 from app.services.export_service import EXPORT_COLUMNS, download_csv, download_json
 
@@ -143,6 +143,16 @@ async def create_export_job(
             detail="Too many exports are already running. Wait for one to finish and try again.",
         )
 
+    max_total_mb = get_settings().EXPORT_JOBS_MAX_TOTAL_MB
+    if max_total_mb and export_job_service.export_dir_total_bytes() >= max_total_mb * 1024 * 1024:
+        raise HTTPException(
+            status_code=status.HTTP_507_INSUFFICIENT_STORAGE,
+            detail=(
+                "The export storage is at its size limit. Download and remove finished "
+                "exports (or wait for cleanup to run), then try again."
+            ),
+        )
+
     resolved_columns = _parse_columns(columns)
 
     job = await export_job_service.create_job(
@@ -181,6 +191,32 @@ async def get_export_job(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Export job not found.")
     _authorize_job_access(job, current_user)
     return export_job_service.to_out(job)
+
+
+@router.get(
+    "/export/jobs/{job_id}/manifest", dependencies=[Depends(require_admin)], response_model=ExportManifestOut
+)
+async def get_export_job_manifest(
+    job_id: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: CurrentUser = Depends(get_current_user),
+) -> ExportManifestOut:
+    """What scripts/verify_export.py needs to check a downloaded export
+    offline: the signed facts, the signature, and the public key to verify
+    it with. 404 for a job that hasn't reached DONE yet (nothing to sign
+    yet) exactly as for one that doesn't exist -- same reasoning as
+    _authorize_job_access below: don't confirm a job's existence/state to a
+    caller who can't otherwise see it."""
+    job = await export_job_service.get_job(db, job_id)
+    if job is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Export job not found.")
+    _authorize_job_access(job, current_user)
+    manifest = export_job_service.get_manifest(job)
+    if manifest is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="This export has no manifest yet."
+        )
+    return manifest
 
 
 @router.post("/export/jobs/{job_id}/cancel", dependencies=[Depends(require_admin)])

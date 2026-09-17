@@ -27,8 +27,20 @@ x-backend-common: &backend-common
   # already use.
   mem_limit: ${BACKEND_MEMORY_LIMIT:-1g}
   cpus: "${BACKEND_CPU_LIMIT:-2}"
+  # See postgres's cpu_shares comment below -- same mechanism. Backend is
+  # the second-heaviest, continuously-running service (log parsing off the
+  # event loop + API serving), so it gets the second-largest share.
+  cpu_shares: ${BACKEND_CPU_SHARES:-1536}
   environment:
     ENVIRONMENT: production
+    # Unset by default -- the refresh-token cookie's Secure flag then
+    # follows ENVIRONMENT (true here). Set to "false" if this dashboard is
+    # served over plain HTTP (e.g. internal-only, behind a firewall/VPN,
+    # no TLS termination in front) -- otherwise the browser silently
+    # refuses to store/send that cookie at all, breaking the silent-
+    # refresh-on-reload flow (see auth.py's _cookie_kwargs and
+    # frontend/src/lib/auth-store.ts's docstring). See .env.example.
+    COOKIE_SECURE: ${COOKIE_SECURE:-}
     DATABASE_URL: postgresql+asyncpg://squid:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in your .env before starting}@postgres:5432/squid_dashboard
     LOG_FILE_PATH: /data/squid-logs/access.log
     JWT_SECRET: ${JWT_SECRET:?Set JWT_SECRET in your .env before starting}
@@ -70,6 +82,9 @@ x-backend-common: &backend-common
     # backend/.env.example for how to generate one. Empty/unset stays
     # inert (archives written as plain gzip, matching prior behavior).
     ARCHIVE_ENCRYPTION_KEY: ${ARCHIVE_ENCRYPTION_KEY:-}
+    # Where the backend reads db-backup / db-offsite status JSONs from (the
+    # job_status_data volume, mounted ro below).
+    JOB_STATUS_DIR: /app/job_status
   volumes:
     - squid_log_data:/data/squid-logs
     # Bind-mounted (not a named volume, unlike the others here) so archived
@@ -83,6 +98,12 @@ x-backend-common: &backend-common
     - ./archives:/app/archives
     - ut1_blacklist_data:/app/ut1_blacklist_data
     - log_tailer_state:/app/log_tailer_state
+    # Read-only: the db-backup / db-offsite services (on their own isolated
+    # networks) write a small status JSON here that Settings -> System
+    # health surfaces. A shared *volume* doesn't bridge their networks --
+    # it's just a filesystem -- so this doesn't reopen anything the network
+    # segmentation closes.
+    - job_status_data:/app/job_status:ro
   depends_on:
     postgres:
       condition: service_healthy
@@ -97,6 +118,14 @@ services:
       POSTGRES_DB: squid_dashboard
     mem_limit: ${POSTGRES_MEMORY_LIMIT:-1g}
     cpus: "${POSTGRES_CPU_LIMIT:-2}"
+    # Relative CPU weight under contention (all six services below set one) --
+    # a ceiling (`cpus`) alone doesn't stop one busy container from crowding
+    # out another when the host is actually saturated; shares make the split
+    # proportional to how much each service's workload actually matters,
+    # instead of first-come-first-served. Postgres carries the heaviest
+    # weight: it's the confirmed bottleneck under real load (see README
+    # "Capacity planning"), not a guess.
+    cpu_shares: ${POSTGRES_CPU_SHARES:-2048}
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
@@ -160,8 +189,11 @@ services:
         HTTPS_PROXY: ${HTTPS_PROXY:-}
         NO_PROXY: ${NO_PROXY:-}
     logging: *default-logging
-    mem_limit: 256m
-    cpus: "1"
+    mem_limit: ${FRONTEND_MEMORY_LIMIT:-256m}
+    cpus: "${FRONTEND_CPU_LIMIT:-1}"
+    # Lightest weight -- nginx serving static files + proxying, not a real
+    # CPU consumer even under load.
+    cpu_shares: ${FRONTEND_CPU_SHARES:-512}
     ports:
       - "${FRONTEND_PORT:-8080}:80"
     networks:
@@ -190,15 +222,31 @@ services:
       PGDATABASE: squid_dashboard
       BACKUP_KEEP_DAYS: ${BACKUP_KEEP_DAYS:-30}
       BACKUP_INTERVAL_SECONDS: ${BACKUP_INTERVAL_SECONDS:-86400}
+      # After a failed cycle, retry this soon instead of waiting a full
+      # BACKUP_INTERVAL_SECONDS (a transient "Postgres mid-restart" used to
+      # cost a whole day with no backup).
+      BACKUP_RETRY_SECONDS: ${BACKUP_RETRY_SECONDS:-600}
+      # Wait up to this long for Postgres to accept connections before
+      # giving up on a cycle (rather than running pg_dump blind).
+      BACKUP_WAIT_MAX_SECONDS: ${BACKUP_WAIT_MAX_SECONDS:-300}
+      # Optional: pin the daily backup to a fixed UTC hour (0-23) so it
+      # lands at the same time regardless of restarts. Unset -> a
+      # drift-corrected BACKUP_INTERVAL_SECONDS.
+      BACKUP_AT_HOUR: ${BACKUP_AT_HOUR:-}
       # Optional -- notified on backup failure only (see
       # backup_postgres_docker.sh). Same fallback as the backend's own
       # ops_alerting: falls back to ALERT_WEBHOOK_URL if unset.
       OPS_ALERT_WEBHOOK_URL: ${OPS_ALERT_WEBHOOK_URL:-}
       ALERT_WEBHOOK_URL: ${ALERT_WEBHOOK_URL:-}
-    mem_limit: 512m
-    cpus: "1"
+    mem_limit: ${DB_BACKUP_MEMORY_LIMIT:-512m}
+    # Bumped from 1 -> 2 by default: pg_dump's custom-format compression is
+    # genuinely CPU-bound, and this runs once a day, not continuously --
+    # extra cores here shorten that daily window rather than sitting idle.
+    cpus: "${DB_BACKUP_CPU_LIMIT:-2}"
+    cpu_shares: ${DB_BACKUP_CPU_SHARES:-1024}
     volumes:
       - db_backup_data:/backups
+      - job_status_data:/status
       - ./backend/scripts/backup_postgres_docker.sh:/backup_postgres_docker.sh:ro
     entrypoint: ["/bin/sh", "/backup_postgres_docker.sh"]
     networks:
@@ -215,6 +263,78 @@ services:
         condition: service_healthy
     restart: unless-stopped
 
+  # Off-site replication of the backup + archive files
+  # (backend/scripts/offsite_sync_docker.sh). db-backup above writes dumps
+  # into a LOCAL Docker volume on the same disk as Postgres itself; this
+  # pushes those, plus ./archives, to an encrypted restic repository on
+  # storage that isn't this host -- the only copy that survives the disk /
+  # VM / host being lost. Inert until OFFSITE_RESTIC_REPOSITORY and a repo
+  # password are set in .env (or set OFFSITE_ENABLED=false there to make it
+  # a deliberate no-op); see "Off-site copies" in README.md.
+  db-offsite:
+    image: restic/restic:0.17.3
+    logging: *default-logging
+    environment:
+      # "false" -> the service starts but idles; anything else (or unset)
+      # runs once OFFSITE_RESTIC_REPOSITORY + a password are present.
+      OFFSITE_ENABLED: ${OFFSITE_ENABLED:-}
+      OFFSITE_RESTIC_REPOSITORY: ${OFFSITE_RESTIC_REPOSITORY:-}
+      OFFSITE_RESTIC_PASSWORD: ${OFFSITE_RESTIC_PASSWORD:-}
+      OFFSITE_RESTIC_PASSWORD_FILE: ${OFFSITE_RESTIC_PASSWORD_FILE:-}
+      OFFSITE_PATHS: ${OFFSITE_PATHS:-/backups /archives}
+      OFFSITE_INTERVAL_SECONDS: ${OFFSITE_INTERVAL_SECONDS:-86400}
+      # Optional: pin the daily sync to a fixed UTC hour (e.g. 7, an hour after
+      # db-backup's default BACKUP_AT_HOUR=6) instead of "24h after whenever this
+      # container last started". Unset by default -- see offsite_sync_docker.sh.
+      OFFSITE_AT_HOUR: ${OFFSITE_AT_HOUR:-}
+      OFFSITE_KEEP_DAILY: ${OFFSITE_KEEP_DAILY:-7}
+      OFFSITE_KEEP_WEEKLY: ${OFFSITE_KEEP_WEEKLY:-8}
+      OFFSITE_KEEP_MONTHLY: ${OFFSITE_KEEP_MONTHLY:-12}
+      OFFSITE_CHECK_EVERY: ${OFFSITE_CHECK_EVERY:-7}
+      # Object-store credentials the repo URL may need -- passed straight
+      # through to restic, left unset (harmless) for an SFTP/REST repo.
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-}
+      AWS_DEFAULT_REGION: ${AWS_DEFAULT_REGION:-}
+      B2_ACCOUNT_ID: ${B2_ACCOUNT_ID:-}
+      B2_ACCOUNT_KEY: ${B2_ACCOUNT_KEY:-}
+      # Same OPS webhook fallback as db-backup.
+      OPS_ALERT_WEBHOOK_URL: ${OPS_ALERT_WEBHOOK_URL:-}
+      ALERT_WEBHOOK_URL: ${ALERT_WEBHOOK_URL:-}
+    mem_limit: ${DB_OFFSITE_MEMORY_LIMIT:-512m}
+    # Bumped from 1 -> 2 by default: restic's chunking/encryption is
+    # measurably CPU-bound (observed at ~75% of one core during a real
+    # sync) -- more cores here means less wall-clock time the daily sync
+    # spends running, same reasoning as db-backup above.
+    cpus: "${DB_OFFSITE_CPU_LIMIT:-2}"
+    cpu_shares: ${DB_OFFSITE_CPU_SHARES:-1024}
+    volumes:
+      # Read-only -- this service never writes to either source.
+      - db_backup_data:/backups:ro
+      - ./archives:/archives:ro
+      - job_status_data:/status
+      - ./backend/scripts/offsite_sync_docker.sh:/offsite_sync_docker.sh:ro
+      # Mounts a host directory holding the restic repo password file
+      # (and/or an rclone.conf), so it doesn't have to sit in .env too --
+      # see OFFSITE_RESTIC_PASSWORD_FILE below.
+      - ./deploy/offsite:/offsite-config:ro
+      # Required for an sftp: repository (OFFSITE_RESTIC_REPOSITORY=sftp:user@host:/path)
+      # -- the sftp backend shells out to this image's own ssh/sftp binaries, which read
+      # keys and host verification from $HOME/.ssh same as any other ssh client (HOME is
+      # /root here). Put a dedicated, passphrase-less keypair's PRIVATE half plus a
+      # known_hosts pre-populated with the target's host key (ssh-keyscan -H <host>) in
+      # ./deploy/offsite/ssh/ -- see "Off-site copies" in README.md. Not needed for an
+      # s3:/b2:/rclone: repository.
+      - ./deploy/offsite/ssh:/root/.ssh:ro
+    entrypoint: ["/bin/sh", "/offsite_sync_docker.sh"]
+    networks:
+      # Its own network -- needs OUTBOUND internet (S3, a remote SFTP/REST
+      # host) but, unlike db-backup, no path to any service in this stack:
+      # it only ever reads local files and pushes them out. Not on
+      # backup_db_net/backend_db_net/frontend_net.
+      - offsite_net
+    restart: unless-stopped
+
   # Optional: generates synthetic Squid access.log traffic so the dashboard
   # can be exercised end-to-end without a real Squid deployment.
   #   docker compose --profile demo up
@@ -227,8 +347,11 @@ services:
         NO_PROXY: ${NO_PROXY:-}
     profiles: ["demo"]
     logging: *default-logging
-    mem_limit: 256m
-    cpus: "1"
+    mem_limit: ${DEMO_LOG_GENERATOR_MEMORY_LIMIT:-256m}
+    cpus: "${DEMO_LOG_GENERATOR_CPU_LIMIT:-1}"
+    # Lowest weight -- demo/dev tooling only, never runs in a real
+    # deployment (no --profile demo there), shouldn't compete with it.
+    cpu_shares: ${DEMO_LOG_GENERATOR_CPU_SHARES:-256}
     volumes:
       - squid_log_data:/data/squid-logs
     command:
@@ -257,6 +380,10 @@ networks:
   backend_db_net:
   # db-backup <-> postgres only.
   backup_db_net:
+  # db-offsite only -- outbound internet, no in-stack peers. A plain
+  # bridge network gives it NAT to the outside while keeping it off every
+  # network a stack service sits on.
+  offsite_net:
 
 volumes:
   postgres_data:
@@ -264,3 +391,6 @@ volumes:
   db_backup_data:
   ut1_blacklist_data:
   log_tailer_state:
+  # Small status JSONs written by db-backup / db-offsite, read (ro) by the
+  # backend for Settings -> System health.
+  job_status_data:

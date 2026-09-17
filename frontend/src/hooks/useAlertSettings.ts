@@ -1,8 +1,9 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { apiFetch } from '@/lib/api-client'
-import type { AlertSettingsOut, DomainCategoryLabel } from '@/types/api'
+import type { AlertRuleInput, AlertRuleOut, AlertSettingsOut, DomainCategoryLabel } from '@/types/api'
 
 const ALERT_SETTINGS_QUERY_KEY = ['alert-settings']
+const ALERT_RULES_QUERY_KEY = ['alert-rules']
 
 /** Alert thresholds are per-branch (see backend app/models/alert_settings.py)
  * -- an admin edits one branch's settings at a time. */
@@ -41,5 +42,47 @@ export function useTestTelegramAlert(branch: string) {
         body: { telegram_chat_id: telegramChatId },
         searchParams: { branch },
       }),
+  })
+}
+
+/** Admin-defined custom threshold rules (see backend
+ * app/models/alert_rule.py) -- the generic, no-code-change escape hatch
+ * for "flag a client_ip/domain/branch whose metric exceeds a threshold
+ * within a window", evaluated by app/insights/anomaly.py. */
+export function useAlertRules(branch: string) {
+  return useQuery({
+    queryKey: [...ALERT_RULES_QUERY_KEY, branch],
+    queryFn: () => apiFetch<AlertRuleOut[]>('/api/alert-settings/rules', { searchParams: { branch } }),
+  })
+}
+
+export function useCreateAlertRule(branch: string) {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (body: AlertRuleInput) =>
+      apiFetch<AlertRuleOut>('/api/alert-settings/rules', { method: 'POST', body, searchParams: { branch } }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: [...ALERT_RULES_QUERY_KEY, branch] }),
+  })
+}
+
+export function useUpdateAlertRule(branch: string) {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: ({ id, body }: { id: number; body: AlertRuleInput }) =>
+      apiFetch<AlertRuleOut>(`/api/alert-settings/rules/${id}`, {
+        method: 'PUT',
+        body,
+        searchParams: { branch },
+      }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: [...ALERT_RULES_QUERY_KEY, branch] }),
+  })
+}
+
+export function useDeleteAlertRule(branch: string) {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (id: number) =>
+      apiFetch<void>(`/api/alert-settings/rules/${id}`, { method: 'DELETE', searchParams: { branch } }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: [...ALERT_RULES_QUERY_KEY, branch] }),
   })
 }

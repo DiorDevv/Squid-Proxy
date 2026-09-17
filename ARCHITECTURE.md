@@ -55,6 +55,29 @@ live deployment, cut the worst-case API request latency during a real 150k-line 
 ~4.1s to ~0.7s (and average latency roughly 7x, since the event loop can now actually interleave
 other work throughout, not just during network-wait gaps).
 
+## What "blocked" counts (and what it deliberately doesn't distinguish)
+
+`RawEvent.blocked` — and every `blocked_requests` / `blocked_count` aggregate derived from it — is
+a **broad "the client did not get the resource because it was refused"** flag, set by
+`log_parser.parse_line` when the result tag is `TCP_DENIED*` **or** the HTTP status is `403` or
+`407`. It is intentionally *not* "the proxy blocked it". Three distinct things fold into it:
+
+- a Squid ACL denial (`TCP_DENIED*`, usually status `403` or `0`) — the proxy refused it before it
+  left the box;
+- a Squid proxy-auth challenge (status `407`) — always the proxy (only a proxy issues `407`);
+- **an origin server's own `403`** (`TCP_MISS/403`, `TCP_TUNNEL/403`, …) — the request *did* leave
+  the proxy and the destination refused it (a geo-block, a WAF, an expired session).
+
+The parse/aggregate layer does not separate these, because the per-minute aggregates record the
+result tag **or** the status, never both together, so a proxy-ACL `403` and an upstream `403` are
+indistinguishable from aggregates alone — and for the access record ("what did this person not get
+to") both mean the same thing. The Analytics **Blocks** view's reason split (`get_denials`)
+surfaces the `403` bucket as **"Forbidden (403)"**, not "ACL denied", and notes the ambiguity;
+`407` is cleanly attributed to proxy auth. Anything that genuinely needs the proxy-vs-upstream
+distinction has to read `raw_events.action` alongside `status_code`, not just the flag. Splitting
+it properly in aggregates would need an `action`×`status` per-minute table this tier does not keep
+— a deliberate scope call, not an oversight.
+
 ## Why persist raw events at all, separately from aggregates
 
 A per-minute aggregate can answer "how much traffic," but not "what did client X actually
@@ -101,6 +124,24 @@ topbar reflects this honestly (green = live, gray = polling, red = REST itself i
   since the refresh token cookie doesn't carry it; the frontend recovers the *role* by decoding
   the (unverified, display-only) JWT payload client-side — the backend independently verifies the
   role on every request regardless of what the client believes.
+- Access tokens are signed/verified with **PyJWT** (HS256), not `python-jose` (unmaintained since
+  2021, with open algorithm-confusion / DoS advisories). Every token carries a `kid` header — a
+  domain-separated, non-reversible fingerprint of the signing secret — and `decode_access_token`
+  verifies against `JWT_SECRET` and then `JWT_SECRET_PREVIOUS` (if set), using the `kid` only as a
+  hint for which to try first. Setting `JWT_SECRET_PREVIOUS` to the old value for one
+  access-token lifetime after a rotation means a secret change doesn't invalidate every live
+  session the instant it lands.
+- Login has **two** independent brute-force limits: the per-IP `LOGIN_RATE_LIMIT` (slowapi), and
+  a per-account throttle (`app/core/security.py:LoginThrottle`). The per-IP limit alone is
+  sidesteppable by a distributed attacker (botnet, IPv6 /64) who spreads guesses across source
+  IPs while still hammering one email; the per-account throttle caps *that* — after
+  `LOGIN_ACCOUNT_FAILURE_THRESHOLD` failures for an email within the window, it's allowed one
+  attempt per `LOGIN_ACCOUNT_THROTTLED_INTERVAL_SECONDS` regardless of IP. It's deliberately a
+  throttle, not a lockout: a correct password is still accepted and clears the record, so an
+  attacker who only knows an email address cannot lock its owner out (a real risk for the admin
+  account). A blocked attempt returns the same 401 and burns the same bcrypt time as an ordinary
+  wrong password, so it's invisible to the caller. In-memory / single-process, same envelope as
+  the ring buffer and the WS ticket store.
 
 ## WebSocket authentication via a single-use ticket, not the access token
 
@@ -126,9 +167,18 @@ Schema changes go through Alembic (`app/db/migrations/`), not just `init_db()`'s
 yet, it never alters an existing one, so it can't be the whole story once a table has shipped and
 needs a later column/enum change. The Docker image's entrypoint (`docker-entrypoint.sh`) and the
 systemd unit (`deploy/systemd/squid-dashboard-backend.service`, via `ExecStartPre=`) both run
-`alembic upgrade head` before the app starts, so this is automatic for both deploy paths; `init_db()`
-still runs after that (harmless/idempotent) purely so a brand-new, empty database also works via a
-plain `uvicorn app.main:app` with no separate migration step for local dev.
+`alembic upgrade head` before the app starts, so this is automatic for both deploy paths.
+
+**Alembic is the single schema authority once it's in play.** `init_db()` checks for an
+`alembic_version` table on startup: if it's there (i.e. `alembic upgrade head` has run), `init_db()`
+does *nothing* to the schema — it does **not** also run `create_all()`. A second, independent
+"create anything missing" pass would quietly paper over a model that was added without a matching
+migration; instead CI runs `alembic upgrade head && alembic check` on every push, so that drift
+fails the build. `create_all()` (plus `_ensure_aggregate_unique_indexes()` for the two
+expression-based indexes the ORM can't declare) still runs on the two paths that genuinely have no
+Alembic: a brand-new database opened with a bare `uvicorn app.main:app`, and the test suite. The
+list of models both paths build from lives in one place, `app/models/__init__.py`, so `env.py` and
+`init_db()` can't drift to different subsets.
 
 **Upgrading a database that predates this** (i.e. was only ever bootstrapped by `create_all()`, with
 no `alembic_version` table): run `alembic stamp head` once, manually, before deploying a version that
@@ -247,13 +297,16 @@ empirically against `/api/health`'s existing observability fields
 trusting the math alone. See README.md's "Capacity planning for large deployments" for the full
 verification procedure.
 
-**Disk.** At the average target (~2,000 req/s over a ~10h business day) and the default
-`RETENTION_DAYS_RAW_EVENTS=7`, rough volume is ~70-80M `raw_events` rows/day; at an estimated
-~300-400 bytes/row (row + index overhead), that's **~150-200GB just for `raw_events` at steady
-state with 7-day retention** -- shown as a formula, not false precision, since actual row size
-depends on domain-name/URL length distribution in real traffic. The two existing levers if this is
-a constraint: `RETENTION_DAYS_RAW_EVENTS` (lower it) and `ARCHIVE_ENABLED`'s existing compression
-path (already on by default).
+**Disk.** At the average target (~2,000 req/s over a ~10h business day), rough volume is ~70-80M
+`raw_events` rows/day; at an estimated ~300-400 bytes/row (row + index overhead), that's on the
+order of **~25-30GB/day**. The shipped default `RETENTION_DAYS_RAW_EVENTS=30` therefore implies
+**~750GB-900GB just for `raw_events` at steady state** at this traffic volume — so at ~30k-client
+scale this is one of the settings you must size deliberately: **~7 days (~150-200GB)** is a more
+realistic starting point for raw per-request detail here, with `ARCHIVE_ENABLED` (on by default)
+keeping compressed older detail retrievable. All figures are formulas, not false precision — actual
+row size depends on the domain-name/URL length distribution in real traffic. The two levers if
+this is a constraint: `RETENTION_DAYS_RAW_EVENTS` (lower it from the 30-day default) and
+`ARCHIVE_ENABLED`'s compression path.
 
 **Measured numbers.** Ran the verification procedure at a scale reduced to fit the dev sandbox
 it was run on (12 CPUs, ~2.7GB available RAM shared with other processes — not the ~6GB
@@ -379,11 +432,15 @@ additive, not a refactor.
 
 The dashboard commits to a single dark "Network Operations Center" theme rather than a
 light/dark toggle — this is an internal security tool, not a consumer product, and the brief is
-explicit that it should read as a dense, technical instrument. One accent color (amber) carries
-all warning/blocked/primary-action semantics; emerald is reserved for healthy/allowed state; red
-is reserved for actual failures (a disconnected backend), so it stays meaningful when it
-appears. All numeric/IP/timestamp values render in a monospace font (JetBrains Mono) site-wide so
-columns of numbers stay visually aligned and read as "data" rather than prose.
+explicit that it should read as a dense, technical instrument. The two semantically-fixed colors
+never move: emerald is reserved for healthy/allowed state, red for actual failures (a disconnected
+backend), so red stays meaningful whenever it appears. The accent (`ThemeSwitcher`, persisted in
+`localStorage`, default amber) is user-selectable between amber/azure/violet — whichever is active
+carries *both* warning/blocked and primary-action semantics together (they shift as one pair, see
+`index.css`'s `[data-brand=...]` blocks), so the accent is still internally consistent per user,
+just not hardcoded to amber. All numeric/IP/timestamp values render in a monospace font
+(JetBrains Mono) site-wide so columns of numbers stay visually aligned and read as "data" rather
+than prose.
 
 ## Going to production: what a demo `docker compose up` doesn't give you
 

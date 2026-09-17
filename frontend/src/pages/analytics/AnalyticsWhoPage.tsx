@@ -1,0 +1,127 @@
+import { useState } from 'react'
+import { Panel } from '@/components/common/Panel'
+import { PanelErrorBoundary } from '@/components/common/PanelErrorBoundary'
+import { ErrorState } from '@/components/common/ErrorState'
+import { SearchFilterInput } from '@/components/common/SearchFilterInput'
+import { ActorLeaderboard } from '@/components/analytics/ActorLeaderboard'
+import { ActorDetailSheet } from '@/components/analytics/ActorDetailSheet'
+import { formatNumber } from '@/lib/format'
+import { useRangeSearchParams } from '@/lib/filters-store'
+import { useDebouncedValue } from '@/hooks/useDebouncedValue'
+import { useActorLeaderboard, useNewEntities } from '@/hooks/useAnalytics'
+import { useTranslation, type TranslationKey } from '@/i18n'
+import type { ActorRow } from '@/types/api'
+
+function NewList({ titleKey, items, total }: { titleKey: TranslationKey; items: string[]; total: number }) {
+  const { t } = useTranslation()
+  return (
+    <div className="flex min-w-0 flex-col gap-1.5">
+      <div className="flex items-baseline justify-between gap-2">
+        <h3
+          className="min-w-0 truncate text-xs font-semibold uppercase text-muted-foreground"
+          title={t(titleKey)}
+        >
+          {t(titleKey)}
+        </h3>
+        <span className="font-data shrink-0 text-xs text-muted-foreground">{formatNumber(total)}</span>
+      </div>
+      {items.length === 0 ? (
+        <p className="text-xs text-muted-foreground">{t('analytics.who.noneNew')}</p>
+      ) : (
+        <ul className="scrollbar-thin flex max-h-48 flex-col gap-0.5 overflow-y-auto">
+          {items.map((v) => (
+            <li key={v} className="font-data truncate text-sm text-foreground" title={v}>
+              {v}
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  )
+}
+
+export default function AnalyticsWhoPage() {
+  const { t } = useTranslation()
+  const rangeParams = useRangeSearchParams()
+  const [sort, setSort] = useState('requests')
+  const [selected, setSelected] = useState<ActorRow | null>(null)
+  const [search, setSearch] = useState('')
+  const debouncedSearch = useDebouncedValue(search, 300)
+
+  const board = useActorLeaderboard(rangeParams, sort, 50, true, debouncedSearch)
+  const newEntities = useNewEntities(rangeParams, true)
+
+  return (
+    <div className="flex flex-col gap-4">
+      <Panel
+        title={t('analytics.who.title')}
+        action={
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-xs text-muted-foreground">{t('analytics.who.hint')}</span>
+            <SearchFilterInput
+              value={search}
+              onChange={setSearch}
+              placeholder={t('analytics.who.searchPlaceholder')}
+              ariaLabel={t('analytics.who.searchAriaLabel')}
+            />
+          </div>
+        }
+      >
+        <PanelErrorBoundary panelLabel={t('analytics.who.title')}>
+          {board.isError ? (
+            <ErrorState message={board.error?.message} onRetry={() => board.refetch()} />
+          ) : (
+            <div className="flex flex-col gap-2">
+              {(board.data?.unattributed_requests ?? 0) > 0 && (
+                <p className="rounded-md bg-secondary/40 px-2.5 py-1.5 text-xs text-muted-foreground">
+                  {t('analytics.who.unattributed', {
+                    count: formatNumber(board.data?.unattributed_requests ?? 0),
+                  })}
+                </p>
+              )}
+              <ActorLeaderboard
+                rows={board.data?.rows ?? []}
+                actorKind={board.data?.actor_kind ?? 'user'}
+                loading={board.isLoading}
+                sort={sort}
+                onSortChange={setSort}
+                onSelect={setSelected}
+                emptyMessage={debouncedSearch ? t('analytics.who.searchEmpty') : undefined}
+              />
+            </div>
+          )}
+        </PanelErrorBoundary>
+      </Panel>
+
+      <Panel
+        title={t('analytics.who.newThisPeriod')}
+        action={<span className="text-xs text-muted-foreground">{t('analytics.movers.hint')}</span>}
+      >
+        <PanelErrorBoundary panelLabel={t('analytics.who.newThisPeriod')}>
+          {newEntities.isLoading ? (
+            <div className="h-40 animate-pulse rounded bg-muted" />
+          ) : (
+            <div className="grid grid-cols-1 gap-6 sm:grid-cols-2">
+              <NewList
+                titleKey="analytics.who.newUsers"
+                items={newEntities.data?.new_users ?? []}
+                total={newEntities.data?.new_users_total ?? 0}
+              />
+              <NewList
+                titleKey="analytics.who.newClients"
+                items={newEntities.data?.new_clients ?? []}
+                total={newEntities.data?.new_clients_total ?? 0}
+              />
+            </div>
+          )}
+        </PanelErrorBoundary>
+      </Panel>
+
+      <ActorDetailSheet
+        actor={selected}
+        rangeParams={rangeParams}
+        onOpenChange={(open) => !open && setSelected(null)}
+      />
+    </div>
+  )
+}

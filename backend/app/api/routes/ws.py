@@ -27,13 +27,13 @@ async def ws_live(websocket: WebSocket, ticket: str | None = None) -> None:
     identity = ticket_store.consume(ticket)
     if identity is None:
         raise WebSocketException(code=status.WS_1008_POLICY_VIOLATION, reason="Invalid or expired ticket")
-    user_id, _role, branch = identity
+    user_id, _role, branch, token_version = identity
 
     ws_manager = websocket.app.state.ws_manager
     await ws_manager.connect(websocket, branch=branch)
 
     receive_task = asyncio.ensure_future(_drain_incoming(websocket))
-    reauth_task = asyncio.ensure_future(_reauthorize_periodically(websocket, user_id, branch))
+    reauth_task = asyncio.ensure_future(_reauthorize_periodically(websocket, user_id, branch, token_version))
     try:
         await asyncio.wait({receive_task, reauth_task}, return_when=asyncio.FIRST_COMPLETED)
     finally:
@@ -54,19 +54,27 @@ async def _drain_incoming(websocket: WebSocket) -> None:
         pass
 
 
-async def _reauthorize_periodically(websocket: WebSocket, user_id: str, branch: str | None) -> None:
-    """Closes the connection if the account behind it was deleted, or its
-    branch scope changed, since the handshake. Runs for as long as the
-    connection is open; the finally block in ws_live cancels it on any exit
-    path (client disconnect, send failure, or this closing the socket
-    itself)."""
+async def _reauthorize_periodically(
+    websocket: WebSocket, user_id: str, branch: str | None, token_version: int | None
+) -> None:
+    """Closes the connection if the account behind it was deleted, its
+    branch scope changed, or its sessions were invalidated (token_version
+    bumped by a role change / password reset) since the handshake. Runs for
+    as long as the connection is open; the finally block in ws_live cancels
+    it on any exit path (client disconnect, send failure, or this closing
+    the socket itself)."""
     from app.models.user import User
 
     while True:
         await asyncio.sleep(REAUTH_INTERVAL_SECONDS)
         async with db_module.AsyncSessionLocal() as session:
             user = await session.get(User, user_id)
-        if user is None or user.branch != branch:
+        revoked = (
+            user is None
+            or user.branch != branch
+            or (token_version is not None and user.token_version != token_version)
+        )
+        if revoked:
             with contextlib.suppress(RuntimeError):
                 await websocket.close(code=status.WS_1008_POLICY_VIOLATION, reason="Access revoked")
             return

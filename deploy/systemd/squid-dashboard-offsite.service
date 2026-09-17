@@ -1,0 +1,45 @@
+# Daily off-site replication of the backup + archive files (see
+# backend/scripts/offsite_sync.py). squid-dashboard-backup.service writes
+# pg_dump/sqlite files to a LOCAL directory on the same disk as the
+# database; this pushes those, plus ARCHIVE_OUTPUT_DIR, to an encrypted
+# restic repository that is NOT on this host -- the only copy that
+# survives the disk / VM / host being lost. Triggered by
+# squid-dashboard-offsite.timer, not WantedBy'd directly. Install:
+#
+#   sudo cp deploy/systemd/squid-dashboard-offsite.{service,timer} /etc/systemd/system/
+#   sudo cp deploy/systemd/squid-dashboard-offsite-check.{service,timer} /etc/systemd/system/
+#   sudo install -d -o squid-dashboard -g squid-dashboard /opt/squid-dashboard/offsite-cache
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now squid-dashboard-offsite.timer squid-dashboard-offsite-check.timer
+#
+# Requires the `restic` binary on PATH (`apt install restic`) -- not a
+# Python dependency this project otherwise needs. Inert until
+# OFFSITE_RESTIC_REPOSITORY and a repo password are set in the
+# EnvironmentFile below (or set OFFSITE_ENABLED=false there to keep it a
+# deliberate no-op). Same WorkingDirectory/EnvironmentFile/user
+# assumptions as squid-dashboard-backend.service -- see that file's header.
+
+[Unit]
+Description=Squid Proxy Log Analytics — off-site backup replication
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=squid-dashboard
+Group=squid-dashboard
+WorkingDirectory=/opt/squid-dashboard/backend
+EnvironmentFile=/opt/squid-dashboard/backend/.env
+# restic needs a writable local cache; keep it out of $HOME so
+# ProtectSystem=strict below can stay tight (only this path is writable).
+Environment=RESTIC_CACHE_DIR=/opt/squid-dashboard/offsite-cache
+ExecStart=/opt/squid-dashboard/backend/.venv/bin/python scripts/offsite_sync.py --backup-dir /opt/squid-dashboard/backups
+
+# Same hardening as squid-dashboard-backend.service -- this unit also
+# holds production credentials (DB, and now the restic repo password /
+# object-store keys via EnvironmentFile) and shouldn't run with weaker
+# sandboxing just because it's a oneshot job.
+ProtectSystem=strict
+ReadWritePaths=/opt/squid-dashboard/offsite-cache
+NoNewPrivileges=true
+PrivateTmp=true

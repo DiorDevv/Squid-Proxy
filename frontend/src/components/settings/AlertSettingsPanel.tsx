@@ -8,6 +8,7 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { ErrorState } from '@/components/common/ErrorState'
 import { TelegramLinkDialog } from '@/components/settings/TelegramLinkDialog'
+import { AlertRulesPanel } from '@/components/settings/AlertRulesPanel'
 import { useAlertSettings, useTestTelegramAlert, useUpdateAlertSettings } from '@/hooks/useAlertSettings'
 import { useBranches } from '@/hooks/useBranches'
 import {
@@ -97,6 +98,11 @@ export function AlertSettingsPanel() {
           data with no effect needed -- also means an in-progress edit for
           the current branch survives an incidental background refetch. */}
       <AlertSettingsForm key={branch} branch={branch} data={query.data} />
+
+      <div className="flex flex-col gap-2 border-t border-border pt-4">
+        <Label>{t('settings.alertRules.title')}</Label>
+        <AlertRulesPanel key={branch} branch={branch} />
+      </div>
     </div>
   )
 }

@@ -1,4 +1,5 @@
 from datetime import datetime
+from typing import Any
 
 from pydantic import BaseModel
 
@@ -25,6 +26,25 @@ class ExportJobOut(BaseModel):
     completed_at: datetime | None
     share_link_active: bool
     share_link_expires_at: datetime | None
+    # Whether GET .../manifest has a cryptographic signature to offer --
+    # false whenever EXPORT_SIGNING_PRIVATE_KEY isn't configured, regardless
+    # of job status. See ExportManifestOut.
+    signed: bool
+
+
+class ExportManifestOut(BaseModel):
+    """GET /export/jobs/{id}/manifest -- the facts scripts/verify_export.py
+    checks a downloaded export against, plus everything needed to verify
+    them without any further server access: the signature and the public
+    key. `manifest` is already the exact structure that was signed (see
+    export_signing.build_manifest/canonical_json) -- re-serialize it with
+    sorted keys and no extra whitespace before verifying, don't reformat
+    it."""
+
+    manifest: dict[str, Any]
+    algorithm: str
+    signature: str | None
+    public_key: str | None
 
 
 class ExportShareLinkOut(BaseModel):

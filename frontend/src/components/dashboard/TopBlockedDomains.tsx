@@ -44,10 +44,10 @@ export function TopBlockedDomains({ items, loading }: TopBlockedDomainsProps) {
         >
           <div className="flex min-w-0 flex-1 flex-col gap-1">
             <div className="flex items-center justify-between text-xs">
-              <span className="font-data truncate text-foreground" title={item.domain}>
+              <span className="font-data min-w-0 truncate text-foreground" title={item.domain}>
                 {item.domain}
               </span>
-              <span className="font-data shrink-0 text-warning">{formatNumber(item.blocked_count)}</span>
+              <span className="font-data shrink-0 pl-2 text-warning">{formatNumber(item.blocked_count)}</span>
             </div>
             <div className="h-1.5 w-full overflow-hidden rounded-full bg-muted">
               <div

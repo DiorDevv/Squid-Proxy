@@ -110,7 +110,44 @@ def _backup_sqlite(database_url: str, dest: Path) -> None:
     )
 
 
-def run(output_dir: Path, keep_days: int) -> None:
+def _write_status(status_dir: str, *, ok: bool, dest: Path | None, error: str | None) -> None:
+    """Mirror the backup.json the Docker db-backup service writes (see
+    backup_postgres_docker.sh), so a bare-metal install can feed Settings ->
+    System health too. Best-effort. Enabled by --status-dir / JOB_STATUS_DIR."""
+    if not status_dir:
+        return
+    import json
+    import shutil
+
+    try:
+        d = Path(status_dir)
+        d.mkdir(parents=True, exist_ok=True)
+        now = datetime.now(UTC).isoformat(timespec="seconds").replace("+00:00", "Z")
+        marker = d / ".backup_last_success"
+        if ok:
+            marker.write_text(now)
+        last_success = marker.read_text().strip() if marker.exists() else None
+        usage = shutil.disk_usage(dest.parent if dest else d)
+        d.joinpath("backup.json").write_text(
+            json.dumps(
+                {
+                    "updated_at": now,
+                    "ok": ok,
+                    "last_success_at": last_success,
+                    "last_dump": dest.name if (ok and dest) else None,
+                    "last_dump_bytes": (dest.stat().st_size if (ok and dest and dest.exists()) else None),
+                    "consecutive_failures": 0 if ok else 1,
+                    "error": error,
+                    "disk_total_bytes": usage.total,
+                    "disk_free_bytes": usage.free,
+                }
+            )
+        )
+    except Exception:
+        logger.warning("Could not write backup status file", exc_info=True)
+
+
+def run(output_dir: Path, keep_days: int, status_dir: str = "") -> None:
     settings = get_settings()
     output_dir.mkdir(parents=True, exist_ok=True)
     timestamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
@@ -126,17 +163,17 @@ def run(output_dir: Path, keep_days: int) -> None:
 
     try:
         backup_fn(settings.DATABASE_URL, dest)
-    except subprocess.CalledProcessError:
+    except subprocess.CalledProcessError as exc:
         # pg_dump/sqlite3 can still have written a partial file before
         # failing -- leaving it under the normal naming convention would
         # make it indistinguishable from a real, restorable backup until
         # someone actually tries to restore from it.
         dest.unlink(missing_ok=True)
+        _write_status(status_dir, ok=False, dest=None, error=f"backup command exit {exc.returncode}")
         raise
 
-    logger.info(
-        "Database backup complete", extra={"path": str(dest), "size_bytes": dest.stat().st_size}
-    )
+    logger.info("Database backup complete", extra={"path": str(dest), "size_bytes": dest.stat().st_size})
+    _write_status(status_dir, ok=True, dest=dest, error=None)
     _prune_old_backups(output_dir, keep_days)
 
 
@@ -148,18 +185,21 @@ def main() -> None:
     parser.add_argument(
         "--keep-days", type=int, default=30, help="Delete backup files older than this (default 30)"
     )
+    parser.add_argument(
+        "--status-dir",
+        default=os.environ.get("JOB_STATUS_DIR", ""),
+        help="Write backup.json here for Settings -> System health (default $JOB_STATUS_DIR)",
+    )
     args = parser.parse_args()
 
     configure_logging()
 
     try:
-        run(args.output_dir, args.keep_days)
+        run(args.output_dir, args.keep_days, args.status_dir)
     except subprocess.CalledProcessError as exc:
         logger.error("Backup command failed", extra={"returncode": exc.returncode, "stderr": exc.stderr})
         asyncio.run(
-            notify_operator_failure(
-                "backup", f"Database backup command failed (exit code {exc.returncode})"
-            )
+            notify_operator_failure("backup", f"Database backup command failed (exit code {exc.returncode})")
         )
         raise SystemExit(1) from exc
 

@@ -23,10 +23,32 @@ from app.core.config import get_settings
 logger = logging.getLogger(__name__)
 
 
+async def _persist_system_event(source: str, message: str, exc_info: bool) -> None:
+    """Land a durable row so a failure isn't lost just because no webhook is
+    configured -- Settings -> System health reads these. Best-effort: a
+    failed insert must never mask the failure being reported. Imports are
+    local to avoid a models import at this module's load time (interval_job
+    imports this module very early)."""
+    try:
+        from app.models.db import AsyncSessionLocal
+        from app.models.system_event import SystemEvent
+
+        async with AsyncSessionLocal() as session:
+            session.add(SystemEvent(source=source[:64], message=message[:2000]))
+            await session.commit()
+    except Exception:
+        logger.warning("Failed to persist system event", exc_info=exc_info, extra={"source": source})
+
+
 async def notify_operator_failure(source: str, message: str, *, exc_info: bool = True) -> None:
     """source: a short stable tag ("log_tailer:filiallar", "retention",
     "backup", ...) identifying what broke, so whoever receives the alert
-    can triage without reading logs first."""
+    can triage without reading logs first.
+
+    Always records a system_events row (durable, survives with no webhook
+    configured); additionally POSTs to OPS_ALERT_WEBHOOK_URL when set."""
+    await _persist_system_event(source, message, exc_info)
+
     settings = get_settings()
     webhook_url = settings.OPS_ALERT_WEBHOOK_URL or settings.ALERT_WEBHOOK_URL
     if not webhook_url:

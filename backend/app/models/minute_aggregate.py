@@ -26,6 +26,16 @@ class MinuteAggregate(Base):
     blocked_requests: Mapped[int] = mapped_column(Integer, default=0)
     allowed_requests: Mapped[int] = mapped_column(Integer, default=0)
     total_bytes: Mapped[int] = mapped_column(BigInteger, default=0)
+    # %>st -- bytes received from clients (upload); %<st is total_bytes above.
+    bytes_received: Mapped[int] = mapped_column(BigInteger, default=0)
+    # total_bytes/bytes_received above include blocked-request bytes on purpose
+    # (this column backs the Overview-wide bandwidth total). These two are the
+    # same sums with blocked events excluded -- per-branch attribution reads
+    # (branch breakdown/trend) use these instead, since "how much did branch X
+    # transfer" shouldn't include a denial page's bytes. See migration
+    # a3f8c1d94b26 and aggregator.py's _MinuteTotals.
+    allowed_bytes: Mapped[int] = mapped_column(BigInteger, default=0)
+    allowed_bytes_received: Mapped[int] = mapped_column(BigInteger, default=0)
     # Squid's %Ss result tag (RawEvent.action) contains "HIT" for anything
     # served from cache (TCP_HIT, TCP_MEM_HIT, TCP_IMS_HIT, ...) and "MISS"
     # for anything fetched fresh (TCP_MISS, TCP_REFRESH_MODIFIED, ...) --
@@ -36,3 +46,17 @@ class MinuteAggregate(Base):
     # (hit_requests + miss_requests), not by total_requests.
     hit_requests: Mapped[int] = mapped_column(Integer, default=0)
     miss_requests: Mapped[int] = mapped_column(Integer, default=0)
+    # Response-time distribution for this minute, as a fixed 6-band
+    # histogram plus the raw sum -- enough for an approximate p50/p95/p99
+    # (walk the bands to the target rank, interpolate) and an exact mean,
+    # without keeping every per-request duration. Bands are disjoint:
+    # dur_lt_100 is [0,100)ms, dur_lt_300 is [100,300), ... dur_gte_10000
+    # is [10000, inf). See aggregator._duration_band and
+    # analytics_service.get_response_time.
+    duration_sum_ms: Mapped[int] = mapped_column(BigInteger, default=0)
+    dur_lt_100: Mapped[int] = mapped_column(Integer, default=0)
+    dur_lt_300: Mapped[int] = mapped_column(Integer, default=0)
+    dur_lt_1000: Mapped[int] = mapped_column(Integer, default=0)
+    dur_lt_3000: Mapped[int] = mapped_column(Integer, default=0)
+    dur_lt_10000: Mapped[int] = mapped_column(Integer, default=0)
+    dur_gte_10000: Mapped[int] = mapped_column(Integer, default=0)

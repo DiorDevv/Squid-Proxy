@@ -79,7 +79,9 @@ export default function DomainDetailPage() {
               <ArrowLeft className="h-4 w-4" />
             </Link>
           </Button>
-          <h1 className="font-data text-lg font-semibold text-foreground">{domain}</h1>
+          <h1 className="font-data min-w-0 truncate text-lg font-semibold text-foreground" title={domain}>
+            {domain}
+          </h1>
           {summary && (
             <Select
               value={summary.category}

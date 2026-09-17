@@ -1,10 +1,13 @@
 """Prometheus-format exposition of the same operational state /api/health
 already reports (see health.build_health_snapshot) -- for wiring into
 Grafana/Alertmanager instead of scraping and reshaping /api/health's ad-hoc
-JSON. Deliberately unauthenticated, same trust boundary as /api/health
+JSON. Unauthenticated by default, same trust boundary as /api/health
 (README: "All endpoints are under /api, JWT-protected except /api/health")
 -- this is for internal monitoring infra to scrape, not exposed publicly
-any more than health already is.
+any more than health already is. If METRICS_ALLOWED_IPS is set, this
+endpoint is additionally restricted to those client IPs / CIDRs (see
+_client_allowed); /api/health stays open regardless (the frontend banner
+polls it from browsers).
 
 Design note: these are Gauges set at scrape time from build_health_snapshot,
 not persistent Counters incremented at the source. A Prometheus purist would
@@ -17,18 +20,49 @@ fresh CollectorRegistry per request (not the global default registry)
 avoids cross-test/cross-request state bleed.
 """
 
+import ipaddress
+import logging
+
 from fastapi import APIRouter, Request, Response
 from prometheus_client import CONTENT_TYPE_LATEST, CollectorRegistry, Gauge, generate_latest
 
 from app.api.routes.health import build_health_snapshot
+from app.core.config import get_settings
 
+logger = logging.getLogger(__name__)
 router = APIRouter(tags=["metrics"])
 
 _METRIC_PREFIX = "squid_dashboard"
 
 
+def _client_allowed(request: Request) -> bool:
+    """True unless METRICS_ALLOWED_IPS is set and the peer address isn't in
+    it. `request.client.host` is the peer -- which behind a reverse proxy
+    running uvicorn with --proxy-headers is the real client's rewritten
+    X-Forwarded-For, the same address the rate limiter keys on."""
+    allowed = get_settings().METRICS_ALLOWED_IPS
+    if not allowed:
+        return True
+    host = request.client.host if request.client else None
+    if host is None:
+        return False
+    try:
+        addr = ipaddress.ip_address(host)
+    except ValueError:
+        return False
+    for entry in allowed:
+        try:
+            if addr in ipaddress.ip_network(entry, strict=False):
+                return True
+        except ValueError:
+            logger.warning("Ignoring unparseable METRICS_ALLOWED_IPS entry %r", entry)
+    return False
+
+
 @router.get("/metrics")
 async def metrics(request: Request) -> Response:
+    if not _client_allowed(request):
+        return Response(status_code=403)
     snapshot = build_health_snapshot(request.app)
     registry = CollectorRegistry()
 

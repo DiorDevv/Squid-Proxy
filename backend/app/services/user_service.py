@@ -145,6 +145,10 @@ async def update_role(
 
     old_role = user.role
     user.role = new_role
+    # End every existing session of this account: the new role must be
+    # in force on the next request, and the frontend needs a fresh token
+    # so its own role-gated UI matches what the API will now allow.
+    user.token_version += 1
     await audit_service.record(
         session,
         action=AuditAction.USER_ROLE_CHANGED,
@@ -182,6 +186,9 @@ async def update_branch(
 
     old_branch = user.branch
     user.branch = branch
+    # Same reasoning as update_role: force a re-login so the new branch
+    # scope takes effect immediately and consistently on both sides.
+    user.token_version += 1
     await audit_service.record(
         session,
         action=AuditAction.USER_BRANCH_CHANGED,
@@ -213,6 +220,10 @@ async def reset_password(
     user = await _get_user_or_404(session, user_id)
     _require_same_branch(user, actor_branch)
     user.hashed_password = hash_password(new_password)
+    # Kill live access tokens too, not just refresh tokens below -- a
+    # password reset is usually a compromise response, and an access
+    # token stays valid for its full lifetime otherwise.
+    user.token_version += 1
     # A password reset is often a response to a compromised account -- also
     # revoke any refresh tokens already issued to this user, so a stolen
     # refresh cookie can't keep minting access tokens past the reset (see

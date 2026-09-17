@@ -23,11 +23,20 @@ from app.models.client_hourly_aggregate import ClientHourlyAggregate
 from app.models.db import AsyncSessionLocal
 from app.models.domain_aggregate import DomainMinuteAggregate
 from app.models.minute_aggregate import MinuteAggregate
+from app.models.ops_aggregate import (
+    HierarchyMinuteAggregate,
+    HttpMinuteAggregate,
+    ResultCodeMinuteAggregate,
+    UserCategoryMinuteAggregate,
+)
 from app.models.raw_event import RawEvent
 from app.models.refresh_token import RefreshToken
+from app.models.system_event import SystemEvent
+from app.services import retention_settings_service
 from app.services.db_upsert import bulk_upsert_sum, declared_table
 from app.services.export_job_service import purge_old_jobs
 from app.services.interval_job import IntervalJob
+from app.services.ops_alerting import notify_operator_failure
 from app.services.report_service import send_unarchived_purge_warning
 
 logger = logging.getLogger(__name__)
@@ -67,18 +76,24 @@ class RetentionJob(IntervalJob):
     async def run(self) -> None:
         settings = get_settings()
         now = datetime.now(UTC)
-        raw_cutoff = now - timedelta(days=settings.RETENTION_DAYS_RAW_EVENTS)
         aggregate_cutoff = now - timedelta(days=settings.RETENTION_DAYS_AGGREGATES)
+        ops_cutoff = now - timedelta(days=settings.RETENTION_DAYS_OPS_AGGREGATES)
         rollup_cutoff = now - timedelta(hours=settings.CLIENT_ROLLUP_AFTER_HOURS)
 
         async with AsyncSessionLocal() as session:
+            retention = await retention_settings_service.get_settings_row(session)
+            raw_cutoff = now - timedelta(days=retention.raw_events_days)
+
             await self._rollup_client_minutes_to_hourly(session, rollup_cutoff)
 
             # Checked *before* the delete below, against the data that
-            # delete is about to remove -- purging still happens either way
-            # (retention has to stay bounded regardless of whether anyone's
-            # archiving), this only decides whether to warn about it.
+            # delete is about to remove -- this decides whether to warn
+            # about it (and, if halt_purge_if_archive_lag_days is set,
+            # whether to skip the raw_events purge entirely this cycle).
             unarchived_branches = await self._find_unarchived_branches(session, settings, raw_cutoff)
+            halt_raw_purge = await self._archiving_too_far_behind(
+                session, now, retention.halt_purge_if_archive_lag_days
+            )
             await session.commit()
 
         # Its own batched, multi-transaction pass -- see
@@ -89,21 +104,30 @@ class RetentionJob(IntervalJob):
         # below doesn't weaken the "purge eventually catches up" guarantee,
         # it just means a crash between the two leaves a bit more raw_events
         # data than aggregates for one extra cycle, not any inconsistency.
-        raw_deleted = await self._delete_raw_events_before(raw_cutoff)
+        if halt_raw_purge:
+            raw_deleted = 0
+            logger.warning(
+                "raw_events purge skipped -- archiving is more than %d days behind "
+                "(halt_purge_if_archive_lag_days). Per-request detail is NOT being "
+                "deleted until archiving catches up.",
+                retention.halt_purge_if_archive_lag_days,
+            )
+            await notify_operator_failure(
+                "retention",
+                f"raw_events purge halted: archiving is >{retention.halt_purge_if_archive_lag_days} "
+                "days behind. Detail is piling up in the live DB (disk risk) but not being lost -- "
+                "fix archiving, then it resumes automatically.",
+            )
+        else:
+            raw_deleted = await self._delete_raw_events_before(raw_cutoff)
 
         async with AsyncSessionLocal() as session:
+            await session.execute(delete(MinuteAggregate).where(MinuteAggregate.bucket_ts < aggregate_cutoff))
             await session.execute(
-                delete(MinuteAggregate).where(MinuteAggregate.bucket_ts < aggregate_cutoff)
+                delete(DomainMinuteAggregate).where(DomainMinuteAggregate.bucket_ts < aggregate_cutoff)
             )
             await session.execute(
-                delete(DomainMinuteAggregate).where(
-                    DomainMinuteAggregate.bucket_ts < aggregate_cutoff
-                )
-            )
-            await session.execute(
-                delete(ClientMinuteAggregate).where(
-                    ClientMinuteAggregate.bucket_ts < aggregate_cutoff
-                )
+                delete(ClientMinuteAggregate).where(ClientMinuteAggregate.bucket_ts < aggregate_cutoff)
             )
             await session.execute(
                 delete(ClientCategoryMinuteAggregate).where(
@@ -113,10 +137,33 @@ class RetentionJob(IntervalJob):
             await session.execute(
                 delete(ClientHourlyAggregate).where(ClientHourlyAggregate.bucket_ts < aggregate_cutoff)
             )
+            # The Analytics "Squid ops" per-minute aggregates get their own,
+            # shorter window (RETENTION_DAYS_OPS_AGGREGATES) -- higher
+            # cardinality than the tables above and never queried past a few
+            # days by the UI. The response-time histogram lives on
+            # minute_aggregates itself and ages out with it above.
+            await session.execute(
+                delete(ResultCodeMinuteAggregate).where(ResultCodeMinuteAggregate.bucket_ts < ops_cutoff)
+            )
+            await session.execute(
+                delete(HttpMinuteAggregate).where(HttpMinuteAggregate.bucket_ts < ops_cutoff)
+            )
+            await session.execute(
+                delete(HierarchyMinuteAggregate).where(HierarchyMinuteAggregate.bucket_ts < ops_cutoff)
+            )
+            await session.execute(
+                delete(UserCategoryMinuteAggregate).where(UserCategoryMinuteAggregate.bucket_ts < ops_cutoff)
+            )
             # Revoked/rotated tokens are kept until their natural expiry (a
             # theft-detection signal, see api/routes/auth.py:refresh), then
             # purged here so the table doesn't grow unbounded.
             await session.execute(delete(RefreshToken).where(RefreshToken.expires_at < now))
+            # Operational-failure history (Settings -> System health).
+            await session.execute(
+                delete(SystemEvent).where(
+                    SystemEvent.created_at < now - timedelta(days=settings.RETENTION_DAYS_SYSTEM_EVENTS)
+                )
+            )
             # Export job result files (see api/routes/export.py's POST
             # /export/jobs) are meant to be downloaded soon after they
             # finish, not kept indefinitely -- purge alongside everything
@@ -156,8 +203,10 @@ class RetentionJob(IntervalJob):
         total_deleted = 0
         while True:
             async with AsyncSessionLocal() as session:
-                batch_ids = select(RawEvent.id).where(RawEvent.timestamp < cutoff).limit(
-                    _RAW_EVENTS_DELETE_BATCH_SIZE
+                batch_ids = (
+                    select(RawEvent.id)
+                    .where(RawEvent.timestamp < cutoff)
+                    .limit(_RAW_EVENTS_DELETE_BATCH_SIZE)
                 )
                 result = await session.execute(delete(RawEvent).where(RawEvent.id.in_(batch_ids)))
                 await session.commit()
@@ -188,9 +237,24 @@ class RetentionJob(IntervalJob):
                 unarchived.append(source.branch)
         return unarchived
 
-    async def _rollup_client_minutes_to_hourly(
-        self, session: AsyncSession, rollup_cutoff: datetime
-    ) -> None:
+    async def _archiving_too_far_behind(
+        self, session: AsyncSession, now: datetime, lag_days: int | None
+    ) -> bool:
+        """True if halt_purge_if_archive_lag_days is set and the freshest
+        successful archive across all branches is older than that. A global
+        (not per-branch) check: archiving being that far behind is a
+        system-wide problem, and _delete_raw_events_before purges by
+        timestamp, not per branch."""
+        if lag_days is None:
+            return False
+        newest = (await session.execute(select(func.max(ArchiveRun.archived_until)))).scalar_one_or_none()
+        if newest is None:
+            return True  # archiving has never run
+        if newest.tzinfo is None:
+            newest = newest.replace(tzinfo=UTC)
+        return newest < now - timedelta(days=lag_days)
+
+    async def _rollup_client_minutes_to_hourly(self, session: AsyncSession, rollup_cutoff: datetime) -> None:
         """Compress client_minute_aggregates rows older than rollup_cutoff
         into client_hourly_aggregates, then delete the source minute rows.
 
@@ -203,15 +267,26 @@ class RetentionJob(IntervalJob):
         in this codebase.
         """
         rows = (
-            await session.execute(
-                select(ClientMinuteAggregate).where(ClientMinuteAggregate.bucket_ts < rollup_cutoff)
+            (
+                await session.execute(
+                    select(ClientMinuteAggregate).where(ClientMinuteAggregate.bucket_ts < rollup_cutoff)
+                )
             )
-        ).scalars().all()
+            .scalars()
+            .all()
+        )
         if not rows:
             return
 
         hourly_totals: dict[tuple[datetime, str, str, str | None], dict[str, int]] = defaultdict(
-            lambda: {"request_count": 0, "blocked_count": 0, "total_bytes": 0}
+            lambda: {
+                "request_count": 0,
+                "blocked_count": 0,
+                "total_bytes": 0,
+                "bytes_received": 0,
+                "blocked_bytes": 0,
+                "blocked_bytes_received": 0,
+            }
         )
         for row in rows:
             hour_bucket = row.bucket_ts.replace(minute=0, second=0, microsecond=0)
@@ -219,6 +294,9 @@ class RetentionJob(IntervalJob):
             totals["request_count"] += row.request_count
             totals["blocked_count"] += row.blocked_count
             totals["total_bytes"] += row.total_bytes
+            totals["bytes_received"] += row.bytes_received
+            totals["blocked_bytes"] += row.blocked_bytes
+            totals["blocked_bytes_received"] += row.blocked_bytes_received
 
         hourly_rows = [
             {"bucket_ts": bucket_ts, "client_ip": client_ip, "branch": branch, "user": user, **totals}
@@ -234,7 +312,14 @@ class RetentionJob(IntervalJob):
                 ClientHourlyAggregate.branch,
                 func.coalesce(ClientHourlyAggregate.user, literal_column("''")),
             ],
-            sum_columns=["request_count", "blocked_count", "total_bytes"],
+            sum_columns=[
+                "request_count",
+                "blocked_count",
+                "total_bytes",
+                "bytes_received",
+                "blocked_bytes",
+                "blocked_bytes_received",
+            ],
         )
         await session.execute(
             delete(ClientMinuteAggregate).where(ClientMinuteAggregate.bucket_ts < rollup_cutoff)

@@ -1,0 +1,218 @@
+"""Response models for the Analytics section (`/api/analytics/*`).
+
+Everything here is computed on the fly from data that already exists
+(`minute_aggregates`, `domain_minute_aggregates`, `anomaly_events`,
+`alert_settings`) -- there is no analytics-specific table. See
+`app/services/analytics_service.py`.
+"""
+
+from datetime import datetime
+from enum import Enum
+
+from pydantic import BaseModel
+
+from app.models.domain_category import DomainCategoryLabel
+
+
+class TrendGranularity(str, Enum):
+    HOUR = "hour"
+    DAY = "day"
+
+
+class TrendMetric(str, Enum):
+    BYTES = "bytes"
+    REQUESTS = "requests"
+
+
+class MetricDelta(BaseModel):
+    """One headline number for the selected range next to the same number
+    for the immediately preceding, equal-length range."""
+
+    metric: str
+    current: float
+    previous: float | None
+    # (current - previous) / previous * 100, or null when previous is 0 or
+    # missing -- matches the frontend's getPercentChange contract so a
+    # ratio can't render as Infinity/NaN.
+    pct_change: float | None
+
+
+class CategoryUsage(BaseModel):
+    category: DomainCategoryLabel
+    request_count: int
+    blocked_count: int
+    total_bytes: int
+
+
+class DomainUsage(BaseModel):
+    domain: str
+    request_count: int
+    blocked_count: int
+    total_bytes: int
+    category: DomainCategoryLabel
+
+
+class CategoryMover(BaseModel):
+    """A category whose traffic changed the most (by absolute byte volume)
+    between the selected range and the equal-length range before it."""
+
+    category: DomainCategoryLabel
+    current_bytes: int
+    previous_bytes: int
+    pct_change: float | None
+
+
+class AnalyticsOverview(BaseModel):
+    since: datetime
+    until: datetime
+    previous_since: datetime
+    previous_until: datetime
+    metrics: list[MetricDelta]
+    blocked_ratio: float
+    cache_hit_ratio: float | None
+    top_categories: list[CategoryUsage]
+    top_domains: list[DomainUsage]
+    top_blocked_domains: list[DomainUsage]
+    top_movers: list[CategoryMover]
+
+
+class CategoryTrendPoint(BaseModel):
+    bucket_ts: datetime
+    # category value -> metric value for that bucket. Only categories with a
+    # non-zero value in the bucket are present; the frontend zero-fills
+    # against `categories` for stacking.
+    values: dict[str, int]
+
+
+class CategoryTrendResponse(BaseModel):
+    granularity: TrendGranularity
+    metric: TrendMetric
+    # Stacking/legend order: highest total over the whole window first.
+    categories: list[DomainCategoryLabel]
+    points: list[CategoryTrendPoint]
+
+
+class BranchBreakdownRow(BaseModel):
+    branch: str
+    total_requests: int
+    blocked_requests: int
+    allowed_requests: int
+    # Sourced from MinuteAggregate.allowed_bytes, not total_bytes -- excludes
+    # blocked-request bytes, since this is attributed to one branch ("what
+    # did branch X transfer") rather than an Overview-wide bandwidth figure.
+    total_bytes: int
+    blocked_ratio: float
+    active_client_count: int
+    requests_pct_change: float | None
+
+
+class BranchBreakdownResponse(BaseModel):
+    rows: list[BranchBreakdownRow]
+
+
+class BranchSignalRow(BaseModel):
+    """The raw per-branch signals that used to feed a composite "risk
+    score". The composite (and its arbitrary weights / bands) is gone --
+    these are shown side by side so an operator can sort by whichever one
+    matters to them and see which branch to look at first, without a made-up
+    number implying more precision than the inputs support."""
+
+    branch: str
+    total_requests: int
+    blocked_requests: int
+    blocked_ratio: float
+    sensitive_traffic_share: float
+    anomaly_count: int
+    quota_breach_count: int
+    uncategorized_domain_count: int
+
+
+class BranchSignalsResponse(BaseModel):
+    since: datetime
+    until: datetime
+    rows: list[BranchSignalRow]
+
+
+class BranchTrendPoint(BaseModel):
+    bucket_ts: datetime
+    total_requests: int
+    blocked_requests: int
+    allowed_requests: int
+    # Same allowed_bytes sourcing as BranchBreakdownRow.total_bytes above.
+    total_bytes: int
+
+
+class BranchTrendSeries(BaseModel):
+    branch: str
+    points: list[BranchTrendPoint]
+
+
+class BranchTrendResponse(BaseModel):
+    # The granularity actually used -- see get_branch_trend's auto-coarsening,
+    # same as CategoryTrendResponse.
+    granularity: TrendGranularity
+    series: list[BranchTrendSeries]
+
+
+class BranchCategoryUsage(BaseModel):
+    category: DomainCategoryLabel
+    request_count: int
+    total_bytes: int
+    bytes_received: int
+
+
+class BranchCategoryBreakdownSeries(BaseModel):
+    branch: str
+    # Every category with nonzero traffic in range, sorted by total_bytes
+    # descending -- the fixed category set (see CATEGORY_OPTIONS) is short
+    # enough that there's no need to cap and bucket the rest as "other".
+    categories: list[BranchCategoryUsage]
+
+
+class BranchCategoryBreakdownResponse(BaseModel):
+    series: list[BranchCategoryBreakdownSeries]
+
+
+class BranchBlockedDomainRow(BaseModel):
+    domain: str
+    blocked_count: int
+
+
+class BranchBlockedDomainsSeries(BaseModel):
+    branch: str
+    domains: list[BranchBlockedDomainRow]
+
+
+class BranchBlockedDomainsResponse(BaseModel):
+    since: datetime
+    until: datetime
+    series: list[BranchBlockedDomainsSeries]
+
+
+class HeatmapCell(BaseModel):
+    # 0 = Monday .. 6 = Sunday. In the timezone implied by
+    # ActivityHeatmapResponse.tz_offset_minutes (0 = UTC).
+    weekday: int
+    hour: int
+    value: int
+
+
+class ActivityHeatmapResponse(BaseModel):
+    blocked_only: bool
+    # Minutes east of UTC the weekday/hour split was computed in -- 0 means
+    # the cells are in UTC, 300 means UTC+5, etc. Echoes the request so the
+    # client can label the axes correctly.
+    tz_offset_minutes: int
+    max_value: int
+    cells: list[HeatmapCell]
+
+
+class RetentionInfo(BaseModel):
+    """How far back each tier of data goes, so the UI can warn when a
+    custom range reaches past what a given view actually has."""
+
+    raw_event_days: int
+    aggregate_days: int
+    # The per-minute operational aggregates behind Traffic & cache / Blocks
+    # -- kept a shorter time than the core aggregates.
+    ops_aggregate_days: int

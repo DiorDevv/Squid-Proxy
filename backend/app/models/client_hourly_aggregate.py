@@ -37,3 +37,9 @@ class ClientHourlyAggregate(Base):
     request_count: Mapped[int] = mapped_column(Integer, default=0)
     blocked_count: Mapped[int] = mapped_column(Integer, default=0)
     total_bytes: Mapped[int] = mapped_column(BigInteger, default=0)
+    # %>st -- bytes received from clients (upload); %<st is total_bytes above.
+    bytes_received: Mapped[int] = mapped_column(BigInteger, default=0)
+    # Same blocked_bytes/blocked_bytes_received split as ClientMinuteAggregate
+    # (this table is its hourly rollup -- see retention.py).
+    blocked_bytes: Mapped[int] = mapped_column(BigInteger, default=0)
+    blocked_bytes_received: Mapped[int] = mapped_column(BigInteger, default=0)

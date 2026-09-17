@@ -49,6 +49,13 @@ export function toDatetimeLocalValue(date: Date): string {
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`
 }
 
+/** True if `iso` is null/absent or older than `maxAgeMs`. Date math lives
+ * here so callers don't trip the "no impure calls during render" rule. */
+export function isStale(iso: string | null | undefined, maxAgeMs: number): boolean {
+  if (!iso) return true
+  return Date.now() - new Date(iso).getTime() > maxAgeMs
+}
+
 export function formatRelativeTime(iso: string | null): string {
   if (!iso) return 'never'
   const diffMs = Date.now() - new Date(iso).getTime()
@@ -62,4 +69,14 @@ export function formatRelativeTime(iso: string | null): string {
   if (diffHours < 24) return `${diffHours}h ago`
   const diffDays = Math.floor(diffHours / 24)
   return `${diffDays}d ago`
+}
+
+/** Response-time latency from the Analytics per-minute histogram. Its top
+ * band is unbounded ("≥10s"), so any percentile that lands at or past
+ * 10000ms is shown as "≥10s" rather than a spuriously precise "10.0s" --
+ * the data genuinely can't distinguish beyond that. */
+export function formatLatencyMs(ms: number): string {
+  if (ms >= 10000) return '≥10s'
+  if (ms >= 1000) return `${(ms / 1000).toFixed(1)}s`
+  return `${Math.round(ms)}ms`
 }

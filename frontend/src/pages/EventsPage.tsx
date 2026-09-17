@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Panel } from '@/components/common/Panel'
 import { ErrorState } from '@/components/common/ErrorState'
 import { SearchFilterInput } from '@/components/common/SearchFilterInput'
@@ -11,7 +11,7 @@ import { EventDetailSheet } from '@/components/blocked/EventDetailSheet'
 import { useEvents } from '@/hooks/useEvents'
 import { useDebouncedValue } from '@/hooks/useDebouncedValue'
 import { useLiveEvents } from '@/hooks/useLiveEvents'
-import { useRangeSearchParams } from '@/lib/filters-store'
+import { useFiltersStore, useRangeSearchParams } from '@/lib/filters-store'
 import { useTranslation } from '@/i18n'
 import type { LiveEvent } from '@/types/events'
 
@@ -32,8 +32,18 @@ export default function EventsPage() {
   const live = connectionState === 'open'
 
   const [offset, setOffset] = useState(0)
-  const [search, setSearch] = useState('')
+  // "View all events" from ActorDetailSheet -- seed local state straight from
+  // the one-shot store slot with a lazy initializer (a pure read, safe under
+  // StrictMode's dev double-invoke); clearing the slot is a separate effect
+  // that only touches the external store, never calls setSearch, so it can't
+  // trip react-hooks/set-state-in-effect and is itself idempotent if
+  // StrictMode runs it twice.
+  const [search, setSearch] = useState(() => useFiltersStore.getState().pendingEventsSearch ?? '')
   const [method, setMethod] = useState(ALL_METHODS)
+  const consumePendingEventsSearch = useFiltersStore((state) => state.consumePendingEventsSearch)
+  useEffect(() => {
+    consumePendingEventsSearch()
+  }, [consumePendingEventsSearch])
   const [selectedEvent, setSelectedEvent] = useState<LiveEvent | null>(null)
   const debouncedSearch = useDebouncedValue(search, 300)
 

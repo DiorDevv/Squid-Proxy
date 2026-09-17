@@ -2,6 +2,8 @@ import re
 
 from httpx import AsyncClient
 
+from app.api.routes import metrics as metrics_module
+from app.core.config import Settings
 from app.services.aggregator import Aggregator
 from app.services.event_store import RingBuffer
 
@@ -15,6 +17,34 @@ def _metric_value(body: str, name: str) -> float:
 async def test_metrics_is_public(app_client: AsyncClient):
     """/metrics must stay reachable without auth, same trust boundary as
     /api/health -- it's what monitoring infra scrapes."""
+    response = await app_client.get("/metrics")
+    assert response.status_code == 200
+
+
+async def test_metrics_ip_allowlist_blocks_a_non_listed_client(app_client: AsyncClient, monkeypatch):
+    """With METRICS_ALLOWED_IPS set to a range the test client isn't in,
+    /metrics returns 403 instead of the exposition."""
+    monkeypatch.setattr(
+        metrics_module, "get_settings", lambda: Settings(METRICS_ALLOWED_IPS=["10.9.9.0/24"])
+    )
+    response = await app_client.get("/metrics")
+    assert response.status_code == 403
+
+
+async def test_metrics_ip_allowlist_permits_a_listed_client(app_client: AsyncClient, monkeypatch):
+    """A CIDR that does cover the client (0.0.0.0/0) lets the scrape through,
+    proving the allowlist is an allow-check, not a blanket block."""
+    monkeypatch.setattr(
+        metrics_module,
+        "get_settings",
+        lambda: Settings(METRICS_ALLOWED_IPS=["0.0.0.0/0", "::/0"]),
+    )
+    response = await app_client.get("/metrics")
+    assert response.status_code == 200
+
+
+async def test_metrics_empty_allowlist_is_unrestricted(app_client: AsyncClient, monkeypatch):
+    monkeypatch.setattr(metrics_module, "get_settings", lambda: Settings(METRICS_ALLOWED_IPS=[]))
     response = await app_client.get("/metrics")
     assert response.status_code == 200
 

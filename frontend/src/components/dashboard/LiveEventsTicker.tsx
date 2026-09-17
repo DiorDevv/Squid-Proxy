@@ -54,7 +54,12 @@ export function LiveEventsTicker() {
             {event.domain ?? event.url}
           </span>
           {event.user && (
-            <span className="font-data ml-auto shrink-0 text-muted-foreground">{event.user}</span>
+            <span
+              className="font-data ml-auto max-w-[10rem] shrink-0 truncate text-muted-foreground"
+              title={event.user}
+            >
+              {event.user}
+            </span>
           )}
         </li>
       ))}

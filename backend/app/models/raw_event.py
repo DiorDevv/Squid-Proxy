@@ -49,7 +49,12 @@ class RawEvent(Base):
     branch: Mapped[str] = mapped_column(String(64), default=DEFAULT_BRANCH)
     action: Mapped[str] = mapped_column(String(64))
     status_code: Mapped[int] = mapped_column(Integer)
+    # %<st -- bytes Squid sent to the client (the download / reply size).
     bytes: Mapped[int] = mapped_column(BigInteger)
+    # %>st -- bytes Squid received from the client (the upload / request
+    # size). NULL for events off a log that only carries the single %<st
+    # column, so "no upload data" stays distinguishable from "uploaded 0".
+    bytes_received: Mapped[int | None] = mapped_column(BigInteger, nullable=True, default=None)
     method: Mapped[str] = mapped_column(String(16))
     url: Mapped[str] = mapped_column(Text)
     domain: Mapped[str | None] = mapped_column(String(255), nullable=True, index=True)

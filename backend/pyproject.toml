@@ -6,7 +6,7 @@ requires-python = ">=3.11"
 license = "MIT"
 license-files = ["../LICENSE"]
 dependencies = [
-    "fastapi>=0.139,<0.140",
+    "fastapi>=0.139,<0.142",
     # Pinned explicitly (not just left to fastapi's own >=0.46.0 floor) because
     # several starlette CVEs postdate 0.46.2 and pip won't upgrade an
     # already-satisfying transitive dep on its own -- see PYSEC-2026-161/248/

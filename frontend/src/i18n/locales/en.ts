@@ -345,6 +345,11 @@ export const en = {
   'analytics.who.downloadDossierHint':
     'Download a signed document with everything currently known about this subject (activity, watchlist status) — every generation is audited.',
   'analytics.who.dossierDownloadFailed': 'Could not generate the dossier.',
+  'analytics.who.watch': 'Watch',
+  'analytics.who.watching': 'Watching',
+  'analytics.who.watchHint': 'Add to the watchlist to get alerted on new activity.',
+  'analytics.who.watchingHint': 'On the watchlist — click to remove.',
+  'analytics.who.watchlistUpdateFailed': 'Could not update the watchlist.',
   'analytics.who.colBlockedPct': 'Blocked %',
   'analytics.who.colTopCategory': 'Top category',
   'analytics.who.newThisPeriod': 'New this period',

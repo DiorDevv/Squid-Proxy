@@ -10,6 +10,7 @@ import {
   ChevronRight,
   Clock,
   Download,
+  Eye,
   ExternalLink,
   Layers,
   ShieldQuestion,
@@ -22,6 +23,7 @@ import { downloadSubjectDossier } from '@/lib/api-client'
 import { useAuthStore } from '@/lib/auth-store'
 import { useFiltersStore } from '@/lib/filters-store'
 import { useActorDetail } from '@/hooks/useAnalytics'
+import { isWatchlistConflict, useCreateWatchlistEntry, useDeleteWatchlistEntry, useWatchlist } from '@/hooks/useWatchlist'
 import { useTranslation } from '@/i18n'
 import type { ActorRow } from '@/types/api'
 
@@ -40,6 +42,43 @@ export function ActorDetailSheet({ actor, rangeParams, onOpenChange }: ActorDeta
   const setPendingEventsSearch = useFiltersStore((state) => state.setPendingEventsSearch)
   const query = useActorDetail(rangeParams, actor?.actor ?? null, actor?.is_user ?? true)
   const data = query.data
+
+  // Admin-only (backend enforces it too) -- lets an admin watch a suspicious
+  // actor right from the investigation view instead of retyping its value
+  // into Settings > Watchlist.
+  const watchlistQuery = useWatchlist(role === 'admin')
+  const createWatch = useCreateWatchlistEntry()
+  const deleteWatch = useDeleteWatchlistEntry()
+  const watchEntry = actor
+    ? watchlistQuery.data?.find(
+        (e) => e.target_type === (actor.is_user ? 'user' : 'client_ip') && e.value === actor.actor,
+      )
+    : undefined
+
+  function toggleWatch() {
+    if (!actor) return
+    if (watchEntry) {
+      deleteWatch.mutate(watchEntry.id, {
+        onError: () => toast.error(t('analytics.who.watchlistUpdateFailed')),
+      })
+    } else {
+      createWatch.mutate(
+        {
+          target_type: actor.is_user ? 'user' : 'client_ip',
+          value: actor.actor,
+          branch: rangeParams.branch ?? '',
+        },
+        {
+          onError: (err) => {
+            // Someone else already watched it between our check and this
+            // click -- that's the state we wanted, not a failure.
+            if (isWatchlistConflict(err)) watchlistQuery.refetch()
+            else toast.error(t('analytics.who.watchlistUpdateFailed'))
+          },
+        },
+      )
+    }
+  }
 
   const maxHour = Math.max(...(data?.hourly ?? [0]), 1)
   const blockedBytesTotal = data ? data.blocked_bytes + data.blocked_bytes_received : 0
@@ -72,6 +111,29 @@ export function ActorDetailSheet({ actor, rangeParams, onOpenChange }: ActorDeta
                   <ExternalLink className="h-3.5 w-3.5" aria-hidden="true" />
                   {t('analytics.who.viewAllEvents')}
                 </Button>
+              )}
+              {role === 'admin' && actor && (
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className={
+                        watchEntry
+                          ? 'h-8 gap-1.5 border-success/30 bg-success/15 px-2.5 text-xs text-success hover:bg-success/25'
+                          : 'h-8 gap-1.5 px-2.5 text-xs'
+                      }
+                      disabled={watchlistQuery.isLoading || createWatch.isPending || deleteWatch.isPending}
+                      onClick={toggleWatch}
+                    >
+                      <Eye className="h-3.5 w-3.5" aria-hidden="true" />
+                      {watchEntry ? t('analytics.who.watching') : t('analytics.who.watch')}
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent>
+                    {watchEntry ? t('analytics.who.watchingHint') : t('analytics.who.watchHint')}
+                  </TooltipContent>
+                </Tooltip>
               )}
               {/* Full subject-access dossier (docs/PRODUCT.md #4) -- admin-only
                   on the backend (it includes watchlist status); every

@@ -328,6 +328,11 @@ export const ru = {
   'analytics.who.downloadDossierHint':
     'Скачать подписанный документ со всем, что сейчас известно об этом субъекте (активность, статус в списке наблюдения) — каждая генерация фиксируется в аудите.',
   'analytics.who.dossierDownloadFailed': 'Не удалось сформировать досье.',
+  'analytics.who.watch': 'Наблюдать',
+  'analytics.who.watching': 'Отслеживается',
+  'analytics.who.watchHint': 'Добавить в список наблюдения, чтобы получать оповещения о новой активности.',
+  'analytics.who.watchingHint': 'В списке наблюдения — нажмите, чтобы убрать.',
+  'analytics.who.watchlistUpdateFailed': 'Не удалось обновить список наблюдения.',
   'analytics.who.colBlockedPct': '% блокировок',
   'analytics.who.colTopCategory': 'Топ категория',
   'analytics.who.newThisPeriod': 'Новое за период',

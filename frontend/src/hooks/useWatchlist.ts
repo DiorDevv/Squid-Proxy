@@ -4,10 +4,11 @@ import type { WatchlistEntry, WatchlistTargetType } from '@/types/api'
 
 const KEY = ['watchlist']
 
-export function useWatchlist() {
+export function useWatchlist(enabled = true) {
   return useQuery({
     queryKey: KEY,
     queryFn: () => apiFetch<WatchlistEntry[]>('/api/watchlist'),
+    enabled,
   })
 }
 

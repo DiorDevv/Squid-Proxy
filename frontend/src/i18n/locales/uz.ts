@@ -331,6 +331,11 @@ export const uz = {
   'analytics.who.downloadDossierHint':
     'Ushbu subyekt haqida hozir maʼlum boʻlgan hamma narsa (faollik, kuzatuv holati) bilan imzolangan hujjatni yuklab oling — har bir yaratish audit qilinadi.',
   'analytics.who.dossierDownloadFailed': 'Dossye yaratib boʻlmadi.',
+  'analytics.who.watch': 'Kuzatish',
+  'analytics.who.watching': 'Kuzatilmoqda',
+  'analytics.who.watchHint': 'Yangi faoliyat haqida ogohlantirish uchun kuzatuv roʻyxatiga qoʻshing.',
+  'analytics.who.watchingHint': 'Kuzatuv roʻyxatida — olib tashlash uchun bosing.',
+  'analytics.who.watchlistUpdateFailed': 'Kuzatuv roʻyxatini yangilab boʻlmadi.',
   'analytics.who.colBlockedPct': 'Bloklash %',
   'analytics.who.colTopCategory': 'Top kategoriya',
   'analytics.who.newThisPeriod': 'Bu davrda yangi',

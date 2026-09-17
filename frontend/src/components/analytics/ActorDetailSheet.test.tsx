@@ -2,9 +2,12 @@ import { render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it, vi } from 'vitest'
 import { MemoryRouter } from 'react-router-dom'
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { ActorDetailSheet } from '@/components/analytics/ActorDetailSheet'
+import { TooltipProvider } from '@/components/ui/tooltip'
 import { useFiltersStore } from '@/lib/filters-store'
-import type { ActorDetailResponse, ActorRow } from '@/types/api'
+import * as apiClient from '@/lib/api-client'
+import type { ActorDetailResponse, ActorRow, WatchlistEntry } from '@/types/api'
 
 const navigateMock = vi.fn()
 vi.mock('react-router-dom', async () => {
@@ -13,7 +16,14 @@ vi.mock('react-router-dom', async () => {
 })
 
 function renderWithRouter(ui: React.ReactElement) {
-  return render(<MemoryRouter>{ui}</MemoryRouter>)
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+  return render(
+    <QueryClientProvider client={client}>
+      <TooltipProvider>
+        <MemoryRouter>{ui}</MemoryRouter>
+      </TooltipProvider>
+    </QueryClientProvider>,
+  )
 }
 
 const DETAIL: ActorDetailResponse = {
@@ -63,8 +73,11 @@ const DETAIL: ActorDetailResponse = {
 vi.mock('@/hooks/useAnalytics', () => ({
   useActorDetail: () => ({ data: DETAIL, isLoading: false }),
 }))
+
+// Mutable so individual tests can flip role without a fresh vi.mock per test.
+let mockRole = 'auditor'
 vi.mock('@/lib/auth-store', () => ({
-  useAuthStore: (selector: (state: { role: string }) => unknown) => selector({ role: 'auditor' }),
+  useAuthStore: (selector: (state: { role: string }) => unknown) => selector({ role: mockRole }),
 }))
 
 const ACTOR: ActorRow = {
@@ -116,5 +129,74 @@ describe('ActorDetailSheet', () => {
 
     expect(useFiltersStore.getState().pendingEventsSearch).toBe(ACTOR.actor)
     expect(navigateMock).toHaveBeenCalledWith('/events')
+  })
+})
+
+describe('ActorDetailSheet watchlist toggle', () => {
+  afterEach(() => {
+    mockRole = 'auditor'
+    vi.restoreAllMocks()
+  })
+
+  it('does not show a watch action for non-admin roles', async () => {
+    vi.spyOn(apiClient, 'apiFetch').mockResolvedValue([] as unknown as WatchlistEntry[])
+    renderWithRouter(<ActorDetailSheet actor={ACTOR} rangeParams={{}} onOpenChange={() => {}} />)
+
+    expect(screen.queryByRole('button', { name: 'Watch' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Watching' })).toBeNull()
+  })
+
+  it('lets an admin add the actor to the watchlist from the sheet', async () => {
+    mockRole = 'admin'
+    const user = userEvent.setup()
+    let entries: WatchlistEntry[] = []
+    vi.spyOn(apiClient, 'apiFetch').mockImplementation(async (path: string, options?: { method?: string }) => {
+      if (path === '/api/watchlist' && (!options?.method || options.method === 'GET')) {
+        return entries as unknown
+      }
+      if (path === '/api/watchlist' && options?.method === 'POST') {
+        const entry: WatchlistEntry = {
+          id: 'new1',
+          target_type: 'client_ip',
+          value: ACTOR.actor,
+          note: null,
+          branch: '',
+          active: true,
+          created_at: '2026-09-17T00:00:00Z',
+          last_seen_at: null,
+          last_alerted_at: null,
+        }
+        entries = [entry]
+        return entry as unknown
+      }
+      throw new Error(`unexpected request: ${path} ${options?.method ?? 'GET'}`)
+    })
+
+    renderWithRouter(<ActorDetailSheet actor={ACTOR} rangeParams={{}} onOpenChange={() => {}} />)
+
+    const watchButton = await screen.findByRole('button', { name: 'Watch' })
+    await user.click(watchButton)
+
+    expect(await screen.findByRole('button', { name: 'Watching' })).toBeInTheDocument()
+  })
+
+  it('shows Watching for an actor already on the watchlist', async () => {
+    mockRole = 'admin'
+    const entry: WatchlistEntry = {
+      id: 'w1',
+      target_type: 'client_ip',
+      value: ACTOR.actor,
+      note: null,
+      branch: '',
+      active: true,
+      created_at: '2026-09-17T00:00:00Z',
+      last_seen_at: null,
+      last_alerted_at: null,
+    }
+    vi.spyOn(apiClient, 'apiFetch').mockResolvedValue([entry] as unknown as WatchlistEntry[])
+
+    renderWithRouter(<ActorDetailSheet actor={ACTOR} rangeParams={{}} onOpenChange={() => {}} />)
+
+    expect(await screen.findByRole('button', { name: 'Watching' })).toBeInTheDocument()
   })
 })

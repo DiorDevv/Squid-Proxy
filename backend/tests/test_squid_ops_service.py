@@ -381,6 +381,61 @@ async def test_actor_detail_splits_blocked_bytes_from_the_real_total(db_session:
     assert detail.blocked_bytes_received == 90
 
 
+async def test_actor_detail_pct_change_compares_against_the_equal_length_prior_window(
+    db_session: AsyncSession,
+):
+    # SINCE..NOW is the selected (current) range; the previous window of the
+    # same length is (SINCE - 1h)..SINCE, since NOW - SINCE == 1h here.
+    prev_bucket = SINCE - timedelta(minutes=30)
+    db_session.add_all(
+        [
+            ClientMinuteAggregate(
+                bucket_ts=BUCKET, client_ip="10.0.0.7", branch="default", user="carol",
+                request_count=150, blocked_count=15, total_bytes=3000, bytes_received=300,
+                blocked_bytes=90, blocked_bytes_received=9,
+            ),
+            ClientMinuteAggregate(
+                bucket_ts=prev_bucket, client_ip="10.0.0.7", branch="default", user="carol",
+                request_count=100, blocked_count=10, total_bytes=2000, bytes_received=200,
+                blocked_bytes=60, blocked_bytes_received=6,
+            ),
+        ]
+    )
+    await db_session.commit()
+
+    detail = await squid_ops_service.get_actor_detail(
+        db_session, "carol", is_user=True, since=SINCE, until=NOW, branch=None
+    )
+    assert detail.request_count == 150
+    # +50% -- (150-100)/100
+    assert round(detail.request_count_pct_change, 1) == 50.0
+    assert round(detail.blocked_count_pct_change, 1) == 50.0
+    assert round(detail.total_bytes_pct_change, 1) == 50.0
+    assert round(detail.bytes_received_pct_change, 1) == 50.0
+    # (99-66)/66 -- blocked_bytes+blocked_bytes_received combined, same pairing
+    # ActorDetailSheet.tsx already displays as one "Blocked traffic" figure.
+    assert round(detail.blocked_bytes_pct_change, 1) == 50.0
+
+
+async def test_actor_detail_pct_change_is_none_when_the_prior_window_is_empty(
+    db_session: AsyncSession,
+):
+    db_session.add(
+        ClientMinuteAggregate(
+            bucket_ts=BUCKET, client_ip="10.0.0.8", branch="default", user="dave",
+            request_count=10, blocked_count=0, total_bytes=100, bytes_received=10,
+        )
+    )
+    await db_session.commit()
+
+    detail = await squid_ops_service.get_actor_detail(
+        db_session, "dave", is_user=True, since=SINCE, until=NOW, branch=None
+    )
+    assert detail.request_count == 10
+    assert detail.request_count_pct_change is None
+    assert detail.blocked_bytes_pct_change is None
+
+
 async def test_actor_detail_low_traffic_category_not_starved_by_a_dominant_one(db_session: AsyncSession):
     # Regression for a real bug report: the domain sample used to be a
     # single global top-40 across *all* of an actor's domains -- a

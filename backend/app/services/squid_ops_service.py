@@ -48,7 +48,7 @@ from app.schemas.squid_ops import (
     TimeBucketCounts,
 )
 from app.services.aggregator import _is_cache_hit, _is_cache_miss
-from app.services.analytics_service import _drop_in_progress_bucket, _truncate
+from app.services.analytics_service import _drop_in_progress_bucket, _pct_change, _truncate
 from app.services.category_inference import effective_category
 from app.services.client_service import client_bucket_rows
 from app.services.domain_category_service import get_overrides_map
@@ -450,6 +450,38 @@ async def get_actor_detail(
         last_seen,
     ) = totals_row
 
+    # Same-length window immediately before the selected range, for the
+    # pct-change badges next to each headline number -- same convention as
+    # analytics_service.get_overview. Only the six summed totals are worth
+    # re-querying here; first/last-seen, hourly, categories, and domains
+    # below are all range-scoped views of *this* period, not something a
+    # "previous period" figure would mean anything for.
+    duration = until - since
+    prev_since = since - duration
+    prev_until = since
+    prev_combined = client_bucket_rows(prev_since, prev_until, branch=branch)
+    prev_actor_col = prev_combined.c.user if is_user else prev_combined.c.client_ip
+    prev_totals_row = (
+        await session.execute(
+            select(
+                func.coalesce(func.sum(prev_combined.c.request_count), 0),
+                func.coalesce(func.sum(prev_combined.c.blocked_count), 0),
+                func.coalesce(func.sum(prev_combined.c.total_bytes), 0),
+                func.coalesce(func.sum(prev_combined.c.bytes_received), 0),
+                func.coalesce(func.sum(prev_combined.c.blocked_bytes), 0),
+                func.coalesce(func.sum(prev_combined.c.blocked_bytes_received), 0),
+            ).where(prev_actor_col == actor)
+        )
+    ).one()
+    (
+        prev_req_total,
+        prev_blocked_total,
+        prev_byte_total,
+        prev_recv_total,
+        prev_blocked_byte_total,
+        prev_blocked_recv_total,
+    ) = prev_totals_row
+
     # hourly (0-23, UTC)
     hourly_rows = (
         await session.execute(
@@ -548,6 +580,14 @@ async def get_actor_detail(
         bytes_received=int(recv_total),
         blocked_bytes=int(blocked_byte_total),
         blocked_bytes_received=int(blocked_recv_total),
+        request_count_pct_change=_pct_change(req_total, prev_req_total or None),
+        blocked_count_pct_change=_pct_change(blocked_total, prev_blocked_total or None),
+        total_bytes_pct_change=_pct_change(byte_total, prev_byte_total or None),
+        bytes_received_pct_change=_pct_change(recv_total, prev_recv_total or None),
+        blocked_bytes_pct_change=_pct_change(
+            blocked_byte_total + blocked_recv_total,
+            (prev_blocked_byte_total + prev_blocked_recv_total) or None,
+        ),
         categories=categories,
         top_domains=top_domains,
         denied_domains=denied_domains,

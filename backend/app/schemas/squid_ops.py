@@ -125,6 +125,17 @@ class ActorDetailResponse(BaseModel):
     # dropped -- see ClientMinuteAggregate.blocked_bytes.
     blocked_bytes: int
     blocked_bytes_received: int
+    # vs. the equal-length period immediately before [since, until] -- same
+    # convention as AnalyticsOverview's MetricDelta.pct_change: null means
+    # no comparison available (the previous window had zero to divide by),
+    # never a misleading 0%.
+    request_count_pct_change: float | None
+    blocked_count_pct_change: float | None
+    total_bytes_pct_change: float | None
+    bytes_received_pct_change: float | None
+    # Combined blocked_bytes + blocked_bytes_received, matching how the
+    # frontend already displays that pair as one "Blocked traffic" figure.
+    blocked_bytes_pct_change: float | None
     categories: list[ActorCategorySlice]
     top_domains: list[ActorDomainRow]
     denied_domains: list[ActorDomainRow]

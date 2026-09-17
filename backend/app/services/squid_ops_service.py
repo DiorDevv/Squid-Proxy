@@ -621,6 +621,11 @@ async def _actor_domains(
     ]
     if branch is not None:
         conditions.append(RawEvent.branch == branch)
+    # Annotated Any -- one branch is a bare mapped column
+    # (InstrumentedAttribute), the other a case() expression (Case); no
+    # common SQLAlchemy stub type covers both without fighting variance.
+    byte_expr: Any
+    recv_expr: Any
     if blocked_only:
         conditions.append(RawEvent.blocked.is_(True))
         # Every matching row is already blocked=True here -- gating the sum

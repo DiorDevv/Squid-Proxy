@@ -51,7 +51,9 @@ INVALID_REFRESH = HTTPException(
 
 def _cookie_kwargs() -> dict:
     settings = get_settings()
-    secure = settings.ENVIRONMENT == "production" if settings.COOKIE_SECURE is None else settings.COOKIE_SECURE
+    secure = (
+        settings.ENVIRONMENT == "production" if settings.COOKIE_SECURE is None else settings.COOKIE_SECURE
+    )
     return {
         "httponly": True,
         "secure": secure,

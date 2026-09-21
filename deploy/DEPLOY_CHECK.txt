@@ -1,3 +1,4 @@
 Deploy pull check
 Created: 2026-09-21
 If this file exists on the server after `git pull`, the pull works. Safe to delete.
+Second check: 2026-09-21 — updated after the first pull, to confirm a follow-up `git pull` brings new changes.

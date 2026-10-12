@@ -134,11 +134,11 @@ async def archive(output_dir: Path, keep_days: int) -> None:
         )
 
     async with AsyncSessionLocal() as session:
-        for source in settings.effective_log_sources:
-            existing_run = await session.get(ArchiveRun, source.branch)
+        for branch in settings.effective_branches:
+            existing_run = await session.get(ArchiveRun, branch)
             since = min(default_since, existing_run.archived_until) if existing_run else default_since
 
-            base_filename = f"squid-events-{source.branch}-{since.date()}_{now.date()}.csv.gz"
+            base_filename = f"squid-events-{branch}-{since.date()}_{now.date()}.csv.gz"
             filename = f"{base_filename}.enc" if encryption_key else base_filename
             path = output_dir / filename
             # Write to a temp path and only rename into place once the whole
@@ -163,7 +163,7 @@ async def archive(output_dir: Path, keep_days: int) -> None:
             row_counter: list[int] = [0]
             with gzip.open(tmp_path, "wt", encoding="utf-8", newline="") as f:
                 async for chunk in stream_csv(
-                    session, since, now, blocked_only=False, branch=source.branch, row_counter=row_counter
+                    session, since, now, blocked_only=False, branch=branch, row_counter=row_counter
                 ):
                     f.write(chunk)
             row_count = row_counter[0]
@@ -180,7 +180,7 @@ async def archive(output_dir: Path, keep_days: int) -> None:
             logger.info(
                 "Archived raw events",
                 extra={
-                    "branch": source.branch,
+                    "branch": branch,
                     "row_count": row_count,
                     "path": str(path),
                     "size_bytes": path.stat().st_size,
@@ -191,7 +191,7 @@ async def archive(output_dir: Path, keep_days: int) -> None:
             if existing_run is not None:
                 existing_run.archived_until = now
             else:
-                session.add(ArchiveRun(branch=source.branch, archived_until=now))
+                session.add(ArchiveRun(branch=branch, archived_until=now))
             await session.commit()
 
     _purge_old_archives(output_dir, keep_days)

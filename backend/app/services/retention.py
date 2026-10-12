@@ -231,10 +231,10 @@ class RetentionJob(IntervalJob):
             for row in (await session.execute(select(ArchiveRun))).scalars().all()
         }
         unarchived = []
-        for source in settings.effective_log_sources:
-            archived_until = archived_until_by_branch.get(source.branch)
+        for branch in settings.effective_branches:
+            archived_until = archived_until_by_branch.get(branch)
             if archived_until is None or archived_until < raw_cutoff:
-                unarchived.append(source.branch)
+                unarchived.append(branch)
         return unarchived
 
     async def _archiving_too_far_behind(

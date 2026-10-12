@@ -111,10 +111,20 @@ class LogTailer:
         poll_interval: float = 0.75,
         backoff_max: float = 30.0,
         state_dir: str | None = None,
+        key: str | None = None,
+        exclude_clients: list[str] | None = None,
     ) -> None:
         self.path = path
         self.on_event = on_event
         self.branch = branch
+        # Source id (see LogSource.key) -- names the persisted-state file,
+        # so several sources sharing one branch don't overwrite each
+        # other's read position. Defaults to the branch, which keeps the
+        # state file of an existing one-file-per-branch source unchanged.
+        self.key = key or branch
+        # Parsed lines from these client IPs are dropped (see
+        # LogSource.exclude_clients) -- counted as parsed, not as failures.
+        self.exclude_clients = frozenset(exclude_clients or ())
         self.poll_interval = poll_interval
         self.backoff_max = backoff_max
         # None (the default) disables position persistence entirely, e.g.
@@ -151,6 +161,7 @@ class LogTailer:
         # WARNING log lines an operator has to go looking for.
         self._lines_seen = 0
         self._lines_parsed = 0
+        self._lines_excluded = 0
 
     @property
     def is_alive(self) -> bool:
@@ -163,6 +174,10 @@ class LogTailer:
     @property
     def lines_parsed(self) -> int:
         return self._lines_parsed
+
+    @property
+    def lines_excluded(self) -> int:
+        return self._lines_excluded
 
     def start(self) -> None:
         self._task = asyncio.create_task(self._run_forever(), name="log-tailer")
@@ -387,7 +402,10 @@ class LogTailer:
             event = parse_line(line, branch=self.branch)
             if event is not None:
                 self._lines_parsed += 1
-                events.append(event)
+                if event.client_ip in self.exclude_clients:
+                    self._lines_excluded += 1
+                else:
+                    events.append(event)
             if self._lines_seen % self._SUMMARY_CHECK_INTERVAL == 0:
                 self._log_parse_health_summary()
         return events
@@ -416,7 +434,7 @@ class LogTailer:
     def _load_state(self) -> dict | None:
         if self.state_dir is None:
             return None
-        return _load_persisted_state(self.state_dir, self.branch)
+        return _load_persisted_state(self.state_dir, self.key)
 
     def checkpoint(self) -> None:
         """Persists the most recently read-and-dispatched position
@@ -436,7 +454,7 @@ class LogTailer:
             return
         inode, offset, partial = state
         try:
-            _save_persisted_state(self.state_dir, self.branch, inode, offset, partial)
+            _save_persisted_state(self.state_dir, self.key, inode, offset, partial)
             self._last_persisted_state = state
         except OSError:
             logger.warning("Failed to persist log tailer position", extra={"path": self.path})

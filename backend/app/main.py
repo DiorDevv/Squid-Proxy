@@ -65,13 +65,15 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     # ARCHITECTURE.md); only the ingestion side fans out.
     log_tailers: dict[str, LogTailer] = {}
     for source in settings.effective_log_sources:
-        log_tailers[source.branch] = LogTailer(
+        log_tailers[source.key] = LogTailer(
             path=source.path,
             on_event=lambda event: _handle_new_event(app, event),
             branch=source.branch,
             poll_interval=settings.LOG_TAILER_POLL_INTERVAL_SECONDS,
             backoff_max=settings.LOG_TAILER_BACKOFF_MAX_SECONDS,
             state_dir=settings.LOG_TAILER_STATE_DIR,
+            key=source.key,
+            exclude_clients=source.exclude_clients,
         )
     app.state.log_tailers = log_tailers
     for tailer in log_tailers.values():

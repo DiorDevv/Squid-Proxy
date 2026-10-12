@@ -22,15 +22,20 @@ def build_health_snapshot(app: FastAPI) -> dict[str, Any]:
     second, independently-drifting set of getattr(...) reads."""
     tailers = getattr(app.state, "log_tailers", {})
 
+    # One row per source, labelled by its key (== the branch for a branch
+    # with a single source); "source_branch" is the branch it feeds, which
+    # differs when several sources share one branch (see LogSource.name).
     log_sources = [
         {
-            "branch": branch,
+            "branch": key,
+            "source_branch": getattr(tailer, "branch", key),
             "alive": tailer.is_alive,
             "lines_seen": tailer.lines_seen,
             "lines_parsed": tailer.lines_parsed,
+            "lines_excluded": getattr(tailer, "lines_excluded", 0),
             "parse_failure_rate": _failure_rate(tailer.lines_seen, tailer.lines_parsed),
         }
-        for branch, tailer in tailers.items()
+        for key, tailer in tailers.items()
     ]
 
     # Aggregate across every source -- kept as the top-level fields for

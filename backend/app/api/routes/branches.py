@@ -29,5 +29,5 @@ async def read_branches(current_user: CurrentUser = Depends(get_current_user)) -
         return BranchesResponse(items=[_to_branch(current_user.branch)])
 
     settings = get_settings()
-    items = [_to_branch(source.branch) for source in settings.effective_log_sources]
+    items = [_to_branch(branch) for branch in settings.effective_branches]
     return BranchesResponse(items=items)

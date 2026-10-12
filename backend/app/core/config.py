@@ -31,6 +31,20 @@ class LogSource(BaseModel):
 
     branch: str
     path: str
+    # Unique id for this source (tailer key + persisted-position filename).
+    # Defaults to `branch`, so the common one-file-per-branch setup needs
+    # nothing here; set it when several files feed the same branch -- e.g.
+    # a parent proxy plus its child proxies, all reported as one branch.
+    name: str | None = None
+    # Client IPs whose lines in THIS file are dropped -- for a parent proxy,
+    # its child proxies' addresses: their traffic is ingested from the
+    # children's own logs (with the real client IPs) instead, so counting
+    # the parent's copy too would double it under the child's IP.
+    exclude_clients: list[str] = Field(default_factory=list)
+
+    @property
+    def key(self) -> str:
+        return self.name or self.branch
 
 
 class Settings(BaseSettings):
@@ -369,6 +383,26 @@ class Settings(BaseSettings):
         if self.LOG_SOURCES:
             return self.LOG_SOURCES
         return [LogSource(branch=DEFAULT_BRANCH, path=self.LOG_FILE_PATH)]
+
+    @property
+    def effective_branches(self) -> list[str]:
+        """Distinct branch tags across effective_log_sources, in config
+        order -- several sources may share one branch (see LogSource.name),
+        so per-branch work (reports, archives, alerts) iterates this, not
+        the sources themselves."""
+        return list(dict.fromkeys(source.branch for source in self.effective_log_sources))
+
+    @field_validator("LOG_SOURCES")
+    @classmethod
+    def _unique_log_source_keys(cls, value: list[LogSource]) -> list[LogSource]:
+        keys = [source.key for source in value]
+        duplicates = sorted({key for key in keys if keys.count(key) > 1})
+        if duplicates:
+            raise ValueError(
+                f"LOG_SOURCES has more than one source keyed {duplicates} -- give "
+                'sources that share a branch distinct "name" values.'
+            )
+        return value
 
     @field_validator("COOKIE_SECURE", mode="before")
     @classmethod

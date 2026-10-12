@@ -58,8 +58,8 @@ class ReportScheduler(IntervalJob):
             # by design (same as alert thresholds), sent to the same
             # REPORT_RECIPIENTS list as separate, clearly-labeled emails.
             sent_any = False
-            for source in settings.effective_log_sources:
-                sent = await generate_and_send_report(session, since, now, source.branch)
+            for branch in settings.effective_branches:
+                sent = await generate_and_send_report(session, since, now, branch)
                 sent_any = sent_any or sent
             if not sent_any:
                 return

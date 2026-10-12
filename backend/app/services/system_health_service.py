@@ -120,7 +120,7 @@ async def _ingestion_health(app: FastAPI, session: AsyncSession) -> IngestionHea
             lines_seen=src["lines_seen"],
             lines_parsed=src["lines_parsed"],
             parse_failure_rate=src["parse_failure_rate"],
-            last_event_at=last_event.get(src["branch"]),
+            last_event_at=last_event.get(src.get("source_branch", src["branch"])),
         )
         for src in snap["log_sources"]
     ]

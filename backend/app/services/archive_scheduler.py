@@ -76,8 +76,8 @@ class ArchiveScheduler(IntervalJob):
         branch, not just redundantly re-export the same week again."""
         now = datetime.now(UTC)
         async with AsyncSessionLocal() as session:
-            for source in settings.effective_log_sources:
-                run = await session.get(ArchiveRun, source.branch)
+            for branch in settings.effective_branches:
+                run = await session.get(ArchiveRun, branch)
                 if run is None or now - run.archived_until >= timedelta(seconds=self.min_interval_seconds):
                     return True
         return False

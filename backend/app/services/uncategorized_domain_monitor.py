@@ -63,8 +63,7 @@ class UncategorizedDomainMonitorJob(IntervalJob):
 
         async with AsyncSessionLocal() as session:
             anomalies: list[Anomaly] = []
-            for source in settings.effective_log_sources:
-                branch = source.branch
+            for branch in settings.effective_branches:
                 settings_row = await alert_settings_service.get_settings_row(session, branch)
                 threshold = settings_row.uncategorized_domain_request_threshold
                 if not threshold or threshold <= 0:

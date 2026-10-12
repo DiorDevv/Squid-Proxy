@@ -443,3 +443,36 @@ async def test_crash_before_checkpoint_re_reads_instead_of_losing_events(tmp_pat
 
     assert was_missing is False
     assert [e.domain for e in second_events] == ["read-but-never-flushed.com"]
+
+
+async def test_excluded_client_ips_are_dropped_but_counted_as_parsed(tmp_path):
+    log_path = tmp_path / "access.log"
+    log_path.write_text("")
+    events = []
+    tailer = LogTailer(
+        path=str(log_path), on_event=events.append, branch="main", poll_interval=0.01,
+        exclude_clients=["10.0.0.5"],
+    )
+    await tailer.poll_once()
+    with log_path.open("a") as f:
+        f.write(squid_line("via-child.com"))  # client 10.0.0.5
+        f.write(squid_line("direct.com").replace("10.0.0.5", "10.0.0.9"))
+    await tailer.poll_once()
+    assert [e.domain for e in events] == ["direct.com"]
+    assert (tailer.lines_seen, tailer.lines_parsed, tailer.lines_excluded) == (2, 2, 1)
+
+
+async def test_state_file_is_named_by_source_key_not_branch(tmp_path):
+    log_path = tmp_path / "access.log"
+    log_path.write_text("")
+    state_dir = tmp_path / "state"
+    tailer = LogTailer(
+        path=str(log_path), on_event=lambda e: None, branch="main", poll_interval=0.01,
+        state_dir=str(state_dir), key="main-child",
+    )
+    await tailer.poll_once()
+    with log_path.open("a") as f:
+        f.write(squid_line())
+    await tailer.poll_once()
+    tailer.checkpoint()
+    assert [p.name for p in state_dir.iterdir()] == ["main-child.json"]

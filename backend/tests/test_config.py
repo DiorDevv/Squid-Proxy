@@ -133,3 +133,21 @@ def test_cookie_secure_explicit_value_overrides_environment():
         ENVIRONMENT="production", JWT_SECRET=_REAL_JWT_SECRET, DATABASE_URL=_PG_URL, COOKIE_SECURE=False
     )
     assert settings.COOKIE_SECURE is False
+
+
+def test_log_sources_sharing_a_branch_need_distinct_names():
+    with pytest.raises(ValidationError, match="distinct"):
+        Settings(LOG_SOURCES=[{"branch": "main", "path": "/a.log"}, {"branch": "main", "path": "/b.log"}])
+
+
+def test_effective_branches_dedupes_sources_sharing_a_branch():
+    settings = Settings(
+        LOG_SOURCES=[
+            {"branch": "main", "path": "/main.log", "exclude_clients": ["10.0.0.77"]},
+            {"branch": "filial", "path": "/filial.log"},
+            {"branch": "main", "name": "main-child", "path": "/child.log"},
+        ]
+    )
+    assert settings.effective_branches == ["main", "filial"]
+    assert [s.key for s in settings.LOG_SOURCES] == ["main", "filial", "main-child"]
+    assert settings.LOG_SOURCES[0].exclude_clients == ["10.0.0.77"]

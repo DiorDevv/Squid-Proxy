@@ -50,7 +50,7 @@ async def send_report_now(
     since = now - timedelta(hours=24)
     # No branch given: send one report per configured branch, same as the
     # scheduler (see report_scheduler.py), rather than a single combined one.
-    branches = [branch] if branch else [source.branch for source in settings.effective_log_sources]
+    branches = [branch] if branch else settings.effective_branches
     try:
         for target_branch in branches:
             await generate_and_send_report(db, since, now, target_branch)

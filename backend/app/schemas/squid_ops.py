@@ -88,6 +88,11 @@ class ActorLeaderboardResponse(BaseModel):
     # them; 0 when nobody authenticated. The frontend surfaces it so the row
     # totals visibly don't have to reconcile with the Overview tab.
     unattributed_requests: int = 0
+    # Rows the selected kind pages through, and the per-kind counts for the
+    # current search (the "All / Users / IPs" tab badges).
+    total: int = 0
+    user_count: int = 0
+    ip_count: int = 0
 
 
 class ActorDomainRow(BaseModel):

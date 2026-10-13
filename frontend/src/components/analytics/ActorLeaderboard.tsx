@@ -12,6 +12,8 @@ interface ActorLeaderboardProps {
   onSortChange: (sort: string) => void
   onSelect: (row: ActorRow) => void
   emptyMessage?: string
+  /** When set, a leading rank column numbers rows from rankOffset + 1 (paged lists). */
+  rankOffset?: number
 }
 
 const COLS: { key: string; labelKey: TranslationKey; sortable: boolean; align?: 'right' }[] = [
@@ -32,6 +34,7 @@ export function ActorLeaderboard({
   onSortChange,
   onSelect,
   emptyMessage,
+  rankOffset,
 }: ActorLeaderboardProps) {
   const { t } = useTranslation()
 
@@ -51,6 +54,7 @@ export function ActorLeaderboard({
       <table className="w-full min-w-[720px] text-sm">
         <thead>
           <tr className="border-b border-border text-left text-xs text-muted-foreground">
+            {rankOffset !== undefined && <th className="w-10 py-2 pr-3 text-right font-medium">№</th>}
             {COLS.map((col) => (
               <th
                 key={col.key}
@@ -82,7 +86,7 @@ export function ActorLeaderboard({
           </tr>
         </thead>
         <tbody>
-          {rows.map((row) => {
+          {rows.map((row, index) => {
             const ratioPct = row.blocked_ratio * 100
             return (
               <tr
@@ -90,6 +94,11 @@ export function ActorLeaderboard({
                 onClick={() => onSelect(row)}
                 className="cursor-pointer border-b border-border/50 transition-colors hover:bg-secondary/40"
               >
+                {rankOffset !== undefined && (
+                  <td className="font-data py-2 pr-3 text-right text-xs text-muted-foreground">
+                    {formatNumber(rankOffset + index + 1)}
+                  </td>
+                )}
                 <td className="py-2 pr-3">
                   <span className="flex max-w-[16rem] items-center gap-1.5">
                     <span className="font-data truncate font-medium text-foreground" title={row.actor}>

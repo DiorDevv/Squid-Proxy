@@ -4,6 +4,7 @@ import { POLLING_FALLBACK_INTERVAL_MS } from '@/lib/constants'
 import type {
   ActivityHeatmapResponse,
   ActorDetailResponse,
+  ActorKindFilter,
   ActorLeaderboardResponse,
   AnalyticsOverview,
   BranchBlockedDomainsResponse,
@@ -142,13 +143,17 @@ export function useActorLeaderboard(
   limit: number,
   live: boolean,
   search?: string,
+  offset = 0,
+  kind: ActorKindFilter = 'all',
 ) {
   return useQuery({
-    queryKey: ['analytics-actors', rangeParams, sort, limit, search],
+    queryKey: ['analytics-actors', rangeParams, sort, limit, search, offset, kind],
     queryFn: () =>
       apiFetch<ActorLeaderboardResponse>('/api/analytics/actors', {
-        searchParams: { ...rangeParams, sort, limit, search: search || undefined },
+        searchParams: { ...rangeParams, sort, limit, offset, kind, search: search || undefined },
       }),
+    // keep the current page on screen while the next one loads
+    placeholderData: (previous) => previous,
     refetchInterval: live ? false : POLLING_FALLBACK_INTERVAL_MS,
   })
 }

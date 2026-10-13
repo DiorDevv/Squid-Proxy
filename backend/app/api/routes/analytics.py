@@ -1,9 +1,19 @@
-from fastapi import APIRouter, Depends, Query, Request
+from typing import Literal
+
+from fastapi import APIRouter, Depends, Query, Request, Response
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import CurrentUser, get_current_user, get_db, require_any_role, resolve_branch
+from app.api.deps import (
+    CurrentUser,
+    get_current_user,
+    get_db,
+    require_admin_or_auditor,
+    require_any_role,
+    resolve_branch,
+)
 from app.api.routes.health import build_health_snapshot
 from app.core.config import get_settings
+from app.core.rate_limit import limiter
 from app.models.audit_log import AuditAction
 from app.schemas.analytics import (
     ActivityHeatmapResponse,
@@ -30,6 +40,7 @@ from app.schemas.squid_ops import (
     ResultCodeResponse,
 )
 from app.services import (
+    actor_export,
     analytics_service,
     audit_service,
     config_advisor_service,
@@ -146,14 +157,62 @@ async def read_response_time(
 @router.get("/actors", response_model=ActorLeaderboardResponse)
 async def read_actor_leaderboard(
     limit: int = Query(default=25, ge=1, le=200),
+    offset: int = Query(default=0, ge=0),
     sort: str = Query(default="requests"),
+    kind: Literal["all", "user", "ip"] = Query(default="all"),
     search: str | None = Query(default=None, max_length=255),
     effective_range: EffectiveRange = Depends(resolve_range),
     branch: str | None = Depends(resolve_branch),
     db: AsyncSession = Depends(get_db),
 ) -> ActorLeaderboardResponse:
     return await squid_ops_service.get_actor_leaderboard(
-        db, effective_range.since, effective_range.until, branch, limit, sort, search
+        db, effective_range.since, effective_range.until, branch, limit, sort, search,
+        offset=offset, kind=kind,
+    )
+
+
+@router.get("/actors/export", dependencies=[Depends(require_admin_or_auditor)])
+@limiter.limit(get_settings().SENSITIVE_ACTION_RATE_LIMIT)
+async def export_actor_leaderboard(
+    request: Request,
+    format: Literal["xlsx", "csv"] = Query(default="xlsx"),
+    lang: Literal["uz", "en", "ru"] = Query(default="uz"),
+    sort: str = Query(default="requests"),
+    kind: Literal["all", "user", "ip"] = Query(default="all"),
+    search: str | None = Query(default=None, max_length=255),
+    effective_range: EffectiveRange = Depends(resolve_range),
+    branch: str | None = Depends(resolve_branch),
+    db: AsyncSession = Depends(get_db),
+    current_user: CurrentUser = Depends(get_current_user),
+) -> Response:
+    """The whole "Who" list (every page) as an Excel or CSV file."""
+    rows = await squid_ops_service.list_all_actors(
+        db, effective_range.since, effective_range.until, branch, sort, search, kind
+    )
+    if format == "xlsx":
+        content = actor_export.actors_xlsx(
+            rows, lang, branch=branch, since=effective_range.since, until=effective_range.until,
+            kind=kind, search=search, sort=sort,
+        )
+        media_type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    else:
+        content = actor_export.actors_csv(rows, lang)
+        media_type = "text/csv; charset=utf-8"
+    await audit_service.record(
+        db,
+        action=AuditAction.EXPORT_CREATED,
+        actor_user_id=current_user.user_id,
+        branch=branch,
+        detail=f"who-list format={format} kind={kind} rows={len(rows)}"
+        + (f" search={search}" if search else ""),
+    )
+    await db.commit()
+    stamp = effective_range.until.strftime("%Y%m%d-%H%M")
+    filename = f"kim-{branch or 'barcha'}-{stamp}.{format}"
+    return Response(
+        content=content,
+        media_type=media_type,
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
 
 

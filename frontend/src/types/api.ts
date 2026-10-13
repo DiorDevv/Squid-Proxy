@@ -493,11 +493,20 @@ export interface ActorRow {
   top_category: DomainCategoryLabel | null
 }
 
+/** The "Who" list's All / Users / IPs filter. */
+export type ActorKindFilter = 'all' | 'user' | 'ip'
+
 export interface ActorLeaderboardResponse {
+  /** 'user' | 'client_ip' | 'mixed' -- picks the actor column header */
   actor_kind: string
   rows: ActorRow[]
-  /** requests with no user, not shown as rows (0 for the client_ip view) */
+  /** login-less requests from IPs listed under their user (mostly 407), not shown as rows */
   unattributed_requests: number
+  /** rows the selected kind pages through */
+  total: number
+  /** per-kind counts for the current search (tab badges) */
+  user_count: number
+  ip_count: number
 }
 
 export interface ActorDomainRow {

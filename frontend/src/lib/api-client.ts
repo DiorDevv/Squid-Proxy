@@ -285,6 +285,33 @@ export async function downloadDomainCategoriesExport(): Promise<void> {
   URL.revokeObjectURL(objectUrl)
 }
 
+/** Downloads the whole "Who" list (every page, same filters/sort) as an
+ * Excel or CSV file -- admin/auditor only and audited on the backend. */
+export async function downloadActorList(
+  format: 'xlsx' | 'csv',
+  params: Record<string, string | number | undefined>,
+): Promise<void> {
+  const token = getAccessToken()
+  const response = await fetch(buildUrl('/api/analytics/actors/export', { ...params, format }), {
+    credentials: 'include',
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+  })
+  if (!response.ok) {
+    throw new ApiError(response.status, 'Export failed. Check your permissions and try again.')
+  }
+  const disposition = response.headers.get('Content-Disposition')
+  const filename = disposition?.match(/filename="([^"]+)"/)?.[1] ?? `kim.${format}`
+  const blob = await response.blob()
+  const objectUrl = URL.createObjectURL(blob)
+  const link = document.createElement('a')
+  link.href = objectUrl
+  link.download = filename
+  document.body.appendChild(link)
+  link.click()
+  link.remove()
+  URL.revokeObjectURL(objectUrl)
+}
+
 /** Uploads a `domain,category` CSV to bulk-apply category overrides -- a
  * multipart file upload, so it can't go through apiFetch (which always
  * JSON-encodes its body). Each row is applied independently server-side;

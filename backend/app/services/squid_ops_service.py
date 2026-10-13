@@ -18,7 +18,7 @@ from typing import Any
 
 from sqlalchemy import and_, case, func, or_, select, true
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.sql.selectable import Subquery
+from sqlalchemy.sql.selectable import Select, Subquery
 
 from app.models.client_category_aggregate import ClientCategoryMinuteAggregate
 from app.models.domain_aggregate import DomainMinuteAggregate
@@ -324,30 +324,59 @@ def _mixed_actor(combined: Subquery, logged_in_ips: list[str]) -> tuple[Any, Any
     return actor, has_user, keep
 
 
+# Leaderboard `kind` filter: every actor, only users, only login-less IPs.
+ACTOR_KINDS = ("all", "user", "ip")
+
+
+def _mixed_actor_query(
+    combined: Subquery, logged_in_ips: list[str], kind: str = "all", blocked_only: bool = False
+) -> Select[Any]:
+    """One grouped row per actor (see _mixed_actor), unordered/unlimited --
+    shared by the paged rows and their counts so both always agree."""
+    actor, has_user, keep = _mixed_actor(combined, logged_in_ips)
+    conditions: list[Any] = [combined.c.client_ip.is_not(None), keep]
+    if kind == "user":
+        conditions.append(has_user)
+    elif kind == "ip":
+        conditions.append(~has_user)
+    query = (
+        select(
+            actor.label("actor"),
+            has_user.label("is_user"),
+            func.sum(combined.c.request_count).label("request_count"),
+            func.sum(combined.c.blocked_count).label("blocked_count"),
+            func.sum(combined.c.total_bytes).label("total_bytes"),
+            func.sum(combined.c.bytes_received).label("bytes_received"),
+        )
+        .where(*conditions)
+        .group_by(actor, has_user)
+    )
+    if blocked_only:
+        query = query.having(func.sum(combined.c.blocked_count) > 0)
+    return query
+
+
 async def _mixed_actor_rows(
     session: AsyncSession,
     combined: Subquery,
     logged_in_ips: list[str],
     order_by: Any,
-    limit: int,
+    limit: int | None,
     blocked_only: bool = False,
+    offset: int = 0,
+    kind: str = "all",
 ) -> list[ActorRow]:
-    actor, has_user, keep = _mixed_actor(combined, logged_in_ips)
+    grouped = _mixed_actor_query(combined, logged_in_ips, kind, blocked_only)
     query = (
-        select(
-            actor.label("actor"),
-            has_user.label("is_user"),
-            func.sum(combined.c.request_count),
-            func.sum(combined.c.blocked_count),
-            func.sum(combined.c.total_bytes),
-            func.sum(combined.c.bytes_received),
-        )
-        .where(combined.c.client_ip.is_not(None), keep)
-        .group_by(actor, has_user)
+        # actor as the tiebreak keeps page boundaries stable between requests.
+        # By its select label, not a fresh _mixed_actor() expression: Postgres
+        # only matches ORDER BY to the GROUP BY CASE when both are the same
+        # expression with the same bind parameters.
+        grouped.order_by(order_by.desc(), grouped.selected_columns.actor)
+        .offset(offset)
+        .limit(limit)
     )
-    if blocked_only:
-        query = query.having(func.sum(combined.c.blocked_count) > 0)
-    rows = (await session.execute(query.order_by(order_by.desc()).limit(limit))).all()
+    rows = (await session.execute(query)).all()
     return [
         ActorRow(
             actor=actor_id,
@@ -363,6 +392,26 @@ async def _mixed_actor_rows(
     ]
 
 
+def _sort_column(combined: Subquery, sort: str) -> Any:
+    return {
+        "request_count": func.sum(combined.c.request_count),
+        "total_bytes": func.sum(combined.c.total_bytes),
+        "bytes_received": func.sum(combined.c.bytes_received),
+        "blocked_count": func.sum(combined.c.blocked_count),
+    }[_SORTABLE.get(sort, "request_count")]
+
+
+async def _fill_top_categories(
+    session: AsyncSession, since: datetime, until: datetime, branch: str | None, rows: list[ActorRow]
+) -> None:
+    for is_user in (True, False):
+        ids = [r.actor for r in rows if r.is_user is is_user]
+        best = await _top_category_per_actor(session, since, until, branch, ids, is_user)
+        for row in rows:
+            if row.is_user is is_user:
+                row.top_category = best.get(row.actor)
+
+
 async def get_actor_leaderboard(
     session: AsyncSession,
     since: datetime,
@@ -371,26 +420,33 @@ async def get_actor_leaderboard(
     limit: int,
     sort: str,
     search: str | None = None,
+    offset: int = 0,
+    kind: str = "all",
 ) -> ActorLeaderboardResponse:
     # Decided from the unfiltered range, not the searched-for rows --
     # otherwise typing an IP would change which IP rows count as "belongs
     # to a logged-in user" for that one search.
     logged_in_ips = await _logged_in_ips(session, since, until, branch)
     combined = client_bucket_rows(since, until, branch=branch, search=search)
-    order_col = {
-        "request_count": func.sum(combined.c.request_count),
-        "total_bytes": func.sum(combined.c.total_bytes),
-        "bytes_received": func.sum(combined.c.bytes_received),
-        "blocked_count": func.sum(combined.c.blocked_count),
-    }[_SORTABLE.get(sort, "request_count")]
 
-    leaderboard = await _mixed_actor_rows(session, combined, logged_in_ips, order_col, limit)
-    top_category: dict[str, DomainCategoryLabel] = {}
-    for is_user in (True, False):
-        ids = [r.actor for r in leaderboard if r.is_user is is_user]
-        top_category |= await _top_category_per_actor(session, since, until, branch, ids, is_user)
-    for row in leaderboard:
-        row.top_category = top_category.get(row.actor)
+    leaderboard = await _mixed_actor_rows(
+        session, combined, logged_in_ips, _sort_column(combined, sort), limit, offset=offset, kind=kind
+    )
+    await _fill_top_categories(session, since, until, branch, leaderboard)
+
+    # Per-kind totals for the current search (the tab counts); `total` is
+    # the one the selected kind pages through.
+    grouped = _mixed_actor_query(combined, logged_in_ips).subquery()
+    user_count, ip_count = (
+        await session.execute(
+            select(
+                func.coalesce(func.sum(case((grouped.c.is_user, 1), else_=0)), 0),
+                func.coalesce(func.sum(case((grouped.c.is_user, 0), else_=1)), 0),
+            )
+        )
+    ).one()
+    user_count, ip_count = int(user_count), int(ip_count)
+    total = {"user": user_count, "ip": ip_count}.get(kind, user_count + ip_count)
 
     # What no row represents: the login-less requests of IPs that are listed
     # under their user instead (see _mixed_actor).
@@ -407,18 +463,52 @@ async def get_actor_leaderboard(
             ).scalar_one()
         )
 
-    kinds = {row.is_user for row in leaderboard}
-    if len(kinds) == 2:
+    # From the whole (searched) list rather than this page, so the column
+    # header doesn't flip between pages.
+    if kind == "user":
+        actor_kind = "user"
+    elif kind == "ip":
+        actor_kind = "client_ip"
+    elif user_count and ip_count:
         actor_kind = "mixed"
-    elif kinds:
-        actor_kind = "user" if True in kinds else "client_ip"
+    elif user_count or (not ip_count and logged_in_ips):
+        actor_kind = "user"
     else:
-        actor_kind = "user" if logged_in_ips else "client_ip"
+        actor_kind = "client_ip"
     return ActorLeaderboardResponse(
         actor_kind=actor_kind,
         rows=leaderboard,
         unattributed_requests=unattributed,
+        total=total,
+        user_count=user_count,
+        ip_count=ip_count,
     )
+
+
+# Cap for the full-list export -- far above any real branch's actor count
+# (a few thousand), only there so a pathological range can't build an
+# unbounded workbook in memory.
+ACTOR_EXPORT_MAX_ROWS = 100_000
+
+
+async def list_all_actors(
+    session: AsyncSession,
+    since: datetime,
+    until: datetime,
+    branch: str | None,
+    sort: str,
+    search: str | None = None,
+    kind: str = "all",
+) -> list[ActorRow]:
+    """Every leaderboard row (same rules, order and filters as
+    get_actor_leaderboard), for the export."""
+    logged_in_ips = await _logged_in_ips(session, since, until, branch)
+    combined = client_bucket_rows(since, until, branch=branch, search=search)
+    rows = await _mixed_actor_rows(
+        session, combined, logged_in_ips, _sort_column(combined, sort), ACTOR_EXPORT_MAX_ROWS, kind=kind
+    )
+    await _fill_top_categories(session, since, until, branch, rows)
+    return rows
 
 
 async def _top_category_per_actor(

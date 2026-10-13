@@ -498,14 +498,19 @@ export type ActorKindFilter = 'all' | 'user' | 'ip'
 
 /** denied = a real block (everything but 407); auth = 407, the proxy asking for a login. */
 export type BlockKind = 'denied' | 'auth' | 'all'
-export type BlockedDomainSort = 'requests' | 'last' | 'domain'
+/** What the Blocked page's Analysis view groups by. */
+export type BlockGroupBy = 'domain' | 'client' | 'user' | 'subnet' | 'branch' | 'proxy'
+export type BlockGroupSort = 'requests' | 'clients' | 'users' | 'domains' | 'last' | 'key'
 
-export interface BlockedDomainRow {
-  domain: string
+export interface BlockGroupRow {
+  /** a domain, client IP, login ('' = no login), /24 subnet, branch or proxy ('' = unlabeled) */
+  key: string
   denied_count: number
   auth_count: number
-  /** distinct client IPs with an event of the selected kind */
+  /** distinct values with an event of the selected kind inside the group */
   client_count: number
+  user_count: number
+  domain_count: number
   branches: string[]
   proxies: string[]
   /** hour buckets (UTC start of hour) */
@@ -513,9 +518,20 @@ export interface BlockedDomainRow {
   last_seen: string
 }
 
-export interface BlockedDomainsResponse extends Page<BlockedDomainRow> {
-  denied_total: number
-  auth_total: number
+export interface BlockGroupsResponse extends Page<BlockGroupRow> {
+  group: BlockGroupBy
+}
+
+export interface BlockSummary {
+  domains: number
+  denied: number
+  auth: number
+  clients: number
+  /** distinct logins (traffic without one isn't counted) */
+  users: number
+  branches: string[]
+  proxies: string[]
+  series: { bucket_ts: string; denied: number; auth: number }[]
   available_proxies: string[]
 }
 

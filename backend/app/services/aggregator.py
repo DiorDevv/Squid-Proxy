@@ -41,6 +41,7 @@ from app.models.ops_aggregate import (
 from app.models.raw_event import RawEvent
 from app.services import insights_service
 from app.services.alerting import maybe_alert
+from app.services.block_filters import subnet_of
 from app.services.category_inference import effective_category
 from app.services.db_upsert import (
     bulk_upsert_sum,
@@ -128,9 +129,9 @@ class _BlockCounts:
     auth: int = 0
 
 
-# (hour, branch, proxy, domain) and the same plus client_ip.
+# (hour, branch, proxy, domain) and the same plus client_ip and login.
 _BlockedDomainKey = tuple[datetime, str, str, str]
-_BlockedClientKey = tuple[datetime, str, str, str, str]
+_BlockedClientKey = tuple[datetime, str, str, str, str, str]
 
 
 def _hierarchy_code(raw: str | None) -> str:
@@ -536,7 +537,9 @@ class Aggregator:
                     hour = bucket.replace(minute=0)
                     proxy = ev.proxy or ""
                     bd = blocked_domain_buckets[(hour, ev.branch, proxy, ev.domain)]
-                    bc = blocked_client_buckets[(hour, ev.branch, proxy, ev.domain, ev.client_ip)]
+                    bc = blocked_client_buckets[
+                        (hour, ev.branch, proxy, ev.domain, ev.client_ip, ev.user or "")
+                    ]
                     if ev.status_code == 407:
                         bd.auth += 1
                         bc.auth += 1
@@ -826,10 +829,12 @@ class Aggregator:
                         "proxy": proxy,
                         "domain": domain,
                         "client_ip": client_ip,
+                        "user": user,
+                        "subnet": subnet_of(client_ip),
                         "denied_count": counts.denied,
                         "auth_count": counts.auth,
                     }
-                    for (bucket, branch, proxy, domain, client_ip), counts in client_buckets.items()
+                    for (bucket, branch, proxy, domain, client_ip, user), counts in client_buckets.items()
                 ],
                 index_elements=[
                     BlockedDomainClientHourlyAggregate.bucket_ts,
@@ -837,6 +842,7 @@ class Aggregator:
                     BlockedDomainClientHourlyAggregate.proxy,
                     BlockedDomainClientHourlyAggregate.domain,
                     BlockedDomainClientHourlyAggregate.client_ip,
+                    BlockedDomainClientHourlyAggregate.user,
                 ],
                 sum_columns=["denied_count", "auth_count"],
             )

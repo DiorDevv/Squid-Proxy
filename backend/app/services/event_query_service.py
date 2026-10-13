@@ -13,6 +13,7 @@ from app.models.raw_event import RawEvent
 from app.schemas.blocked_domains import BlockKind
 from app.schemas.common import Page
 from app.schemas.events import EventDetail
+from app.services.block_filters import BlockFilters
 
 # Above this many search matches, /api/events reports the total as the cap
 # rather than paying for an exact COUNT(*) over the whole match set.
@@ -31,8 +32,22 @@ def build_event_conditions(
     branch: str | None = None,
     domain_in: set[str] | None = None,
     block_kind: BlockKind = "all",
+    block_filters: BlockFilters | None = None,
 ) -> list:
     conditions = [RawEvent.timestamp >= since, RawEvent.timestamp <= until]
+    # The Blocked page's shared filter language (block_filters.py) -- same
+    # meaning here as on its aggregate Analysis view.
+    if block_filters is not None:
+        if block_filters.domains:
+            domain_condition = block_filters.domains.condition(RawEvent.domain)
+            if domain_condition is not None:
+                conditions.append(domain_condition)
+        if block_filters.clients:
+            conditions.append(block_filters.clients.condition(RawEvent.client_ip))
+        if block_filters.users:
+            conditions.append(block_filters.users.condition(RawEvent.user, empty_is_null=True))
+        if block_filters.proxy:
+            conditions.append(RawEvent.proxy == block_filters.proxy)
     if blocked_only:
         conditions.append(RawEvent.blocked.is_(True))
         # A 407 is the proxy asking for a login, not a block -- see
@@ -113,10 +128,11 @@ async def get_events(
     search: str | None = None,
     branch: str | None = None,
     block_kind: BlockKind = "all",
+    block_filters: BlockFilters | None = None,
 ) -> Page[EventDetail]:
     conditions = build_event_conditions(
         since, until, blocked_only, client_ip, domain, method, user, search, branch,
-        block_kind=block_kind,
+        block_kind=block_kind, block_filters=block_filters,
     )
 
     query = (

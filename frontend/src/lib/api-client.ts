@@ -312,15 +312,15 @@ export async function downloadActorList(
   URL.revokeObjectURL(objectUrl)
 }
 
-/** Downloads the whole blocked-domain list (every page, same filters) --
- * Excel, CSV, or with columns='domain' a header-less CSV of domain names
- * only. Admin/auditor only and audited on the backend. */
-export async function downloadBlockedDomains(
+/** Downloads the Blocked page's whole grouped list (every page, same
+ * filters) -- Excel, CSV, or with columns='key' a header-less CSV of just the
+ * grouped values. Admin/auditor only and audited on the backend. */
+export async function downloadBlockedGroups(
   format: 'xlsx' | 'csv',
   params: Record<string, string | number | undefined>,
 ): Promise<void> {
   const token = getAccessToken()
-  const response = await fetch(buildUrl('/api/blocked-domains/export', { ...params, format }), {
+  const response = await fetch(buildUrl('/api/blocked/groups/export', { ...params, format }), {
     credentials: 'include',
     headers: token ? { Authorization: `Bearer ${token}` } : {},
   })
@@ -328,7 +328,7 @@ export async function downloadBlockedDomains(
     throw new ApiError(response.status, 'Export failed. Check your permissions and try again.')
   }
   const disposition = response.headers.get('Content-Disposition')
-  const filename = disposition?.match(/filename="([^"]+)"/)?.[1] ?? `bloklangan-domenlar.${format}`
+  const filename = disposition?.match(/filename="([^"]+)"/)?.[1] ?? `bloklangan.${format}`
   const blob = await response.blob()
   const objectUrl = URL.createObjectURL(blob)
   const link = document.createElement('a')

@@ -299,6 +299,7 @@ def create_app() -> FastAPI:
         analytics,
         audit,
         auth,
+        blocked,
         branches,
         clients,
         domain_categories,
@@ -327,6 +328,7 @@ def create_app() -> FastAPI:
     app.include_router(domain_categories.router)
     app.include_router(clients.router)
     app.include_router(events.router)
+    app.include_router(blocked.router)
     app.include_router(export.router)
     app.include_router(export_settings.router)
     app.include_router(users.router)

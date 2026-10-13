@@ -4,14 +4,15 @@ from raw_events -- for the history before they existed, or to repair a range.
 
 Postgres only. Run inside the backend container:
 
-    docker compose exec backend python scripts/backfill_blocked_domains.py --days 7
+    docker compose exec -e PYTHONPATH=/app backend python scripts/backfill_blocked_domains.py --days 7
 
 Each closed hour in the range is recomputed from raw_events and *replaces*
 whatever the aggregator wrote for it, so re-running is safe and an hour the
-aggregator only half-covered (the deploy hour) comes out exact. The current,
-still-open hour is never touched -- run this after the deploy hour has
-ended. One day per transaction; the per-client table is the slow half
-(~1 min per day of traffic at ~4M blocked rows/day).
+aggregator only half-covered (the deploy hour) comes out exact -- run
+`--hours 2` once the deploy hour has ended. The current, still-open hour is
+never touched. One day per transaction, one raw_events scan per day: the
+per-client rows go to a temp table first and both aggregates are filled
+from it.
 """
 
 import argparse
@@ -27,31 +28,38 @@ from sqlalchemy import text  # noqa: E402
 
 from app.models.db import AsyncSessionLocal  # noqa: E402
 
-_SELECT = """
-    FROM raw_events
-    WHERE blocked AND domain IS NOT NULL AND domain <> ''
-      AND "timestamp" >= :start AND "timestamp" < :end
+_SCAN_SQL = r"""
+CREATE TEMP TABLE bd_scan ON COMMIT DROP AS
+SELECT date_trunc('hour', "timestamp") AS bucket_ts, branch, coalesce(proxy, '') AS proxy, domain,
+       client_ip, coalesce("user", '') AS "user",
+       count(*) FILTER (WHERE status_code <> 407) AS denied_count,
+       count(*) FILTER (WHERE status_code = 407) AS auth_count
+FROM raw_events
+WHERE blocked AND domain IS NOT NULL AND domain <> ''
+  AND "timestamp" >= :start AND "timestamp" < :end
+GROUP BY 1, 2, 3, 4, 5, 6
 """
 
-_DOMAIN_SQL = f"""
-INSERT INTO blocked_domain_hourly_aggregates
-    (bucket_ts, branch, proxy, domain, denied_count, auth_count)
-SELECT date_trunc('hour', "timestamp"), branch, coalesce(proxy, ''), domain,
-       count(*) FILTER (WHERE status_code <> 407), count(*) FILTER (WHERE status_code = 407)
-{_SELECT}
-GROUP BY 1, 2, 3, 4
-ON CONFLICT (bucket_ts, branch, proxy, domain)
+# Same /24 rule as block_filters.subnet_of.
+_CLIENT_SQL = r"""
+INSERT INTO blocked_domain_client_hourly_aggregates
+    (bucket_ts, branch, proxy, domain, client_ip, "user", subnet, denied_count, auth_count)
+SELECT bucket_ts, branch, proxy, domain, client_ip, "user",
+       CASE WHEN client_ip ~ '^\d+\.\d+\.\d+\.\d+$'
+            THEN regexp_replace(client_ip, '\.\d+$', '.0/24') ELSE client_ip END,
+       denied_count, auth_count
+FROM bd_scan
+ON CONFLICT (bucket_ts, branch, proxy, domain, client_ip, "user")
 DO UPDATE SET denied_count = EXCLUDED.denied_count, auth_count = EXCLUDED.auth_count
 """
 
-_CLIENT_SQL = f"""
-INSERT INTO blocked_domain_client_hourly_aggregates
-    (bucket_ts, branch, proxy, domain, client_ip, denied_count, auth_count)
-SELECT date_trunc('hour', "timestamp"), branch, coalesce(proxy, ''), domain, client_ip,
-       count(*) FILTER (WHERE status_code <> 407), count(*) FILTER (WHERE status_code = 407)
-{_SELECT}
-GROUP BY 1, 2, 3, 4, 5
-ON CONFLICT (bucket_ts, branch, proxy, domain, client_ip)
+_DOMAIN_SQL = """
+INSERT INTO blocked_domain_hourly_aggregates
+    (bucket_ts, branch, proxy, domain, denied_count, auth_count)
+SELECT bucket_ts, branch, proxy, domain, sum(denied_count), sum(auth_count)
+FROM bd_scan
+GROUP BY 1, 2, 3, 4
+ON CONFLICT (bucket_ts, branch, proxy, domain)
 DO UPDATE SET denied_count = EXCLUDED.denied_count, auth_count = EXCLUDED.auth_count
 """
 
@@ -68,9 +76,9 @@ async def backfill(start: datetime, end: datetime) -> None:
             # keeps at Docker's 64MB default -- big GROUP BYs fail there.
             await session.execute(text("SET LOCAL max_parallel_workers_per_gather = 0"))
             await session.execute(text("SET LOCAL work_mem = '128MB'"))
-            params = {"start": day_start, "end": day_end}
-            domains = (await session.execute(text(_DOMAIN_SQL), params)).rowcount
-            clients = (await session.execute(text(_CLIENT_SQL), params)).rowcount
+            await session.execute(text(_SCAN_SQL), {"start": day_start, "end": day_end})
+            clients = (await session.execute(text(_CLIENT_SQL))).rowcount
+            domains = (await session.execute(text(_DOMAIN_SQL))).rowcount
             await session.commit()
         print(
             f"{day_start:%Y-%m-%d %H:%M} .. {day_end:%Y-%m-%d %H:%M} UTC: "

@@ -1,5 +1,6 @@
 import { useQuery } from '@tanstack/react-query'
 import { apiFetch } from '@/lib/api-client'
+import { filterParams, type BlockFilterValues } from '@/lib/block-filters'
 import { POLLING_FALLBACK_INTERVAL_MS } from '@/lib/constants'
 import type { BlockKind, Page } from '@/types/api'
 import type { LiveEvent } from '@/types/events'
@@ -11,6 +12,8 @@ interface UseEventsParams {
   blockedOnly?: boolean
   /** with blockedOnly: 'denied' drops 407 login challenges, 'auth' keeps only them */
   blockKind?: BlockKind
+  /** the Blocked page's shared domain/client/login/proxy filters */
+  filters?: BlockFilterValues
   clientIp?: string
   domain?: string
   method?: string
@@ -29,6 +32,7 @@ export function useEvents({
   offset,
   blockedOnly,
   blockKind,
+  filters,
   clientIp,
   domain,
   method,
@@ -37,11 +41,14 @@ export function useEvents({
   enabled = true,
 }: UseEventsParams) {
   return useQuery({
-    queryKey: ['events', rangeParams, limit, offset, blockedOnly, blockKind, clientIp, domain, method, search],
+    queryKey: [
+      'events', rangeParams, limit, offset, blockedOnly, blockKind, filters, clientIp, domain, method, search,
+    ],
     queryFn: () =>
       apiFetch<Page<LiveEvent>>('/api/events', {
         searchParams: {
           ...rangeParams,
+          ...(filters ? filterParams(filters) : {}),
           limit,
           offset,
           blocked_only: blockedOnly,

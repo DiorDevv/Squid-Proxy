@@ -11,13 +11,15 @@ across flushes, like every other aggregate):
   - blocked_domain_hourly_aggregates: (hour, branch, proxy, domain) ->
     denied / auth counts. Small (~35k rows/day) -- the list, its paging and
     sorting all run here.
-  - blocked_domain_client_hourly_aggregates: the same plus client_ip. Larger
-    (~500k rows/day); only read for one page's domains at a time (the
-    "clients" column) or for an export, never scanned to build the list.
+  - blocked_domain_client_hourly_aggregates: the same plus client_ip and
+    login. Larger (~330k rows/day); read when a filter or grouping needs
+    clients/logins/subnets, or for one page's distinct-client counts.
 
-`proxy` is stored as "" (never NULL) for sources without a LogSource.proxy
-label, so the unique indexes stay plain column tuples. "denied" is every
-blocked event except a 407; "auth" is the 407s (see log_parser's `blocked`).
+`proxy` and `user` are stored as "" (never NULL) when absent, so the unique
+indexes stay plain column tuples. `subnet` is the client's /24, derived
+from client_ip on write (block_filters.subnet_of) so grouping by it is a
+plain column on every database. "denied" is every blocked event except a
+407; "auth" is the 407s (see log_parser's `blocked`).
 """
 
 from datetime import datetime
@@ -57,6 +59,7 @@ class BlockedDomainClientHourlyAggregate(Base):
             "proxy",
             "domain",
             "client_ip",
+            "user",
             unique=True,
         ),
         # The per-page client count looks rows up by domain first.
@@ -69,5 +72,7 @@ class BlockedDomainClientHourlyAggregate(Base):
     proxy: Mapped[str] = mapped_column(String(64), default="")
     domain: Mapped[str] = mapped_column(String(255))
     client_ip: Mapped[str] = mapped_column(String(45))
+    user: Mapped[str] = mapped_column(String(255), default="")
+    subnet: Mapped[str] = mapped_column(String(45), default="")
     denied_count: Mapped[int] = mapped_column(Integer, default=0)
     auth_count: Mapped[int] = mapped_column(Integer, default=0)

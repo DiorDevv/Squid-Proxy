@@ -33,7 +33,7 @@ from app.models.raw_event import RawEvent
 from app.models.refresh_token import RefreshToken
 from app.models.system_event import SystemEvent
 from app.services import retention_settings_service
-from app.services.db_upsert import bulk_upsert_sum, declared_table
+from app.services.db_upsert import bulk_upsert_sum, declared_table, merge_csv
 from app.services.export_job_service import purge_old_jobs
 from app.services.interval_job import IntervalJob
 from app.services.ops_alerting import notify_operator_failure
@@ -288,6 +288,7 @@ class RetentionJob(IntervalJob):
                 "blocked_bytes_received": 0,
             }
         )
+        hourly_proxies: dict[tuple[datetime, str, str, str | None], set[str]] = defaultdict(set)
         for row in rows:
             hour_bucket = row.bucket_ts.replace(minute=0, second=0, microsecond=0)
             totals = hourly_totals[(hour_bucket, row.client_ip, row.branch, row.user)]
@@ -297,9 +298,18 @@ class RetentionJob(IntervalJob):
             totals["bytes_received"] += row.bytes_received
             totals["blocked_bytes"] += row.blocked_bytes
             totals["blocked_bytes_received"] += row.blocked_bytes_received
+            if row.proxy:
+                hourly_proxies[(hour_bucket, row.client_ip, row.branch, row.user)].add(row.proxy)
 
         hourly_rows = [
-            {"bucket_ts": bucket_ts, "client_ip": client_ip, "branch": branch, "user": user, **totals}
+            {
+                "bucket_ts": bucket_ts,
+                "client_ip": client_ip,
+                "branch": branch,
+                "user": user,
+                **totals,
+                "proxy": merge_csv(*hourly_proxies.get((bucket_ts, client_ip, branch, user), ())),
+            }
             for (bucket_ts, client_ip, branch, user), totals in hourly_totals.items()
         ]
         await bulk_upsert_sum(
@@ -320,6 +330,7 @@ class RetentionJob(IntervalJob):
                 "blocked_bytes",
                 "blocked_bytes_received",
             ],
+            csv_merge_columns=["proxy"],
         )
         await session.execute(
             delete(ClientMinuteAggregate).where(ClientMinuteAggregate.bucket_ts < rollup_cutoff)

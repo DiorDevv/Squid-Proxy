@@ -28,6 +28,7 @@ class EventDetail(BaseModel):
     hierarchy: str | None = None
     peer: str | None = None
     content_type: str | None = None
+    proxy: str | None = None
 
     @classmethod
     def from_parsed(cls, event_id: int, event: ParsedEvent) -> "EventDetail":
@@ -48,6 +49,7 @@ class EventDetail(BaseModel):
             hierarchy=event.hierarchy,
             peer=event.peer,
             content_type=event.content_type,
+            proxy=event.proxy,
         )
 
     @classmethod
@@ -69,4 +71,5 @@ class EventDetail(BaseModel):
             hierarchy=row.hierarchy,
             peer=row.peer,
             content_type=row.content_type,
+            proxy=row.proxy,
         )

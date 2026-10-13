@@ -42,3 +42,7 @@ class ClientMinuteAggregate(Base):
     bytes_received: Mapped[int] = mapped_column(BigInteger, default=0)
     blocked_bytes: Mapped[int] = mapped_column(BigInteger, default=0)
     blocked_bytes_received: Mapped[int] = mapped_column(BigInteger, default=0)
+    # Sorted, comma-joined LogSource.proxy labels this client was seen
+    # through in the bucket (NULL when no source sets one). Not part of the
+    # upsert key -- merged on conflict, see db_upsert.merge_csv_columns.
+    proxy: Mapped[str | None] = mapped_column(String(255), nullable=True, default=None)

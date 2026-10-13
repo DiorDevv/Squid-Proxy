@@ -106,6 +106,9 @@ class ParsedEvent:
     # the 11-field two-size variant; None on the standard single-size
     # format. `bytes` above always stays %<st (bytes sent to the client).
     bytes_received: int | None = None
+    # LogSource.proxy of the file this line came from -- set by the caller,
+    # like `branch` above.
+    proxy: str | None = None
 
 
 # Widest value the integer columns (raw_events.bytes / .duration_ms, both
@@ -296,7 +299,7 @@ def _normalize_alt_format(stripped: str) -> str:
     return f"{epoch:.3f} " + " ".join(fields)
 
 
-def parse_line(line: str, branch: str = DEFAULT_BRANCH) -> ParsedEvent | None:
+def parse_line(line: str, branch: str = DEFAULT_BRANCH, proxy: str | None = None) -> ParsedEvent | None:
     """Parse a single Squid access.log line. Never raises; returns None on failure."""
     stripped = line.strip()
     if not stripped:
@@ -437,4 +440,5 @@ def parse_line(line: str, branch: str = DEFAULT_BRANCH) -> ParsedEvent | None:
         blocked=blocked,
         branch=branch,
         bytes_received=bytes_received,
+        proxy=proxy,
     )

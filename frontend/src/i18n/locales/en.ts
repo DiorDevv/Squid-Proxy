@@ -220,6 +220,7 @@ export const en = {
   'clients.columnBlocked': 'Blocked',
   'clients.columnDataUsed': 'Data used',
   'clients.columnLastActivity': 'Last activity',
+  'clients.columnProxy': 'Proxy',
   'clients.empty': 'No client activity recorded for this period.',
 
   // --- Client detail page ---

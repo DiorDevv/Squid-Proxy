@@ -41,6 +41,10 @@ class LogSource(BaseModel):
     # children's own logs (with the real client IPs) instead, so counting
     # the parent's copy too would double it under the child's IP.
     exclude_clients: list[str] = Field(default_factory=list)
+    # Display label of the proxy this file comes from (e.g. its IP), stored
+    # on every event/client row so a branch fed by several proxies can show
+    # which one each client went through. None -> not recorded.
+    proxy: str | None = None
 
     @property
     def key(self) -> str:

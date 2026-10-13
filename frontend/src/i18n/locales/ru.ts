@@ -209,6 +209,7 @@ export const ru = {
   'clients.columnBlocked': 'Заблокировано',
   'clients.columnDataUsed': 'Использовано трафика',
   'clients.columnLastActivity': 'Последняя активность',
+  'clients.columnProxy': 'Прокси',
   'clients.empty': 'За этот период активность клиентов не зафиксирована.',
 
   'clientDetail.back': 'Назад к клиентам',

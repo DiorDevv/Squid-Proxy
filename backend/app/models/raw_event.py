@@ -63,3 +63,5 @@ class RawEvent(Base):
     peer: Mapped[str | None] = mapped_column(String(64), nullable=True)
     content_type: Mapped[str | None] = mapped_column(String(128), nullable=True)
     blocked: Mapped[bool] = mapped_column(Boolean, index=True)
+    # LogSource.proxy -- which proxy (of a branch fed by several) logged it.
+    proxy: Mapped[str | None] = mapped_column(String(64), nullable=True, default=None)

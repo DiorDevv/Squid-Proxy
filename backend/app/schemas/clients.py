@@ -13,6 +13,9 @@ class ClientSummary(BaseModel):
     blocked_requests: int
     total_bytes: int
     last_activity: datetime | None
+    # Proxies (LogSource.proxy labels) this client went through in the
+    # range -- empty for branches fed by a single unlabelled log.
+    proxies: list[str] = []
 
 
 class DomainTimeSpent(BaseModel):

@@ -170,6 +170,8 @@ export interface ClientSummary {
   blocked_requests: number
   total_bytes: number
   last_activity: string | null
+  // Proxies this client went through (branches fed by several proxies only).
+  proxies?: string[]
 }
 
 export interface LogSourceHealth {

@@ -74,6 +74,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             state_dir=settings.LOG_TAILER_STATE_DIR,
             key=source.key,
             exclude_clients=source.exclude_clients,
+            proxy=source.proxy,
         )
     app.state.log_tailers = log_tailers
     for tailer in log_tailers.values():

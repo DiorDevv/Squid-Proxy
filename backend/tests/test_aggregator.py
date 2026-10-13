@@ -350,6 +350,36 @@ async def test_flush_on_second_call_increments_existing_rows_rather_than_duplica
         assert rows[0].total_requests == 2
 
 
+async def test_flush_records_and_merges_client_proxies_across_flushes(db_engine, monkeypatch):
+    session_factory = async_sessionmaker(db_engine, expire_on_commit=False, class_=AsyncSession)
+    import app.services.aggregator as aggregator_module
+
+    monkeypatch.setattr(aggregator_module, "AsyncSessionLocal", session_factory)
+
+    ring_buffer = RingBuffer(max_events=100)
+    ring_buffer.append(parse_line(squid_line("example.com"), proxy="10.9.9.77"))
+    aggregator = Aggregator(ring_buffer=ring_buffer, interval_seconds=60)
+    await aggregator.flush()
+
+    # Same client/minute, through a second proxy and then the first again:
+    # the stored list gains the new label once and never repeats one.
+    ring_buffer.append(parse_line(squid_line("example.com"), proxy="10.9.9.24"))
+    await aggregator.flush()
+    ring_buffer.append(parse_line(squid_line("example.com"), proxy="10.9.9.77"))
+    ring_buffer.append(parse_line(squid_line("example.com")))
+    await aggregator.flush()
+
+    async with session_factory() as session:
+        client_row = (await session.execute(select(ClientMinuteAggregate))).scalar_one()
+        assert client_row.request_count == 4
+        assert sorted(client_row.proxy.split(",")) == ["10.9.9.24", "10.9.9.77"]
+
+        raw_proxies = sorted(
+            (p or "") for p in (await session.execute(select(RawEvent.proxy))).scalars().all()
+        )
+        assert raw_proxies == ["", "10.9.9.24", "10.9.9.77", "10.9.9.77"]
+
+
 async def test_flush_does_not_advance_past_events_lost_to_a_failed_commit(db_engine, monkeypatch):
     """If the DB transaction fails (a transient hiccup, a constraint
     violation), flush() must not have already marked those events as

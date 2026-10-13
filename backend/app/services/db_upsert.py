@@ -12,7 +12,7 @@ the same "add to existing row, or create it" work in one statement.
 from collections.abc import Iterator, Mapping, Sequence
 from typing import Any, cast
 
-from sqlalchemy import Table
+from sqlalchemy import Table, case, func, literal
 from sqlalchemy.dialects import postgresql, sqlite
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.sql.roles import DDLConstraintColumnRole
@@ -86,12 +86,21 @@ def chunk_rows(
         yield rows[start : start + batch_size]
 
 
+def merge_csv(*values: str | None) -> str | None:
+    """Union of comma-joined label lists, sorted, as one comma-joined
+    string (None when empty) -- the Python-side counterpart of
+    bulk_upsert_sum's `csv_merge_columns`."""
+    labels = {part for value in values if value for part in value.split(",") if part}
+    return ",".join(sorted(labels)) or None
+
+
 async def bulk_upsert_sum(
     session: AsyncSession,
     table: Table,
     rows: Sequence[Mapping[str, Any]],
     index_elements: Sequence[DDLConstraintColumnRole | str],
     sum_columns: Sequence[str],
+    csv_merge_columns: Sequence[str] = (),
 ) -> None:
     """Insert every row in `rows`; for any that collide with an existing row
     on `index_elements`, add `sum_columns` to the existing values instead of
@@ -114,6 +123,11 @@ async def bulk_upsert_sum(
     Aggregator.flush), so this doesn't change the "whole flush commits
     together or not at all" guarantee, it just avoids handing the driver one
     statement too large for it to run at all.
+
+    `csv_merge_columns` are nullable comma-joined label lists (e.g. the
+    client aggregates' `proxy`): on conflict the incoming value is appended
+    unless the existing list already contains it, so the stored value stays
+    bounded by the number of distinct labels rather than growing per flush.
     """
     if not rows:
         return
@@ -121,11 +135,18 @@ async def bulk_upsert_sum(
 
     dialect_name = session.bind.dialect.name if session.bind is not None else ""
     insert = postgresql.insert if dialect_name == "postgresql" else sqlite.insert
+    find = func.strpos if dialect_name == "postgresql" else func.instr
 
     for batch in chunk_rows(rows, columns_per_row=len(rows[0])):
         stmt = insert(table).values(batch)
-        stmt = stmt.on_conflict_do_update(
-            index_elements=list(index_elements),
-            set_={col: table.c[col] + stmt.excluded[col] for col in sum_columns},
-        )
+        set_: dict[str, Any] = {col: table.c[col] + stmt.excluded[col] for col in sum_columns}
+        for col in csv_merge_columns:
+            old, new = table.c[col], stmt.excluded[col]
+            set_[col] = case(
+                (old.is_(None), new),
+                (new.is_(None), old),
+                (find(literal(",") + old + literal(","), literal(",") + new + literal(",")) > 0, old),
+                else_=func.substr(old + literal(",") + new, 1, 255),
+            )
+        stmt = stmt.on_conflict_do_update(index_elements=list(index_elements), set_=set_)
         await session.execute(stmt)

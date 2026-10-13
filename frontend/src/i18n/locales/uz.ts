@@ -212,6 +212,7 @@ export const uz = {
   'clients.columnBlocked': 'Bloklangan',
   'clients.columnDataUsed': 'Ishlatilgan trafik',
   'clients.columnLastActivity': 'Oxirgi faollik',
+  'clients.columnProxy': 'Proksi',
   'clients.empty': 'Ushbu davr uchun mijoz faolligi qayd etilmagan.',
 
   'clientDetail.back': 'Mijozlarga qaytish',

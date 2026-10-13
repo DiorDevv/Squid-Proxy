@@ -8,6 +8,7 @@ a single client comes from raw_events instead, which does have
 to-the-second timestamps.
 """
 
+from collections.abc import Iterable
 from datetime import datetime, timedelta
 from typing import Any
 
@@ -21,6 +22,7 @@ from app.models.raw_event import RawEvent
 from app.schemas.clients import ClientSummary
 from app.schemas.common import Page, SortOrder
 from app.schemas.events import EventDetail
+from app.services.db_upsert import merge_csv
 from app.services.event_query_service import build_event_conditions
 
 
@@ -81,6 +83,7 @@ def client_bucket_rows(
             model.blocked_bytes.label("blocked_bytes"),
             model.blocked_bytes_received.label("blocked_bytes_received"),
             model.bucket_ts.label("bucket_ts"),
+            model.proxy.label("proxy"),
         ).where(*conditions)
 
     return union_all(_source(ClientMinuteAggregate), _source(ClientHourlyAggregate)).subquery()
@@ -150,6 +153,24 @@ async def list_clients(
     )
     total = (await session.execute(count_query)).scalar_one()
 
+    # Proxies only for this page's rows -- a separate DISTINCT query rather
+    # than a string aggregate in the GROUP BY above, which SQLite and
+    # Postgres spell differently.
+    proxies: dict[tuple[str, str | None, str], set[str]] = {}
+    if rows:
+        proxy_rows = (
+            await session.execute(
+                select(combined.c.client_ip, combined.c.user, combined.c.branch, combined.c.proxy)
+                .where(
+                    combined.c.client_ip.in_({row.client_ip for row in rows}),
+                    combined.c.proxy.is_not(None),
+                )
+                .distinct()
+            )
+        ).all()
+        for p in proxy_rows:
+            proxies.setdefault((p.client_ip, p.user, p.branch), set()).add(p.proxy)
+
     items = [
         ClientSummary(
             client_ip=row.client_ip,
@@ -159,10 +180,16 @@ async def list_clients(
             blocked_requests=row.blocked_requests,
             total_bytes=row.total_bytes,
             last_activity=row.last_activity,
+            proxies=_split_proxies(proxies.get((row.client_ip, row.user, row.branch), ())),
         )
         for row in rows
     ]
     return Page(items=items, total=total, limit=limit, offset=offset)
+
+
+def _split_proxies(values: Iterable[str]) -> list[str]:
+    merged = merge_csv(*values)
+    return merged.split(",") if merged else []
 
 
 async def get_client_summary(
@@ -198,8 +225,14 @@ async def get_client_summary(
         )
     ).one()
     requests_total, blocked_total, bytes_total, activity, user, seen_branch = row
+    proxy_values = (
+        await session.execute(
+            select(combined.c.proxy).where(combined.c.proxy.is_not(None)).distinct()
+        )
+    ).scalars().all()
 
     return ClientSummary(
+        proxies=_split_proxies(proxy_values),
         client_ip=client_ip,
         user=user,
         branch=branch if branch is not None else seen_branch,

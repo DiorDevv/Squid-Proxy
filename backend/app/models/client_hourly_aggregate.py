@@ -43,3 +43,5 @@ class ClientHourlyAggregate(Base):
     # (this table is its hourly rollup -- see retention.py).
     blocked_bytes: Mapped[int] = mapped_column(BigInteger, default=0)
     blocked_bytes_received: Mapped[int] = mapped_column(BigInteger, default=0)
+    # Same comma-joined proxy list as ClientMinuteAggregate.proxy.
+    proxy: Mapped[str | None] = mapped_column(String(255), nullable=True, default=None)

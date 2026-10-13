@@ -17,6 +17,22 @@ interface ClientsTableProps {
   isLoading: boolean
 }
 
+function proxyColumn(header: string): ColumnDef<ClientSummary> {
+  return {
+    id: 'proxies',
+    header,
+    enableSorting: false,
+    cell: ({ row }) => {
+      const v = row.original.proxies ?? []
+      return (
+        <span className="font-data text-muted-foreground" title={v.join(', ') || undefined}>
+          {v.length ? v.join(', ') : '—'}
+        </span>
+      )
+    },
+  }
+}
+
 export function ClientsTable({
   items,
   total,
@@ -29,6 +45,10 @@ export function ClientsTable({
 }: ClientsTableProps) {
   const { t } = useTranslation()
   const navigate = useNavigate()
+
+  // Only branches fed by several proxies (a parent plus child proxies)
+  // carry proxy labels -- hide the column everywhere else.
+  const showProxy = items.some((item) => (item.proxies?.length ?? 0) > 0)
 
   const columns = useMemo<ColumnDef<ClientSummary>[]>(
     () => [
@@ -44,6 +64,7 @@ export function ClientsTable({
           <span className="font-data text-muted-foreground">{getValue<string | null>() ?? '—'}</span>
         ),
       },
+      ...(showProxy ? [proxyColumn(t('clients.columnProxy'))] : []),
       {
         accessorKey: 'user',
         header: t('clients.columnUser'),
@@ -93,7 +114,7 @@ export function ClientsTable({
         ),
       },
     ],
-    [t],
+    [t, showProxy],
   )
 
   return (

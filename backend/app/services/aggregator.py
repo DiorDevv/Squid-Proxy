@@ -38,7 +38,13 @@ from app.models.raw_event import RawEvent
 from app.services import insights_service
 from app.services.alerting import maybe_alert
 from app.services.category_inference import effective_category
-from app.services.db_upsert import bulk_upsert_sum, chunk_rows, declared_table, max_variables_for
+from app.services.db_upsert import (
+    bulk_upsert_sum,
+    chunk_rows,
+    declared_table,
+    max_variables_for,
+    merge_csv,
+)
 from app.services.domain_category_service import get_overrides_map
 from app.services.event_store import RingBuffer, StoredEvent
 
@@ -89,6 +95,8 @@ class _ClientTotals:
     # figure instead of it just vanishing from Downloaded/Uploaded.
     blocked_bytes_: int = 0
     blocked_bytes_recv: int = 0
+    # LogSource.proxy labels this client went through in the bucket.
+    proxies: set[str] = field(default_factory=set)
 
 
 @dataclass
@@ -501,6 +509,8 @@ class Aggregator:
 
             cb = client_buckets[(bucket, ev.client_ip, ev.branch, ev.user)]
             cb.count += 1
+            if ev.proxy:
+                cb.proxies.add(ev.proxy)
             if ev.blocked:
                 cb.blocked += 1
                 cb.blocked_bytes_ += ev.bytes
@@ -527,6 +537,7 @@ class Aggregator:
                     "peer": ev.peer,
                     "content_type": ev.content_type,
                     "blocked": ev.blocked,
+                    "proxy": ev.proxy,
                 }
             )
 
@@ -819,6 +830,7 @@ class Aggregator:
                 "bytes_received": totals.bytes_recv,
                 "blocked_bytes": totals.blocked_bytes_,
                 "blocked_bytes_received": totals.blocked_bytes_recv,
+                "proxy": merge_csv(*totals.proxies),
             }
             for (bucket, client_ip, branch, user), totals in client_buckets.items()
         ]
@@ -848,4 +860,5 @@ class Aggregator:
                 "blocked_bytes",
                 "blocked_bytes_received",
             ],
+            csv_merge_columns=["proxy"],
         )

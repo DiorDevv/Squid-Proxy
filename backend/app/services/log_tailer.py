@@ -113,6 +113,7 @@ class LogTailer:
         state_dir: str | None = None,
         key: str | None = None,
         exclude_clients: list[str] | None = None,
+        proxy: str | None = None,
     ) -> None:
         self.path = path
         self.on_event = on_event
@@ -125,6 +126,8 @@ class LogTailer:
         # Parsed lines from these client IPs are dropped (see
         # LogSource.exclude_clients) -- counted as parsed, not as failures.
         self.exclude_clients = frozenset(exclude_clients or ())
+        # Stamped on every parsed event (see LogSource.proxy).
+        self.proxy = proxy
         self.poll_interval = poll_interval
         self.backoff_max = backoff_max
         # None (the default) disables position persistence entirely, e.g.
@@ -399,7 +402,7 @@ class LogTailer:
             if not line.strip():
                 continue
             self._lines_seen += 1
-            event = parse_line(line, branch=self.branch)
+            event = parse_line(line, branch=self.branch, proxy=self.proxy)
             if event is not None:
                 self._lines_parsed += 1
                 if event.client_ip in self.exclude_clients:

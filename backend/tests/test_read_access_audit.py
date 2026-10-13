@@ -27,7 +27,7 @@ async def test_viewing_client_activity_is_audited_once_per_window(
     entries = await _entries(db_session, AuditAction.CLIENT_ACTIVITY_VIEWED)
     assert len(entries) == 1
     assert entries[0].detail == "client_ip=10.0.0.9"
-    assert entries[0].actor_email == "admin@example.com"
+    assert entries[0].actor_email == "admin"
 
 
 async def test_targeted_event_search_is_audited_but_a_bare_browse_is_not(
@@ -67,7 +67,7 @@ async def test_auditor_can_read_the_audit_log_and_data_but_cannot_mutate(
     assert (
         await app_client.post(
             "/api/users",
-            json={"email": "x@y.z", "password": "longenough1", "role": "viewer", "branch": None},
+            json={"username": "xyz", "role": "viewer", "branch": None},
             headers=h,
         )
     ).status_code == 403
@@ -80,4 +80,4 @@ async def test_auditor_reading_client_activity_is_itself_audited(
     r = await app_client.get("/api/clients/10.0.0.2/activity", headers=auth_headers(auditor_token))
     assert r.status_code == 200
     entries = await _entries(db_session, AuditAction.CLIENT_ACTIVITY_VIEWED)
-    assert any(e.actor_email == "auditor@example.com" and e.detail == "client_ip=10.0.0.2" for e in entries)
+    assert any(e.actor_email == "auditor" and e.detail == "client_ip=10.0.0.2" for e in entries)

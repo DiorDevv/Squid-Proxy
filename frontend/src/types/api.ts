@@ -215,10 +215,30 @@ export interface DomainClientStat {
 
 export interface UserSummary {
   id: string
-  email: string
+  username: string
+  full_name: string
+  email: string | null
+  note: string | null
   role: Role
   branch: string | null
+  is_active: boolean
+  must_change_password: boolean
+  totp_enabled: boolean
+  last_login_at: string | null
+  last_login_ip: string | null
+  password_changed_at: string | null
+  created_by: string | null
   created_at: string
+  active_sessions: number
+  // Too many recent failed sign-ins -- cleared by api.unlockUser.
+  throttled: boolean
+}
+
+/** Returned by create and password reset: the one-time temporary password
+ * is shown once and never retrievable again. */
+export interface UserWithTemporaryPassword {
+  user: UserSummary
+  temporary_password: string
 }
 
 export type AuditAction =
@@ -226,6 +246,13 @@ export type AuditAction =
   | 'user_role_changed'
   | 'user_password_reset'
   | 'user_deleted'
+  | 'user_updated'
+  | 'user_deactivated'
+  | 'user_activated'
+  | 'user_unlocked'
+  | 'user_sessions_revoked'
+  | 'user_password_changed'
+  | 'user_totp_reset'
   | 'export_created'
   | 'export_downloaded'
 

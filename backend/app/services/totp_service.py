@@ -56,7 +56,7 @@ def begin_setup(user: User) -> tuple[str, str]:
         raise TOTP_ALREADY_ENABLED
     secret = generate_secret()
     user.totp_secret = secret
-    return secret, provisioning_uri(secret, user.email, issuer=_ISSUER)
+    return secret, provisioning_uri(secret, user.username, issuer=_ISSUER)
 
 
 async def confirm_setup(session: AsyncSession, user: User, code: str, actor_user_id: str) -> list[str]:
@@ -82,7 +82,7 @@ async def confirm_setup(session: AsyncSession, user: User, code: str, actor_user
         actor_user_id=actor_user_id,
         branch=user.branch,
         target_user_id=user.id,
-        target_email=user.email,
+        target_email=user.username,
     )
     await session.commit()
     return codes
@@ -108,7 +108,7 @@ async def disable(session: AsyncSession, user: User, password: str, actor_user_i
         actor_user_id=actor_user_id,
         branch=user.branch,
         target_user_id=user.id,
-        target_email=user.email,
+        target_email=user.username,
     )
     await session.commit()
 
@@ -143,7 +143,7 @@ async def verify_login_code(session: AsyncSession, user: User, code: str) -> boo
                 actor_user_id=user.id,
                 branch=user.branch,
                 target_user_id=user.id,
-                target_email=user.email,
+                target_email=user.username,
             )
             await session.commit()
             return True

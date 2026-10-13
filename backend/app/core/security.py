@@ -78,7 +78,11 @@ def verify_password(password: str, hashed: str | None) -> bool:
 
 
 def create_access_token(
-    user_id: str, role: str, branch: str | None = None, token_version: int | None = None
+    user_id: str,
+    role: str,
+    branch: str | None = None,
+    token_version: int | None = None,
+    session_id: str | None = None,
 ) -> str:
     settings = get_settings()
     now = datetime.now(UTC)
@@ -92,6 +96,10 @@ def create_access_token(
         # callers that predate the column; a token with no "tv" is
         # grandfathered there rather than rejected outright.
         "tv": token_version,
+        # The refresh-token session (RefreshToken.session_id) this access
+        # token belongs to -- get_current_user rejects it once that session
+        # is revoked, and require_reauth reads its reauth_at.
+        "sid": session_id,
         "type": ACCESS_TOKEN_TYPE,
         "iat": now,
         "exp": now + timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES),
@@ -369,6 +377,15 @@ class LoginThrottle:
         self._entries[email] = (failures, now)
 
     def record_success(self, email: str) -> None:
+        self._entries.pop(email, None)
+
+    def is_throttled(self, email: str) -> bool:
+        """True if `email` has hit the failure threshold within the window --
+        shown on the user list so an admin can see who is being guessed at."""
+        return len(self._recent_failures(email, time.monotonic())) >= self.failure_threshold
+
+    def clear(self, email: str) -> None:
+        """An admin's explicit unlock -- same effect as a successful login."""
         self._entries.pop(email, None)
 
     def _sweep(self) -> None:

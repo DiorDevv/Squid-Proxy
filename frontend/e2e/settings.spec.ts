@@ -8,8 +8,8 @@ import { test, expect, type Page, type Locator } from '@playwright/test'
  * label/text selectors only, no manual waits, real backend/no mocking.
  *
  * Precondition: same as smoke.spec.ts -- a running backend with a
- * bootstrapped admin (ADMIN_EMAIL/ADMIN_PASSWORD, override via
- * E2E_ADMIN_EMAIL/E2E_ADMIN_PASSWORD if needed).
+ * bootstrapped super admin (ADMIN_USERNAME/ADMIN_PASSWORD, override via
+ * E2E_ADMIN_USERNAME/E2E_ADMIN_PASSWORD if needed).
  */
 
 // Scopes every query below to one <Panel>'s own <section> (see
@@ -24,11 +24,11 @@ function settingsPanel(page: Page, heading: string): Locator {
   return page.locator('section').filter({ has: page.getByRole('heading', { name: heading, exact: true }) })
 }
 
-function uniqueTestEmail(tag: string): string {
-  return `e2e-${tag}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}@example.com`
+function uniqueTestUsername(tag: string): string {
+  return `e2e-${tag}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`
 }
 
-const ADMIN_EMAIL = process.env.E2E_ADMIN_EMAIL ?? 'admin@example.com'
+const ADMIN_USERNAME = process.env.E2E_ADMIN_USERNAME ?? 'admin'
 const ADMIN_PASSWORD = process.env.E2E_ADMIN_PASSWORD ?? 'admin12345'
 
 // A real UI login of its own (like smoke.spec.ts's `login` describe does),
@@ -47,7 +47,7 @@ test.describe.serial('settings page', () => {
   test.beforeAll(async ({ browser }) => {
     page = await browser.newPage()
     await page.goto('/login')
-    await page.getByLabel('Email', { exact: false }).fill(ADMIN_EMAIL)
+    await page.getByLabel('Username', { exact: false }).fill(ADMIN_USERNAME)
     await page.locator('input[type="password"]').fill(ADMIN_PASSWORD)
     await page.getByRole('button', { name: 'Sign in' }).click()
     await expect(page).toHaveURL('/')
@@ -80,24 +80,31 @@ test.describe.serial('settings page', () => {
     await expect(page.getByText(/couldn't be displayed/i)).not.toBeVisible()
   })
 
-  test('create, change role and branch, then delete a user in User management', async () => {
-    const email = uniqueTestEmail('user')
+  test('create, change role and branch, then deactivate a user in User management', async () => {
+    const username = uniqueTestUsername('user')
+    await page.goto('/settings/users')
     const panel = settingsPanel(page, 'User management')
 
     await panel.getByRole('button', { name: 'Add user' }).click()
     const dialog = page.getByRole('dialog', { name: 'Add user' })
-    await dialog.getByLabel('Email', { exact: true }).fill(email)
-    await dialog.getByLabel('Password', { exact: true }).fill('e2e-test-pass-123')
+    await dialog.getByLabel('Username', { exact: true }).fill(username)
+    await dialog.getByLabel('Full name', { exact: true }).fill('E2E Test User')
     await dialog.getByRole('button', { name: 'Create user' }).click()
 
-    await expect(panel.getByText(email)).toBeVisible()
+    // The one-time temporary password is shown exactly once.
+    const tempDialog = page.getByRole('dialog', { name: `${username} created` })
+    await expect(tempDialog.getByText('Temporary password', { exact: true })).toBeVisible()
+    await tempDialog.getByRole('button', { name: "I've passed it on" }).click()
 
-    const row = panel.getByRole('row').filter({ hasText: email })
-    await row.getByRole('combobox', { name: `Change role for ${email}` }).click()
+    const row = panel.getByRole('row').filter({ hasText: username })
+    await expect(row).toBeVisible()
+    await expect(row.getByText('Temporary password')).toBeVisible()
+
+    await row.getByRole('combobox', { name: `Change role for ${username}` }).click()
     await page.getByRole('option', { name: 'Admin', exact: true }).click()
-    await expect(page.getByText(`${email} is now admin.`)).toBeVisible()
+    await expect(page.getByText('E2E Test User is now Admin.')).toBeVisible()
 
-    await row.getByRole('combobox', { name: `Change branch access for ${email}` }).click()
+    await row.getByRole('combobox', { name: `Change branch access for ${username}` }).click()
     // Real deployment config here has more than one branch, so the picker
     // offers real branch options alongside "All branches" -- pick whichever
     // real branch sorts first rather than hardcoding one of this
@@ -105,17 +112,20 @@ test.describe.serial('settings page', () => {
     const branchOptions = page.getByRole('option').filter({ hasNotText: 'All branches' })
     const firstBranchLabel = (await branchOptions.first().textContent()) ?? ''
     await branchOptions.first().click()
-    await expect(page.getByText(`Branch access updated for ${email}.`)).toBeVisible()
+    await expect(page.getByText('Branch access updated for E2E Test User.')).toBeVisible()
     if (firstBranchLabel) {
-      await expect(row.getByRole('combobox', { name: `Change branch access for ${email}` })).toContainText(
+      await expect(row.getByRole('combobox', { name: `Change branch access for ${username}` })).toContainText(
         firstBranchLabel,
       )
     }
 
-    await row.getByRole('button', { name: `Delete ${email}` }).click()
-    await page.getByRole('button', { name: 'Delete account' }).click()
-    await expect(page.getByText(`${email} removed.`)).toBeVisible()
-    await expect(panel.getByText(email)).not.toBeVisible()
+    // Accounts are deactivated, never deleted -- the row disappears from
+    // the default (active-only) view but the account is kept.
+    await row.getByRole('button', { name: `Actions for ${username}` }).click()
+    await page.getByRole('menuitem', { name: 'Deactivate' }).click()
+    await page.getByRole('dialog').getByRole('button', { name: 'Deactivate' }).click()
+    await expect(page.getByText('E2E Test User deactivated.')).toBeVisible()
+    await expect(row).not.toBeVisible()
   })
 
   test('update and persist an alert threshold, then restore it', async () => {

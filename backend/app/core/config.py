@@ -270,7 +270,17 @@ class Settings(BaseSettings):
     # deployment -- it's the whole point of bcrypt.
     BCRYPT_ROUNDS: int = 12
 
-    # --- Bootstrap admin (first-boot convenience only) ---
+    # Sensitive user-management actions (create user, change role/branch,
+    # reset password, deactivate, revoke sessions) require the actor to
+    # have re-entered their password within this many minutes -- a fresh
+    # login counts. See api/deps.require_reauth.
+    REAUTH_MINUTES: int = 10
+
+    # --- Bootstrap super admin (first-boot convenience only) ---
+    # ADMIN_USERNAME is the login name; ADMIN_EMAIL is kept for existing
+    # .env files -- if ADMIN_USERNAME is unset, the part of ADMIN_EMAIL
+    # before "@" is used as the username instead.
+    ADMIN_USERNAME: str | None = None
     ADMIN_EMAIL: str | None = None
     ADMIN_PASSWORD: str | None = None
 

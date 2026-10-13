@@ -6,6 +6,29 @@ import { useCreateUser, useUsers } from '@/hooks/useUsers'
 import { api } from '@/lib/api-client'
 import type { UserSummary } from '@/types/api'
 
+function makeUser(overrides: Partial<UserSummary>): UserSummary {
+  return {
+    id: '1',
+    username: 'admin',
+    full_name: '',
+    email: null,
+    note: null,
+    role: 'superadmin',
+    branch: null,
+    is_active: true,
+    must_change_password: false,
+    totp_enabled: false,
+    last_login_at: null,
+    last_login_ip: null,
+    password_changed_at: null,
+    created_by: null,
+    created_at: '2026-01-01T00:00:00Z',
+    active_sessions: 0,
+    throttled: false,
+    ...overrides,
+  }
+}
+
 vi.mock('@/lib/api-client', async () => {
   const actual = await vi.importActual<typeof import('@/lib/api-client')>('@/lib/api-client')
   return {
@@ -23,9 +46,7 @@ function wrapper({ children }: { children: ReactNode }) {
   return <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
 }
 
-const SAMPLE_USERS: UserSummary[] = [
-  { id: '1', email: 'admin@example.com', role: 'admin', branch: null, created_at: '2026-01-01T00:00:00Z' },
-]
+const SAMPLE_USERS: UserSummary[] = [makeUser({})]
 
 describe('useUsers', () => {
   beforeEach(() => {
@@ -56,25 +77,26 @@ describe('useCreateUser', () => {
     vi.mocked(api.createUser).mockReset()
   })
 
-  it('calls api.createUser with the given payload', async () => {
-    const created: UserSummary = {
-      id: '2',
-      email: 'new@example.com',
-      role: 'viewer',
-      branch: null,
-      created_at: '2026-01-02T00:00:00Z',
+  it('calls api.createUser with the given payload and returns the temporary password', async () => {
+    const created = {
+      user: makeUser({ id: '2', username: 'new.viewer', role: 'viewer' }),
+      temporary_password: 'Tmp-Pass-1234!',
     }
     vi.mocked(api.createUser).mockResolvedValueOnce(created)
+    const payload = {
+      username: 'new.viewer',
+      full_name: 'New Viewer',
+      note: null,
+      email: null,
+      role: 'viewer' as const,
+      branch: null,
+    }
 
     const { result } = renderHook(() => useCreateUser(), { wrapper })
-    result.current.mutate({ email: 'new@example.com', password: 'password123', role: 'viewer', branch: null })
+    result.current.mutate(payload)
 
     await waitFor(() => expect(result.current.isSuccess).toBe(true))
-    expect(api.createUser).toHaveBeenCalledWith({
-      email: 'new@example.com',
-      password: 'password123',
-      role: 'viewer',
-      branch: null,
-    })
+    expect(api.createUser).toHaveBeenCalledWith(payload)
+    expect(result.current.data?.temporary_password).toBe('Tmp-Pass-1234!')
   })
 })

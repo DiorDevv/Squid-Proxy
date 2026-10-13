@@ -1,10 +1,13 @@
 import { API_BASE_URL } from '@/lib/constants'
 import { decodeAccessTokenBranch, decodeAccessTokenRole, getAccessToken, useAuthStore } from '@/lib/auth-store'
+import { requestReauth } from '@/lib/reauth-store'
 import { translate, useLocaleStore } from '@/i18n'
 import type {
   LoginResponse,
+  MeResponse,
   RefreshResponse,
   Role,
+  SessionInfo,
   TotpConfirmResponse,
   TotpSetupResponse,
   TotpStatusResponse,
@@ -17,7 +20,12 @@ import type {
   ExportManifest,
   ExportShareLink,
   UserSummary,
+  UserWithTemporaryPassword,
 } from '@/types/api'
+
+// Exact machine-readable 403 details from backend api/deps.py.
+const PASSWORD_CHANGE_REQUIRED = 'password_change_required'
+const REAUTH_REQUIRED = 'reauth_required'
 
 export class ApiError extends Error {
   status: number
@@ -50,11 +58,10 @@ async function doRefresh(): Promise<boolean> {
     })
     if (!response.ok) return false
     const body = (await response.json()) as RefreshResponse
-    // The refresh response never includes email (the refresh cookie doesn't
-    // carry it), so role is recovered from the token itself rather than
-    // requiring an email already in the store -- a session restored via a
-    // hard reload (where email is null, see useAuth.bootstrap) must still be
-    // able to silently refresh past its first access-token expiry.
+    // The refresh response carries nothing but the token, so role is
+    // recovered from the token itself rather than from profile state that
+    // may not be loaded yet -- a session restored via a hard reload must
+    // still be able to silently refresh past its first access-token expiry.
     const role = decodeAccessTokenRole(body.access_token)
     if (!role) return false
     useAuthStore.getState().setAccessToken(body.access_token, role, decodeAccessTokenBranch(body.access_token))
@@ -78,10 +85,11 @@ interface RequestOptions {
   body?: unknown
   searchParams?: Record<string, string | number | boolean | undefined>
   skipAuthRetry?: boolean
+  skipReauth?: boolean
 }
 
 export async function apiFetch<T>(path: string, options: RequestOptions = {}): Promise<T> {
-  const { method = 'GET', body, searchParams, skipAuthRetry } = options
+  const { method = 'GET', body, searchParams, skipAuthRetry, skipReauth } = options
   const token = getAccessToken()
 
   const response = await fetch(buildUrl(path, searchParams), {
@@ -114,6 +122,17 @@ export async function apiFetch<T>(path: string, options: RequestOptions = {}): P
     } catch {
       // response had no JSON body
     }
+    const locale = useLocaleStore.getState().locale
+    if (response.status === 403 && detail === REAUTH_REQUIRED && !skipReauth) {
+      if (await requestReauth()) {
+        return apiFetch<T>(path, { ...options, skipReauth: true })
+      }
+      throw new ApiError(403, translate(locale, 'reauth.cancelled'))
+    }
+    if (response.status === 403 && detail === PASSWORD_CHANGE_REQUIRED) {
+      useAuthStore.getState().setMustChangePassword(true)
+      throw new ApiError(403, translate(locale, 'passwordChange.required'))
+    }
     throw new ApiError(response.status, detail)
   }
 
@@ -122,15 +141,29 @@ export async function apiFetch<T>(path: string, options: RequestOptions = {}): P
 }
 
 export const api = {
-  login: (email: string, password: string) =>
+  login: (username: string, password: string) =>
     apiFetch<LoginResponse>('/api/auth/login', {
       method: 'POST',
-      body: { email, password },
+      body: { username, password },
       skipAuthRetry: true,
     }),
   refresh: () => apiFetch<RefreshResponse>('/api/auth/refresh', { method: 'POST', skipAuthRetry: true }),
   logout: () => apiFetch<void>('/api/auth/logout', { method: 'POST', skipAuthRetry: true }),
   wsTicket: () => apiFetch<WsTicketResponse>('/api/auth/ws-ticket', { method: 'POST' }),
+  me: () => apiFetch<MeResponse>('/api/auth/me'),
+  reauth: (password: string) =>
+    apiFetch<{ valid_minutes: number }>('/api/auth/reauth', { method: 'POST', body: { password } }),
+  changePassword: (currentPassword: string, newPassword: string) =>
+    apiFetch<{ sessions_closed: number }>('/api/auth/password', {
+      method: 'POST',
+      body: { current_password: currentPassword, new_password: newPassword },
+    }),
+  mySessions: () => apiFetch<SessionInfo[]>('/api/auth/sessions'),
+  revokeMySessions: (sessionId?: string) =>
+    apiFetch<{ closed: number }>('/api/auth/sessions', {
+      method: 'DELETE',
+      searchParams: { session_id: sessionId },
+    }),
   verifyMfa: (challengeToken: string, code: string) =>
     apiFetch<LoginResponse>('/api/auth/login/verify-mfa', {
       method: 'POST',
@@ -144,8 +177,18 @@ export const api = {
   totpDisable: (password: string) =>
     apiFetch<void>('/api/auth/totp/disable', { method: 'POST', body: { password } }),
   listUsers: () => apiFetch<UserSummary[]>('/api/users'),
-  createUser: (data: { email: string; password: string; role: Role; branch: string | null }) =>
-    apiFetch<UserSummary>('/api/users', { method: 'POST', body: data }),
+  createUser: (data: {
+    username: string
+    full_name: string
+    note: string | null
+    email: string | null
+    role: Role
+    branch: string | null
+  }) => apiFetch<UserWithTemporaryPassword>('/api/users', { method: 'POST', body: data }),
+  updateUserProfile: (
+    userId: string,
+    data: { full_name?: string; note?: string | null; email?: string | null },
+  ) => apiFetch<UserSummary>(`/api/users/${encodeURIComponent(userId)}`, { method: 'PATCH', body: data }),
   updateUserRole: (userId: string, role: Role) =>
     apiFetch<UserSummary>(`/api/users/${encodeURIComponent(userId)}/role`, {
       method: 'PATCH',
@@ -156,13 +199,26 @@ export const api = {
       method: 'PATCH',
       body: { branch },
     }),
-  resetUserPassword: (userId: string, newPassword: string) =>
-    apiFetch<void>(`/api/users/${encodeURIComponent(userId)}/reset-password`, {
+  resetUserPassword: (userId: string) =>
+    apiFetch<UserWithTemporaryPassword>(`/api/users/${encodeURIComponent(userId)}/reset-password`, {
       method: 'POST',
-      body: { new_password: newPassword },
     }),
-  deleteUser: (userId: string) =>
-    apiFetch<void>(`/api/users/${encodeURIComponent(userId)}`, { method: 'DELETE' }),
+  setUserActive: (userId: string, active: boolean) =>
+    apiFetch<UserSummary>(`/api/users/${encodeURIComponent(userId)}/active`, {
+      method: 'POST',
+      body: { active },
+    }),
+  unlockUser: (userId: string) =>
+    apiFetch<UserSummary>(`/api/users/${encodeURIComponent(userId)}/unlock`, { method: 'POST' }),
+  resetUserTotp: (userId: string) =>
+    apiFetch<UserSummary>(`/api/users/${encodeURIComponent(userId)}/reset-2fa`, { method: 'POST' }),
+  userSessions: (userId: string) =>
+    apiFetch<SessionInfo[]>(`/api/users/${encodeURIComponent(userId)}/sessions`),
+  revokeUserSessions: (userId: string, sessionId?: string) =>
+    apiFetch<{ closed: number }>(`/api/users/${encodeURIComponent(userId)}/sessions`, {
+      method: 'DELETE',
+      searchParams: { session_id: sessionId },
+    }),
   createExportJob: (params: {
     range?: string
     fromTs?: string

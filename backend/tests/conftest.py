@@ -5,6 +5,7 @@ os.environ.setdefault("DATABASE_URL", "sqlite+aiosqlite:///:memory:")
 # >= 32 bytes: PyJWT warns (InsecureKeyLengthWarning) on a shorter HS256 key,
 # and a real secret should be long anyway (README: token_urlsafe(48)).
 os.environ.setdefault("JWT_SECRET", "test-secret-not-for-production-0123456789abcdef")
+os.environ.setdefault("ADMIN_USERNAME", "admin")
 os.environ.setdefault("ADMIN_EMAIL", "admin@example.com")
 os.environ.setdefault("ADMIN_PASSWORD", "admin-test-password-123")
 # Deliberate key-stretching is dead weight in a test suite that logs in
@@ -137,7 +138,7 @@ async def app_client(test_app) -> AsyncGenerator[AsyncClient]:
 async def admin_token(app_client: AsyncClient) -> str:
     response = await app_client.post(
         "/api/auth/login",
-        json={"email": "admin@example.com", "password": "admin-test-password-123"},
+        json={"username": "admin", "password": "admin-test-password-123"},
     )
     assert response.status_code == 200, response.text
     return response.json()["access_token"]
@@ -146,12 +147,17 @@ async def admin_token(app_client: AsyncClient) -> str:
 @pytest_asyncio.fixture
 async def viewer_token(app_client: AsyncClient, db_session: AsyncSession) -> str:
     db_session.add(
-        User(email="viewer@example.com", hashed_password=hash_password("viewer-pass-123"), role=UserRole.VIEWER)
+        User(
+            username="viewer",
+            email="viewer@example.com",
+            hashed_password=hash_password("viewer-pass-123"),
+            role=UserRole.VIEWER,
+        )
     )
     await db_session.commit()
     response = await app_client.post(
         "/api/auth/login",
-        json={"email": "viewer@example.com", "password": "viewer-pass-123"},
+        json={"username": "viewer", "password": "viewer-pass-123"},
     )
     assert response.status_code == 200, response.text
     return response.json()["access_token"]
@@ -161,6 +167,7 @@ async def viewer_token(app_client: AsyncClient, db_session: AsyncSession) -> str
 async def auditor_token(app_client: AsyncClient, db_session: AsyncSession) -> str:
     db_session.add(
         User(
+            username="auditor",
             email="auditor@example.com",
             hashed_password=hash_password("auditor-pass-123"),
             role=UserRole.AUDITOR,
@@ -169,7 +176,7 @@ async def auditor_token(app_client: AsyncClient, db_session: AsyncSession) -> st
     await db_session.commit()
     response = await app_client.post(
         "/api/auth/login",
-        json={"email": "auditor@example.com", "password": "auditor-pass-123"},
+        json={"username": "auditor", "password": "auditor-pass-123"},
     )
     assert response.status_code == 200, response.text
     return response.json()["access_token"]
@@ -183,6 +190,7 @@ async def branch_a_admin_token(app_client: AsyncClient, db_session: AsyncSession
     equivalent per-service enforcement in user_service.py)."""
     db_session.add(
         User(
+            username="branch-a-admin",
             email="branch-a-admin@example.com",
             hashed_password=hash_password("branch-a-admin-pass-123"),
             role=UserRole.ADMIN,
@@ -192,7 +200,7 @@ async def branch_a_admin_token(app_client: AsyncClient, db_session: AsyncSession
     await db_session.commit()
     response = await app_client.post(
         "/api/auth/login",
-        json={"email": "branch-a-admin@example.com", "password": "branch-a-admin-pass-123"},
+        json={"username": "branch-a-admin", "password": "branch-a-admin-pass-123"},
     )
     assert response.status_code == 200, response.text
     return response.json()["access_token"]

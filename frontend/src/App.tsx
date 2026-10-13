@@ -1,6 +1,7 @@
 import { lazy, Suspense, useEffect, useRef } from 'react'
 import { Navigate, Route, Routes } from 'react-router-dom'
 import { AppShell } from '@/components/layout/AppShell'
+import { ReauthDialog } from '@/components/account/ReauthDialog'
 import { ProtectedRoute } from '@/routes/ProtectedRoute'
 import { Skeleton } from '@/components/ui/skeleton'
 import { useAuth } from '@/hooks/useAuth'
@@ -36,6 +37,7 @@ const SettingsExportPage = lazy(() => import('@/pages/settings/SettingsExportPag
 const SettingsRetentionPage = lazy(() => import('@/pages/settings/SettingsRetentionPage'))
 const SettingsWatchlistPage = lazy(() => import('@/pages/settings/SettingsWatchlistPage'))
 const SettingsTelegramPage = lazy(() => import('@/pages/settings/SettingsTelegramPage'))
+const ProfilePage = lazy(() => import('@/pages/ProfilePage'))
 const NotFoundPage = lazy(() => import('@/pages/NotFoundPage'))
 
 function RouteFallback() {
@@ -67,6 +69,7 @@ export default function App() {
 
   return (
     <Suspense fallback={<RouteFallback />}>
+      <ReauthDialog />
       <Routes>
         <Route path="/login" element={<LoginPage />} />
 
@@ -79,6 +82,7 @@ export default function App() {
             <Route path="events" element={<EventsPage />} />
             <Route path="domains" element={<DomainsPage />} />
             <Route path="domains/:domain" element={<DomainDetailPage />} />
+            <Route path="profile" element={<ProfilePage />} />
             <Route path="analytics" element={<AnalyticsLayout />}>
               <Route index element={<Navigate to="overview" replace />} />
               <Route path="overview" element={<AnalyticsOverviewPage />} />

@@ -1,7 +1,7 @@
 import { request as playwrightRequest } from '@playwright/test'
 
 const API_BASE_URL = process.env.E2E_API_BASE_URL ?? 'http://localhost:8000'
-const ADMIN_EMAIL = process.env.E2E_ADMIN_EMAIL ?? 'admin@example.com'
+const ADMIN_USERNAME = process.env.E2E_ADMIN_USERNAME ?? 'admin'
 const ADMIN_PASSWORD = process.env.E2E_ADMIN_PASSWORD ?? 'admin12345'
 
 export const STORAGE_STATE_PATH = 'e2e/.auth/state.json'
@@ -17,12 +17,12 @@ export const STORAGE_STATE_PATH = 'e2e/.auth/state.json'
 export default async function globalSetup() {
   const context = await playwrightRequest.newContext({ baseURL: API_BASE_URL })
   const response = await context.post('/api/auth/login', {
-    data: { email: ADMIN_EMAIL, password: ADMIN_PASSWORD },
+    data: { username: ADMIN_USERNAME, password: ADMIN_PASSWORD },
   })
   if (!response.ok()) {
     throw new Error(
       `E2E global setup: login failed (${response.status()}). Is the backend running at ${API_BASE_URL}? ` +
-        'Override with E2E_API_BASE_URL / E2E_ADMIN_EMAIL / E2E_ADMIN_PASSWORD if your setup differs.',
+        'Override with E2E_API_BASE_URL / E2E_ADMIN_USERNAME / E2E_ADMIN_PASSWORD if your setup differs.',
     )
   }
   await context.storageState({ path: STORAGE_STATE_PATH })

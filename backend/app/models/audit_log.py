@@ -63,6 +63,16 @@ class AuditAction(str, enum.Enum):
     ALERT_RULE_CREATED = "alert_rule_created"
     ALERT_RULE_UPDATED = "alert_rule_updated"
     ALERT_RULE_DELETED = "alert_rule_deleted"
+    # Super-admin user management (app/services/user_service.py). Accounts
+    # are deactivated rather than deleted now -- USER_DELETED above stays
+    # only for entries written before that.
+    USER_UPDATED = "user_updated"
+    USER_DEACTIVATED = "user_deactivated"
+    USER_ACTIVATED = "user_activated"
+    USER_UNLOCKED = "user_unlocked"
+    USER_SESSIONS_REVOKED = "user_sessions_revoked"
+    USER_PASSWORD_CHANGED = "user_password_changed"
+    USER_TOTP_RESET = "user_totp_reset"
 
 
 class AuditLogEntry(Base):
@@ -92,6 +102,11 @@ class AuditLogEntry(Base):
     # tagged with *another* branch (see audit_service.list_entries).
     branch: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
     actor_user_id: Mapped[str] = mapped_column(String(36), index=True)
+    # actor_email/target_email hold the account's *login identity* at write
+    # time: its email for entries written before username login existed,
+    # its username since. Not renamed -- the column names aren't part of
+    # the hash chain, but every reader/exporter/verifier would have to
+    # change for no gain.
     actor_email: Mapped[str] = mapped_column(String(255))
     target_user_id: Mapped[str | None] = mapped_column(String(36), nullable=True, index=True)
     target_email: Mapped[str | None] = mapped_column(String(255), nullable=True)

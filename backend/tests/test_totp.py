@@ -51,7 +51,7 @@ async def test_totp_confirm_with_correct_code_enables_and_returns_ten_recovery_c
     assert len(set(codes)) == 10  # all distinct
 
     user = (
-        await db_session.execute(select(User).where(User.email == "admin@example.com"))
+        await db_session.execute(select(User).where(User.username == "admin"))
     ).scalar_one()
     assert user.totp_enabled is True
     assert user.totp_secret == secret
@@ -67,7 +67,7 @@ async def test_totp_confirm_with_wrong_code_returns_400_and_stays_disabled(
     assert response.status_code == 400
 
     user = (
-        await db_session.execute(select(User).where(User.email == "admin@example.com"))
+        await db_session.execute(select(User).where(User.username == "admin"))
     ).scalar_one()
     assert user.totp_enabled is False
 
@@ -81,7 +81,7 @@ async def test_totp_confirm_records_audit_entry(
             select(AuditLogEntry).where(AuditLogEntry.action == AuditAction.TOTP_ENABLED)
         )
     ).scalar_one()
-    assert entry.target_email == "admin@example.com"
+    assert entry.target_email == "admin"
 
 
 async def test_totp_status_reflects_enabled_state(app_client: AsyncClient, admin_token, auth_headers):
@@ -101,7 +101,7 @@ async def test_login_with_totp_enabled_returns_mfa_challenge_not_tokens(
 
     response = await app_client.post(
         "/api/auth/login",
-        json={"email": "admin@example.com", "password": "admin-test-password-123"},
+        json={"username": "admin@example.com", "password": "admin-test-password-123"},
     )
     assert response.status_code == 200
     body = response.json()
@@ -118,7 +118,7 @@ async def test_verify_mfa_with_correct_code_completes_login(
 
     login = await app_client.post(
         "/api/auth/login",
-        json={"email": "admin@example.com", "password": "admin-test-password-123"},
+        json={"username": "admin@example.com", "password": "admin-test-password-123"},
     )
     challenge_token = login.json()["challenge_token"]
 
@@ -129,7 +129,7 @@ async def test_verify_mfa_with_correct_code_completes_login(
     assert response.status_code == 200
     body = response.json()
     assert body["access_token"]
-    assert body["role"] == "admin"
+    assert body["role"] == "superadmin"
     assert "refresh_token" in response.cookies
 
 
@@ -137,7 +137,7 @@ async def test_verify_mfa_with_wrong_code_returns_401(app_client: AsyncClient, a
     await _enable_totp(app_client, admin_token, auth_headers)
     login = await app_client.post(
         "/api/auth/login",
-        json={"email": "admin@example.com", "password": "admin-test-password-123"},
+        json={"username": "admin@example.com", "password": "admin-test-password-123"},
     )
     challenge_token = login.json()["challenge_token"]
 
@@ -155,7 +155,7 @@ async def test_verify_mfa_challenge_survives_one_wrong_attempt(
     secret, _codes = await _enable_totp(app_client, admin_token, auth_headers)
     login = await app_client.post(
         "/api/auth/login",
-        json={"email": "admin@example.com", "password": "admin-test-password-123"},
+        json={"username": "admin@example.com", "password": "admin-test-password-123"},
     )
     challenge_token = login.json()["challenge_token"]
 
@@ -177,7 +177,7 @@ async def test_verify_mfa_challenge_invalidated_after_max_wrong_attempts(
     secret, _codes = await _enable_totp(app_client, admin_token, auth_headers)
     login = await app_client.post(
         "/api/auth/login",
-        json={"email": "admin@example.com", "password": "admin-test-password-123"},
+        json={"username": "admin@example.com", "password": "admin-test-password-123"},
     )
     challenge_token = login.json()["challenge_token"]
 
@@ -203,7 +203,7 @@ async def test_verify_mfa_with_recovery_code_works_and_consumes_it(
 
     login = await app_client.post(
         "/api/auth/login",
-        json={"email": "admin@example.com", "password": "admin-test-password-123"},
+        json={"username": "admin@example.com", "password": "admin-test-password-123"},
     )
     challenge_token = login.json()["challenge_token"]
 
@@ -228,7 +228,7 @@ async def test_recovery_code_cannot_be_reused(app_client: AsyncClient, admin_tok
     async def _login_challenge() -> str:
         login = await app_client.post(
             "/api/auth/login",
-            json={"email": "admin@example.com", "password": "admin-test-password-123"},
+            json={"username": "admin@example.com", "password": "admin-test-password-123"},
         )
         return login.json()["challenge_token"]
 
@@ -265,7 +265,7 @@ async def test_totp_disable_with_correct_password_disables_2fa(
     assert response.status_code == 204
 
     user = (
-        await db_session.execute(select(User).where(User.email == "admin@example.com"))
+        await db_session.execute(select(User).where(User.username == "admin"))
     ).scalar_one()
     assert user.totp_enabled is False
     assert user.totp_secret is None
@@ -273,7 +273,7 @@ async def test_totp_disable_with_correct_password_disables_2fa(
     # A normal login (no challenge) works again.
     login = await app_client.post(
         "/api/auth/login",
-        json={"email": "admin@example.com", "password": "admin-test-password-123"},
+        json={"username": "admin@example.com", "password": "admin-test-password-123"},
     )
     assert login.json()["mfa_required"] is False
     assert login.json()["access_token"]

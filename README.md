@@ -76,8 +76,8 @@ show without a real Squid deployment (see `backend/scripts/generate_demo_log.py`
 `--profile demo` for a real deployment and instead bind-mount your real Squid log directory (see
 below).
 
-Then open **http://localhost:8080** and sign in with the `ADMIN_EMAIL` / `ADMIN_PASSWORD` you set
-in `.env`.
+Then open **http://localhost:8080** and sign in with the `ADMIN_USERNAME` (default `admin`) /
+`ADMIN_PASSWORD` you set in `.env` -- that first account is a **super admin**.
 
 To point at a **real** Squid installation instead of the demo generator, drop the `demo` profile
 and bind-mount the real log directory over the `squid_log_data` volume in `docker-compose.yml`:
@@ -239,11 +239,13 @@ cp .env.example .env
 uvicorn app.main:app --reload
 ```
 
-The backend auto-creates its SQLite database and bootstraps the first admin user (from
-`ADMIN_EMAIL`/`ADMIN_PASSWORD`) on first run. To add more users later:
+The backend auto-creates its SQLite database and bootstraps the first super admin (from
+`ADMIN_USERNAME`/`ADMIN_PASSWORD`) on first run. Everyone else is normally created from
+**Settings → Users** (see "User management" below). The CLI is for getting a super admin onto a
+fresh install, or back in when every super admin is locked out:
 
 ```bash
-python scripts/create_admin.py --email viewer@example.com --password '...' --role viewer
+python scripts/create_admin.py --username ops --role superadmin   # prompts for the password
 ```
 
 To exercise the dashboard without a real Squid proxy, run the synthetic log generator in another
@@ -291,7 +293,7 @@ cd frontend
 npm run test:e2e
 ```
 
-Defaults assume the backend at `http://localhost:8000` and the documented dev admin credentials (`admin@example.com` / `admin12345`); override with `E2E_API_BASE_URL`, `E2E_ADMIN_EMAIL`, `E2E_ADMIN_PASSWORD` if yours differ.
+Defaults assume the backend at `http://localhost:8000` and the documented dev admin credentials (`admin` / `admin12345`); override with `E2E_API_BASE_URL`, `E2E_ADMIN_USERNAME`, `E2E_ADMIN_PASSWORD` if yours differ.
 
 ## Configuration reference
 
@@ -309,7 +311,8 @@ Key ones to know:
 | `COOKIE_SECURE` | The refresh-token cookie's `Secure` flag — defaults to `ENVIRONMENT == "production"`. A browser only stores/sends a `Secure` cookie over HTTPS, so leave this unset once actually served over HTTPS; set it to `false` if this is served over plain HTTP (internal-only, behind a firewall/VPN) — otherwise staying logged in across a page reload silently breaks, since the access token is memory-only by design and the refresh cookie is what's supposed to restore it |
 | `RETENTION_DAYS_RAW_EVENTS` / `RETENTION_DAYS_AGGREGATES` | How long raw vs. aggregated data is kept. `RETENTION_DAYS_RAW_EVENTS` only **seeds** the initial value — once an admin saves at **Settings → Retention** (`GET/PUT /api/retention-settings`), the DB row is authoritative and this env var is inert. That page also holds the `halt_purge_if_archive_lag_days` guard: when set, the `raw_events` purge is skipped for any cycle where archiving is more than that many days behind (so a broken archive job can't quietly delete per-request detail — leave off on a bounded-disk install). |
 | `RETENTION_DAYS_OPS_AGGREGATES` | How long the Analytics per-minute operational aggregates (result codes, HTTP, hierarchy, per-user category) are kept — shorter (default 90d) than the core aggregates |
-| `ADMIN_EMAIL` / `ADMIN_PASSWORD` | First-boot admin bootstrap (only used if the `users` table is empty) |
+| `ADMIN_USERNAME` / `ADMIN_PASSWORD` | First-boot super admin bootstrap (only used if the `users` table is empty). `ADMIN_EMAIL` is optional contact info; if `ADMIN_USERNAME` is unset, the part of `ADMIN_EMAIL` before `@` is used |
+| `REAUTH_MINUTES` | How long a password confirmation covers sensitive user-management actions (default 10) |
 | `METRICS_ALLOWED_IPS` | JSON array of IPs/CIDRs allowed to scrape `/metrics` — empty (default) means no IP restriction; `/api/health` stays open regardless |
 | `EXPORT_JOBS_MAX_TOTAL_MB` | Total on-disk cap for the export-jobs directory (default 2048); a new export is refused with `507` once it's reached |
 | `RING_BUFFER_MAX_EVENTS` / `AGGREGATION_INTERVAL_SECONDS` | In-memory event buffer size and flush interval — see "Capacity planning" below |
@@ -839,7 +842,7 @@ domains or users flagged so that `WatchlistMonitorJob` raises an anomaly the nex
 active (see `WATCHLIST_MONITOR_INTERVAL_SECONDS` / `WATCHLIST_ALERT_COOLDOWN_SECONDS`).
 
 **`GET /api/audit-log`** (admin/auditor) is the who-did-what trail for admin actions: user
-management (create/role-change/password-reset/delete), the full export lifecycle
+management (create/edit/role and branch changes/password resets/deactivation/sessions), the full export lifecycle
 (create/download/share/cancel/share-revoke), and every settings change that affects what gets
 flagged or exported (alert settings, domain categories, export cleanup policy, "send report now").
 Not a data-retention log — entries survive the account or resource they describe (see
@@ -915,7 +918,7 @@ Alembic's bookkeeping table recording it.
   and verified with PyJWT (`JWT_SECRET`); `JWT_SECRET_PREVIOUS` lets you rotate the secret without
   logging every session out at once (set it to the old value for one access-token lifetime).
 - The login endpoint is rate-limited per IP (`LOGIN_RATE_LIMIT`, default 5/minute) **and** per
-  account (`LOGIN_ACCOUNT_FAILURE_*`): after enough failed logins for one email, that email is
+  account (`LOGIN_ACCOUNT_FAILURE_*`): after enough failed logins for one username, that username is
   throttled to one attempt per minute regardless of source IP, so a distributed attacker can't
   brute-force a single account by spreading guesses across IPs. It's a throttle, not a lock — the
   correct password is still accepted and clears it, so no one can lock an account out by knowing
@@ -923,8 +926,20 @@ Alembic's bookkeeping table recording it.
 - **Optional TOTP two-factor authentication** — any account (admin or viewer) can enable it
   self-service from the account menu (scan a QR code, confirm a code, save the one-time recovery
   codes shown). Off by default per account; not an org-wide policy toggle.
-- `viewer` role has full read access; only `admin` can export data or reach `/settings`. Either
-  role can additionally be scoped to one branch — see "Restricting a user to one branch" above.
+- Roles: `viewer` has full read access; `auditor` adds the audit log and data-policy pages, still
+  read-only; `admin` can export data and change settings, and manage *viewer* accounts in their
+  own scope; `superadmin` (always all branches) is the only role that manages admins, auditors and
+  other super admins. Any role but `superadmin` can additionally be scoped to one branch — see
+  "Restricting a user to one branch" above.
+- **User management** (Settings → Users): accounts sign in with a username. An admin never picks a
+  password — creating an account or resetting its password generates a one-time temporary
+  password, shown once, which the user must replace at first sign-in (12+ characters, 3 of
+  4 character classes, not the username or a common word, not one of their last 5). Creating
+  users, changing role/branch, resetting passwords or 2FA, deactivating and ending sessions all
+  require re-entering your own password within the last `REAUTH_MINUTES`. Accounts are
+  deactivated, never deleted, so the audit trail stays intact; deactivating or resetting ends every
+  session of that account immediately. Each user can see and end their own sessions and change
+  their password under **My profile**.
 - Branch-scoping covers REST data-read endpoints, `GET /api/branches`, and the `/ws/live`
   live-events WebSocket — a scoped user's connection is filtered to their own branch's events
   server-side, not just hidden client-side.

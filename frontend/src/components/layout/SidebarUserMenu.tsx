@@ -1,5 +1,4 @@
-import { useState } from 'react'
-import { KeyRound, LogOut, MoreVertical } from 'lucide-react'
+import { LogOut, MoreVertical, UserRound } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { toast } from 'sonner'
 import {
@@ -12,9 +11,9 @@ import {
 } from '@/components/ui/dropdown-menu'
 import { ThemeSwitcher } from '@/components/layout/ThemeSwitcher'
 import { LanguageSwitcher } from '@/components/layout/LanguageSwitcher'
-import { TwoFactorDialog } from '@/components/account/TwoFactorDialog'
 import { useAuth } from '@/hooks/useAuth'
 import { useAuthStore } from '@/lib/auth-store'
+import { ROLE_LABEL_KEYS } from '@/lib/roles'
 import { useTranslation } from '@/i18n'
 
 /** Persistent account footer shown at the bottom of the sidebar (desktop)
@@ -27,12 +26,13 @@ export function SidebarUserMenu() {
   const { t } = useTranslation()
   const { logout } = useAuth()
   const navigate = useNavigate()
-  const email = useAuthStore((state) => state.email)
+  const username = useAuthStore((state) => state.username)
+  const fullName = useAuthStore((state) => state.fullName)
   const role = useAuthStore((state) => state.role)
-  const [totpDialogOpen, setTotpDialogOpen] = useState(false)
 
-  const label = email ?? (role ? `${role} account` : t('account.signedIn'))
-  const initials = (email ?? role ?? '?').charAt(0).toUpperCase()
+  const label = fullName || username || t('account.signedIn')
+  const roleLabel = role ? t(ROLE_LABEL_KEYS[role]) : ''
+  const initials = (fullName || username || '?').charAt(0).toUpperCase()
 
   async function handleLogout() {
     await logout()
@@ -54,7 +54,7 @@ export function SidebarUserMenu() {
             <span className="flex min-w-0 flex-1 flex-col">
               <span className="truncate text-xs font-medium text-sidebar-foreground">{label}</span>
               <span className="text-[10px] font-medium tracking-wide text-muted-foreground uppercase">
-                {role}
+                {roleLabel}
               </span>
             </span>
             <MoreVertical
@@ -66,8 +66,13 @@ export function SidebarUserMenu() {
         <DropdownMenuContent align="end" side="top" className="w-56">
           <DropdownMenuLabel>
             <div className="flex flex-col">
-              <span className="text-sm">{email ?? t('account.signedIn')}</span>
-              <span className="text-xs font-normal text-muted-foreground capitalize">{role}</span>
+              <span className="text-sm">{label}</span>
+              {username && fullName && (
+                <span className="font-data text-xs font-normal text-muted-foreground">
+                  {username}
+                </span>
+              )}
+              <span className="text-xs font-normal text-muted-foreground">{roleLabel}</span>
             </div>
           </DropdownMenuLabel>
           <DropdownMenuSeparator />
@@ -80,18 +85,9 @@ export function SidebarUserMenu() {
             <LanguageSwitcher />
           </div>
           <DropdownMenuSeparator />
-          <DropdownMenuItem
-            onSelect={(e) => {
-              // Keep the dropdown's own closing from also stealing focus
-              // away from the dialog that's about to open (a known Radix
-              // gotcha when a Dialog is triggered from inside a
-              // DropdownMenu item rather than a plain DialogTrigger).
-              e.preventDefault()
-              setTotpDialogOpen(true)
-            }}
-          >
-            <KeyRound className="h-4 w-4" aria-hidden="true" />
-            {t('account.totpMenuItem')}
+          <DropdownMenuItem onSelect={() => navigate('/profile')}>
+            <UserRound className="h-4 w-4" aria-hidden="true" />
+            {t('account.profileMenuItem')}
           </DropdownMenuItem>
           <DropdownMenuSeparator />
           <DropdownMenuItem onSelect={handleLogout} variant="destructive">
@@ -100,7 +96,6 @@ export function SidebarUserMenu() {
           </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
-      <TwoFactorDialog open={totpDialogOpen} onOpenChange={setTotpDialogOpen} />
     </div>
   )
 }

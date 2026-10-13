@@ -44,6 +44,7 @@ x-backend-common: &backend-common
     DATABASE_URL: postgresql+asyncpg://squid:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in your .env before starting}@postgres:5432/squid_dashboard
     LOG_FILE_PATH: /data/squid-logs/access.log
     JWT_SECRET: ${JWT_SECRET:?Set JWT_SECRET in your .env before starting}
+    ADMIN_USERNAME: ${ADMIN_USERNAME:-admin}
     ADMIN_EMAIL: ${ADMIN_EMAIL:-admin@example.com}
     ADMIN_PASSWORD: ${ADMIN_PASSWORD:?Set ADMIN_PASSWORD in your .env before starting}
     # JSON array of allowed origins. Defaults to the bundled nginx/frontend

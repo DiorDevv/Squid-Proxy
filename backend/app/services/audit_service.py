@@ -95,8 +95,12 @@ _READ_ACCESS_DEDUP_WINDOW = timedelta(minutes=5)
 
 
 async def _resolve_actor_email(session: AsyncSession, actor_user_id: str) -> str:
-    email = (await session.execute(select(User.email).where(User.id == actor_user_id))).scalar_one_or_none()
-    return email or "unknown"
+    """The actor's login identity (username) -- stored in the historically
+    named actor_email column, see AuditLogEntry."""
+    username = (
+        await session.execute(select(User.username).where(User.id == actor_user_id))
+    ).scalar_one_or_none()
+    return username or "unknown"
 
 
 async def record(

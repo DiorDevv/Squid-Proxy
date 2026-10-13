@@ -38,7 +38,7 @@ export default function LoginPage() {
   const status = useAuthStore((state) => state.status)
   const navigate = useNavigate()
 
-  const [email, setEmail] = useState('')
+  const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
   const [showPassword, setShowPassword] = useState(false)
   const [capsLockOn, setCapsLockOn] = useState(false)
@@ -49,7 +49,7 @@ export default function LoginPage() {
   const formRef = useRef<HTMLFormElement>(null)
   // Set once login() reports the account has 2FA on -- switches the form
   // to the code-entry step instead of navigating straight in. Null means
-  // "still on the email/password step".
+  // "still on the username/password step".
   const [mfaChallengeToken, setMfaChallengeToken] = useState<string | null>(null)
   const [mfaCode, setMfaCode] = useState('')
 
@@ -62,7 +62,7 @@ export default function LoginPage() {
   }, [retryIn])
 
   // Retrigger the shake without remounting the form (a `key`-based remount
-  // used to reset `autoFocus` on the email input back to the top on every
+  // used to reset `autoFocus` on the username input back to the top on every
   // failed attempt, stealing focus away from the password field).
   useEffect(() => {
     if (errorKey === 0) return
@@ -82,7 +82,7 @@ export default function LoginPage() {
     setError(null)
     setSubmitting(true)
     try {
-      const challengeToken = await login(email.trim(), password)
+      const challengeToken = await login(username.trim(), password)
       if (challengeToken) {
         setMfaChallengeToken(challengeToken)
         return
@@ -255,15 +255,17 @@ export default function LoginPage() {
               className="flex flex-col gap-4 rounded-xl border border-border bg-card p-6 shadow-xl"
             >
               <div className="flex flex-col gap-1.5">
-                <Label htmlFor="email">{t('login.email')}</Label>
+                <Label htmlFor="username">{t('login.username')}</Label>
                 <Input
-                  id="email"
-                  type="email"
+                  id="username"
+                  type="text"
+                  autoCapitalize="none"
+                  spellCheck={false}
                   autoComplete="username"
                   autoFocus
                   required
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
+                  value={username}
+                  onChange={(e) => setUsername(e.target.value)}
                   disabled={submitting}
                   aria-invalid={Boolean(error)}
                 />

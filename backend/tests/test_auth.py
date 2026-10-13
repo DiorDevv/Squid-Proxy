@@ -13,12 +13,12 @@ _PG_URL = "postgresql+asyncpg://squid:a-real-password@postgres:5432/squid_dashbo
 async def test_login_with_valid_credentials_returns_access_token(app_client: AsyncClient):
     response = await app_client.post(
         "/api/auth/login",
-        json={"email": "admin@example.com", "password": "admin-test-password-123"},
+        json={"username": "admin@example.com", "password": "admin-test-password-123"},
     )
     assert response.status_code == 200
     body = response.json()
     assert body["access_token"]
-    assert body["role"] == "admin"
+    assert body["role"] == "superadmin"
     assert "refresh_token" in response.cookies
 
 
@@ -35,7 +35,7 @@ async def test_refresh_cookie_secure_follows_environment_by_default(
     )
     response = await app_client.post(
         "/api/auth/login",
-        json={"email": "admin@example.com", "password": "admin-test-password-123"},
+        json={"username": "admin@example.com", "password": "admin-test-password-123"},
     )
     set_cookie = response.headers.get("set-cookie", "")
     assert "Secure" in set_cookie
@@ -59,7 +59,7 @@ async def test_refresh_cookie_secure_explicit_override_wins_over_environment(
     )
     response = await app_client.post(
         "/api/auth/login",
-        json={"email": "admin@example.com", "password": "admin-test-password-123"},
+        json={"username": "admin@example.com", "password": "admin-test-password-123"},
     )
     set_cookie = response.headers.get("set-cookie", "")
     assert "Secure" not in set_cookie
@@ -68,7 +68,7 @@ async def test_refresh_cookie_secure_explicit_override_wins_over_environment(
 async def test_login_with_wrong_password_returns_401(app_client: AsyncClient):
     response = await app_client.post(
         "/api/auth/login",
-        json={"email": "admin@example.com", "password": "wrong-password"},
+        json={"username": "admin@example.com", "password": "wrong-password"},
     )
     assert response.status_code == 401
 
@@ -88,7 +88,7 @@ async def test_login_throttle_blocks_a_correct_password_after_repeated_failures(
 
     async def _login(password: str):
         return await app_client.post(
-            "/api/auth/login", json={"email": "admin@example.com", "password": password}
+            "/api/auth/login", json={"username": "admin@example.com", "password": password}
         )
 
     assert (await _login("wrong")).status_code == 401
@@ -116,7 +116,7 @@ async def test_protected_endpoint_with_valid_token_succeeds(app_client: AsyncCli
 async def test_refresh_rotates_token_and_issues_new_access_token(app_client: AsyncClient):
     login_response = await app_client.post(
         "/api/auth/login",
-        json={"email": "admin@example.com", "password": "admin-test-password-123"},
+        json={"username": "admin@example.com", "password": "admin-test-password-123"},
     )
     assert login_response.status_code == 200
 
@@ -158,10 +158,10 @@ async def test_login_nonexistent_email_returns_same_status_as_wrong_password(app
     since wall-clock timing assertions are flaky in CI)."""
     response = await app_client.post(
         "/api/auth/login",
-        json={"email": "nobody-such-user@example.com", "password": "whatever-123"},
+        json={"username": "nobody-such-user@example.com", "password": "whatever-123"},
     )
     assert response.status_code == 401
-    assert response.json()["detail"] == "Invalid email or password."
+    assert response.json()["detail"] == "Invalid username or password."
 
 
 async def test_refresh_reuse_of_rotated_token_is_rejected(app_client: AsyncClient, db_session: AsyncSession):
@@ -169,7 +169,7 @@ async def test_refresh_reuse_of_rotated_token_is_rejected(app_client: AsyncClien
     replaying the old cookie after a successful refresh must fail."""
     login_response = await app_client.post(
         "/api/auth/login",
-        json={"email": "admin@example.com", "password": "admin-test-password-123"},
+        json={"username": "admin@example.com", "password": "admin-test-password-123"},
     )
     assert login_response.status_code == 200
     original_cookie = login_response.cookies["refresh_token"]
@@ -192,7 +192,7 @@ async def test_refresh_reuse_revokes_the_token_row_as_a_theft_signal(
 ):
     login_response = await app_client.post(
         "/api/auth/login",
-        json={"email": "admin@example.com", "password": "admin-test-password-123"},
+        json={"username": "admin@example.com", "password": "admin-test-password-123"},
     )
     original_cookie = login_response.cookies["refresh_token"]
     jti = original_cookie.split(".", 1)[0]
@@ -217,14 +217,14 @@ async def test_refresh_reuse_revokes_every_other_active_session_for_the_user(
     token forward would otherwise keep a valid descendant token."""
     login_a = await app_client.post(
         "/api/auth/login",
-        json={"email": "admin@example.com", "password": "admin-test-password-123"},
+        json={"username": "admin@example.com", "password": "admin-test-password-123"},
     )
     cookie_a = login_a.cookies["refresh_token"]
 
     # A second, independent session for the same user (e.g. another device).
     login_b = await app_client.post(
         "/api/auth/login",
-        json={"email": "admin@example.com", "password": "admin-test-password-123"},
+        json={"username": "admin@example.com", "password": "admin-test-password-123"},
     )
     cookie_b = login_b.cookies["refresh_token"]
 
@@ -250,7 +250,7 @@ async def test_refresh_with_garbage_cookie_returns_401(app_client: AsyncClient):
 async def test_logout_revokes_refresh_token(app_client: AsyncClient, db_session: AsyncSession):
     login_response = await app_client.post(
         "/api/auth/login",
-        json={"email": "admin@example.com", "password": "admin-test-password-123"},
+        json={"username": "admin@example.com", "password": "admin-test-password-123"},
     )
     cookie = login_response.cookies["refresh_token"]
     jti = cookie.split(".", 1)[0]

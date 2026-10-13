@@ -496,6 +496,29 @@ export interface ActorRow {
 /** The "Who" list's All / Users / IPs filter. */
 export type ActorKindFilter = 'all' | 'user' | 'ip'
 
+/** denied = a real block (everything but 407); auth = 407, the proxy asking for a login. */
+export type BlockKind = 'denied' | 'auth' | 'all'
+export type BlockedDomainSort = 'requests' | 'last' | 'domain'
+
+export interface BlockedDomainRow {
+  domain: string
+  denied_count: number
+  auth_count: number
+  /** distinct client IPs with an event of the selected kind */
+  client_count: number
+  branches: string[]
+  proxies: string[]
+  /** hour buckets (UTC start of hour) */
+  first_seen: string
+  last_seen: string
+}
+
+export interface BlockedDomainsResponse extends Page<BlockedDomainRow> {
+  denied_total: number
+  auth_total: number
+  available_proxies: string[]
+}
+
 export interface ActorLeaderboardResponse {
   /** 'user' | 'client_ip' | 'mixed' -- picks the actor column header */
   actor_kind: string

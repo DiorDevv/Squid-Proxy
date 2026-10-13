@@ -48,6 +48,8 @@ _TABLES = [
     ("client_hourly_aggregates", "Client hourly aggregates"),
     ("client_category_minute_aggregates", "Client category minute aggregates"),
     ("domain_minute_aggregates", "Domain minute aggregates"),
+    ("blocked_domain_hourly_aggregates", "Blocked domain hourly"),
+    ("blocked_domain_client_hourly_aggregates", "Blocked domain client hourly"),
     ("alert_settings", "Alert settings"),
     ("archive_runs", "Archive runs"),
     ("anomaly_events", "Anomaly events"),

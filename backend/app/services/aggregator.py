@@ -22,6 +22,10 @@ from sqlalchemy.exc import DataError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.insights import get_insights_provider
+from app.models.blocked_domain_aggregate import (
+    BlockedDomainClientHourlyAggregate,
+    BlockedDomainHourlyAggregate,
+)
 from app.models.client_aggregate import ClientMinuteAggregate
 from app.models.client_category_aggregate import ClientCategoryMinuteAggregate
 from app.models.db import AsyncSessionLocal
@@ -113,6 +117,20 @@ class _CountBytes:
 
     count: int = 0
     bytes_: int = 0
+
+
+@dataclass
+class _BlockCounts:
+    """Blocked-domain hourly buckets (see app/models/blocked_domain_aggregate.py):
+    a real denial vs a 407 proxy-login challenge."""
+
+    denied: int = 0
+    auth: int = 0
+
+
+# (hour, branch, proxy, domain) and the same plus client_ip.
+_BlockedDomainKey = tuple[datetime, str, str, str]
+_BlockedClientKey = tuple[datetime, str, str, str, str]
 
 
 def _hierarchy_code(raw: str | None) -> str:
@@ -305,6 +323,8 @@ class Aggregator:
                 http_buckets,
                 hier_buckets,
                 usercat_buckets,
+                blocked_domain_buckets,
+                blocked_client_buckets,
                 raw_rows,
             ) = await asyncio.to_thread(self._build_buckets, events, overrides)
 
@@ -316,6 +336,7 @@ class Aggregator:
             await self._bulk_upsert_http(session, http_buckets)
             await self._bulk_upsert_hierarchy(session, hier_buckets)
             await self._bulk_upsert_user_category(session, usercat_buckets)
+            await self._bulk_upsert_blocked_domains(session, blocked_domain_buckets, blocked_client_buckets)
             # Core bulk insert (plain dicts), not session.add_all() with ORM
             # objects -- for a large backlog, add_all()'s identity-map/
             # unit-of-work bookkeeping is itself a real synchronous CPU cost
@@ -425,6 +446,8 @@ class Aggregator:
         dict[tuple[datetime, str, str, int], _CountBytes],
         dict[tuple[datetime, str, str], _CountBytes],
         dict[tuple[datetime, str, str, DomainCategoryLabel], _CountBytes],
+        dict[_BlockedDomainKey, _BlockCounts],
+        dict[_BlockedClientKey, _BlockCounts],
         list[dict],
     ]:
         """Runs inside a worker thread (see flush()) -- pure in-memory
@@ -445,6 +468,8 @@ class Aggregator:
         usercat_buckets: dict[
             tuple[datetime, str, str, DomainCategoryLabel], _CountBytes
         ] = defaultdict(_CountBytes)
+        blocked_domain_buckets: dict[_BlockedDomainKey, _BlockCounts] = defaultdict(_BlockCounts)
+        blocked_client_buckets: dict[_BlockedClientKey, _BlockCounts] = defaultdict(_BlockCounts)
         raw_rows: list[dict] = []
 
         for stored in events:
@@ -507,6 +532,18 @@ class Aggregator:
                 if not ev.blocked:
                     ucb.bytes_ += ev.bytes
 
+                if ev.blocked:
+                    hour = bucket.replace(minute=0)
+                    proxy = ev.proxy or ""
+                    bd = blocked_domain_buckets[(hour, ev.branch, proxy, ev.domain)]
+                    bc = blocked_client_buckets[(hour, ev.branch, proxy, ev.domain, ev.client_ip)]
+                    if ev.status_code == 407:
+                        bd.auth += 1
+                        bc.auth += 1
+                    else:
+                        bd.denied += 1
+                        bc.denied += 1
+
             cb = client_buckets[(bucket, ev.client_ip, ev.branch, ev.user)]
             cb.count += 1
             if ev.proxy:
@@ -550,6 +587,8 @@ class Aggregator:
             http_buckets,
             hier_buckets,
             usercat_buckets,
+            blocked_domain_buckets,
+            blocked_client_buckets,
             raw_rows,
         )
 
@@ -746,6 +785,61 @@ class Aggregator:
             ],
             sum_columns=["request_count", "total_bytes"],
         )
+
+    async def _bulk_upsert_blocked_domains(
+        self,
+        session: AsyncSession,
+        domain_buckets: dict[_BlockedDomainKey, _BlockCounts],
+        client_buckets: dict[_BlockedClientKey, _BlockCounts],
+    ) -> None:
+        if domain_buckets:
+            await bulk_upsert_sum(
+                session,
+                declared_table(BlockedDomainHourlyAggregate),
+                [
+                    {
+                        "bucket_ts": bucket,
+                        "branch": branch,
+                        "proxy": proxy,
+                        "domain": domain,
+                        "denied_count": counts.denied,
+                        "auth_count": counts.auth,
+                    }
+                    for (bucket, branch, proxy, domain), counts in domain_buckets.items()
+                ],
+                index_elements=[
+                    BlockedDomainHourlyAggregate.bucket_ts,
+                    BlockedDomainHourlyAggregate.branch,
+                    BlockedDomainHourlyAggregate.proxy,
+                    BlockedDomainHourlyAggregate.domain,
+                ],
+                sum_columns=["denied_count", "auth_count"],
+            )
+        if client_buckets:
+            await bulk_upsert_sum(
+                session,
+                declared_table(BlockedDomainClientHourlyAggregate),
+                [
+                    {
+                        "bucket_ts": bucket,
+                        "branch": branch,
+                        "proxy": proxy,
+                        "domain": domain,
+                        "client_ip": client_ip,
+                        "denied_count": counts.denied,
+                        "auth_count": counts.auth,
+                    }
+                    for (bucket, branch, proxy, domain, client_ip), counts in client_buckets.items()
+                ],
+                index_elements=[
+                    BlockedDomainClientHourlyAggregate.bucket_ts,
+                    BlockedDomainClientHourlyAggregate.branch,
+                    BlockedDomainClientHourlyAggregate.proxy,
+                    BlockedDomainClientHourlyAggregate.domain,
+                    BlockedDomainClientHourlyAggregate.client_ip,
+                ],
+                sum_columns=["denied_count", "auth_count"],
+            )
 
     async def _bulk_upsert_domain(
         self,

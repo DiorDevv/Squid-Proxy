@@ -10,6 +10,7 @@ from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.raw_event import RawEvent
+from app.schemas.blocked_domains import BlockKind
 from app.schemas.common import Page
 from app.schemas.events import EventDetail
 
@@ -29,10 +30,17 @@ def build_event_conditions(
     search: str | None = None,
     branch: str | None = None,
     domain_in: set[str] | None = None,
+    block_kind: BlockKind = "all",
 ) -> list:
     conditions = [RawEvent.timestamp >= since, RawEvent.timestamp <= until]
     if blocked_only:
         conditions.append(RawEvent.blocked.is_(True))
+        # A 407 is the proxy asking for a login, not a block -- see
+        # app/schemas/blocked_domains.py's BlockKind.
+        if block_kind == "denied":
+            conditions.append(RawEvent.status_code != 407)
+        elif block_kind == "auth":
+            conditions.append(RawEvent.status_code == 407)
     if client_ip:
         conditions.append(RawEvent.client_ip == client_ip)
     if domain and domain.strip():
@@ -104,9 +112,11 @@ async def get_events(
     user: str | None = None,
     search: str | None = None,
     branch: str | None = None,
+    block_kind: BlockKind = "all",
 ) -> Page[EventDetail]:
     conditions = build_event_conditions(
-        since, until, blocked_only, client_ip, domain, method, user, search, branch
+        since, until, blocked_only, client_ip, domain, method, user, search, branch,
+        block_kind=block_kind,
     )
 
     query = (

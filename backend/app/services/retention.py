@@ -17,6 +17,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import Settings, get_settings
 from app.models.archive_run import ArchiveRun
+from app.models.blocked_domain_aggregate import (
+    BlockedDomainClientHourlyAggregate,
+    BlockedDomainHourlyAggregate,
+)
 from app.models.client_aggregate import ClientMinuteAggregate
 from app.models.client_category_aggregate import ClientCategoryMinuteAggregate
 from app.models.client_hourly_aggregate import ClientHourlyAggregate
@@ -153,6 +157,18 @@ class RetentionJob(IntervalJob):
             )
             await session.execute(
                 delete(UserCategoryMinuteAggregate).where(UserCategoryMinuteAggregate.bucket_ts < ops_cutoff)
+            )
+            await session.execute(
+                delete(BlockedDomainHourlyAggregate).where(
+                    BlockedDomainHourlyAggregate.bucket_ts < ops_cutoff
+                )
+            )
+            # Per-client-IP detail, so it ages out with raw_events rather than
+            # with the (much longer) per-domain counts above.
+            await session.execute(
+                delete(BlockedDomainClientHourlyAggregate).where(
+                    BlockedDomainClientHourlyAggregate.bucket_ts < raw_cutoff
+                )
             )
             # Revoked/rotated tokens are kept until their natural expiry (a
             # theft-detection signal, see api/routes/auth.py:refresh), then

@@ -16,8 +16,9 @@ from collections import defaultdict
 from datetime import datetime, timedelta
 from typing import Any
 
-from sqlalchemy import case, func, select
+from sqlalchemy import and_, case, func, or_, select, true
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.sql.selectable import Subquery
 
 from app.models.client_category_aggregate import ClientCategoryMinuteAggregate
 from app.models.domain_aggregate import DomainMinuteAggregate
@@ -290,18 +291,76 @@ _SORTABLE = {
 }
 
 
-async def _has_authenticated_users(
+async def _logged_in_ips(
     session: AsyncSession, since: datetime, until: datetime, branch: str | None
-) -> bool:
-    combined = client_bucket_rows(since, until, branch=branch)
-    exists = (
-        await session.execute(
-            select(func.count())
-            .select_from(combined)
-            .where(combined.c.user.is_not(None), combined.c.user != "")
+) -> list[str]:
+    """Client IPs that carried an authenticated user anywhere in the range
+    (search-independent). Fetched once as a list: a handful to a few hundred
+    IPs, and re-evaluating it as a NOT IN subquery over the aggregate union
+    made the leaderboard several times slower."""
+    everything = client_bucket_rows(since, until, branch=branch)
+    query = (
+        select(everything.c.client_ip)
+        .where(everything.c.user.is_not(None), everything.c.user != "")
+        .distinct()
+    )
+    return list((await session.execute(query)).scalars().all())
+
+
+def _mixed_actor(combined: Subquery, logged_in_ips: list[str]) -> tuple[Any, Any, Any]:
+    """(actor, is_user, keep) expressions over `combined` for the mixed
+    leaderboard: a row is its user when it has one, else its client IP.
+
+    Where proxy auth covers only some proxies (a branch fed by an
+    authenticating child proxy and non-authenticating ones), ranking by user
+    alone hid every client of the other proxies. The IP rows of a client
+    that also appears under a user in the range are left out (`keep`):
+    with auth on, those are mostly Squid's 407 challenge before the login,
+    and listing them would show the same person twice, the second time as
+    ~100% blocked."""
+    has_user = and_(combined.c.user.is_not(None), combined.c.user != "")
+    actor = case((has_user, combined.c.user), else_=combined.c.client_ip)
+    keep = or_(has_user, combined.c.client_ip.not_in(logged_in_ips)) if logged_in_ips else true()
+    return actor, has_user, keep
+
+
+async def _mixed_actor_rows(
+    session: AsyncSession,
+    combined: Subquery,
+    logged_in_ips: list[str],
+    order_by: Any,
+    limit: int,
+    blocked_only: bool = False,
+) -> list[ActorRow]:
+    actor, has_user, keep = _mixed_actor(combined, logged_in_ips)
+    query = (
+        select(
+            actor.label("actor"),
+            has_user.label("is_user"),
+            func.sum(combined.c.request_count),
+            func.sum(combined.c.blocked_count),
+            func.sum(combined.c.total_bytes),
+            func.sum(combined.c.bytes_received),
         )
-    ).scalar_one()
-    return int(exists) > 0
+        .where(combined.c.client_ip.is_not(None), keep)
+        .group_by(actor, has_user)
+    )
+    if blocked_only:
+        query = query.having(func.sum(combined.c.blocked_count) > 0)
+    rows = (await session.execute(query.order_by(order_by.desc()).limit(limit))).all()
+    return [
+        ActorRow(
+            actor=actor_id,
+            is_user=bool(is_user),
+            request_count=int(req),
+            blocked_count=int(blocked),
+            blocked_ratio=(int(blocked) / int(req)) if req else 0.0,
+            total_bytes=int(byte_total),
+            bytes_received=int(recv_total or 0),
+            top_category=None,
+        )
+        for actor_id, is_user, req, blocked, byte_total, recv_total in rows
+    ]
 
 
 async def get_actor_leaderboard(
@@ -313,13 +372,11 @@ async def get_actor_leaderboard(
     sort: str,
     search: str | None = None,
 ) -> ActorLeaderboardResponse:
-    # is_user is decided from the unfiltered range, not the searched-for
-    # rows -- otherwise typing an IP while the branch is mostly
-    # authenticated would flip the whole leaderboard into client_ip mode
-    # for that one search.
-    is_user = await _has_authenticated_users(session, since, until, branch)
+    # Decided from the unfiltered range, not the searched-for rows --
+    # otherwise typing an IP would change which IP rows count as "belongs
+    # to a logged-in user" for that one search.
+    logged_in_ips = await _logged_in_ips(session, since, until, branch)
     combined = client_bucket_rows(since, until, branch=branch, search=search)
-    actor_col = combined.c.user if is_user else combined.c.client_ip
     order_col = {
         "request_count": func.sum(combined.c.request_count),
         "total_bytes": func.sum(combined.c.total_bytes),
@@ -327,54 +384,38 @@ async def get_actor_leaderboard(
         "blocked_count": func.sum(combined.c.blocked_count),
     }[_SORTABLE.get(sort, "request_count")]
 
-    conditions: list[Any] = [actor_col.is_not(None)]
-    if is_user:
-        conditions.append(actor_col != "")
-    rows = (
-        await session.execute(
-            select(
-                actor_col,
-                func.sum(combined.c.request_count),
-                func.sum(combined.c.blocked_count),
-                func.sum(combined.c.total_bytes),
-                func.sum(combined.c.bytes_received),
-            )
-            .where(*conditions)
-            .group_by(actor_col)
-            .order_by(order_col.desc())
-            .limit(limit)
-        )
-    ).all()
-    actor_ids = [r[0] for r in rows]
-    top_category = await _top_category_per_actor(session, since, until, branch, actor_ids, is_user)
+    leaderboard = await _mixed_actor_rows(session, combined, logged_in_ips, order_col, limit)
+    top_category: dict[str, DomainCategoryLabel] = {}
+    for is_user in (True, False):
+        ids = [r.actor for r in leaderboard if r.is_user is is_user]
+        top_category |= await _top_category_per_actor(session, since, until, branch, ids, is_user)
+    for row in leaderboard:
+        row.top_category = top_category.get(row.actor)
 
+    # What no row represents: the login-less requests of IPs that are listed
+    # under their user instead (see _mixed_actor).
     unattributed = 0
-    if is_user:
+    if logged_in_ips:
         unattributed = int(
             (
                 await session.execute(
                     select(func.coalesce(func.sum(combined.c.request_count), 0)).where(
-                        (combined.c.user.is_(None)) | (combined.c.user == "")
+                        or_(combined.c.user.is_(None), combined.c.user == ""),
+                        combined.c.client_ip.in_(logged_in_ips),
                     )
                 )
             ).scalar_one()
         )
 
-    leaderboard = [
-        ActorRow(
-            actor=actor,
-            is_user=is_user,
-            request_count=int(req),
-            blocked_count=int(blocked),
-            blocked_ratio=(int(blocked) / int(req)) if req else 0.0,
-            total_bytes=int(byte_total),
-            bytes_received=int(recv_total or 0),
-            top_category=top_category.get(actor),
-        )
-        for actor, req, blocked, byte_total, recv_total in rows
-    ]
+    kinds = {row.is_user for row in leaderboard}
+    if len(kinds) == 2:
+        actor_kind = "mixed"
+    elif kinds:
+        actor_kind = "user" if True in kinds else "client_ip"
+    else:
+        actor_kind = "user" if logged_in_ips else "client_ip"
     return ActorLeaderboardResponse(
-        actor_kind="user" if is_user else "client_ip",
+        actor_kind=actor_kind,
         rows=leaderboard,
         unattributed_requests=unattributed,
     )
@@ -840,40 +881,14 @@ async def get_denials(
     )
 
     combined = client_bucket_rows(since, until, branch=branch)
-    is_user = await _has_authenticated_users(session, since, until, branch)
-    actor_col = combined.c.user if is_user else combined.c.client_ip
-    actor_conditions: list[Any] = [actor_col.is_not(None)]
-    if is_user:
-        actor_conditions.append(actor_col != "")
-    actor_rows = (
-        await session.execute(
-            select(
-                actor_col,
-                func.sum(combined.c.request_count),
-                func.sum(combined.c.blocked_count),
-                func.sum(combined.c.total_bytes),
-                func.sum(combined.c.bytes_received),
-            )
-            .where(*actor_conditions)
-            .group_by(actor_col)
-            .having(func.sum(combined.c.blocked_count) > 0)
-            .order_by(func.sum(combined.c.blocked_count).desc())
-            .limit(15)
-        )
-    ).all()
-    top_actors = [
-        ActorRow(
-            actor=actor,
-            is_user=is_user,
-            request_count=int(req),
-            blocked_count=int(blocked),
-            blocked_ratio=(int(blocked) / int(req)) if req else 0.0,
-            total_bytes=int(tb),
-            bytes_received=int(recv or 0),
-            top_category=None,
-        )
-        for actor, req, blocked, tb, recv in actor_rows
-    ]
+    top_actors = await _mixed_actor_rows(
+        session,
+        combined,
+        await _logged_in_ips(session, since, until, branch),
+        func.sum(combined.c.blocked_count),
+        limit=15,
+        blocked_only=True,
+    )
 
     return DenialsResponse(
         granularity=granularity,

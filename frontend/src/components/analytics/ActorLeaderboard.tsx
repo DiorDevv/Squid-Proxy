@@ -59,7 +59,9 @@ export function ActorLeaderboard({
                 {col.key === 'actor'
                   ? actorKind === 'user'
                     ? t('analytics.who.colUser')
-                    : t('analytics.who.colClientIp')
+                    : actorKind === 'mixed'
+                      ? t('analytics.who.colUserOrIp')
+                      : t('analytics.who.colClientIp')
                   : col.sortable
                     ? (
                       <button
@@ -84,16 +86,23 @@ export function ActorLeaderboard({
             const ratioPct = row.blocked_ratio * 100
             return (
               <tr
-                key={row.actor}
+                key={`${row.is_user ? 'u' : 'ip'}:${row.actor}`}
                 onClick={() => onSelect(row)}
                 className="cursor-pointer border-b border-border/50 transition-colors hover:bg-secondary/40"
               >
                 <td className="py-2 pr-3">
-                  <span
-                    className="font-data block max-w-[16rem] truncate font-medium text-foreground"
-                    title={row.actor}
-                  >
-                    {row.actor}
+                  <span className="flex max-w-[16rem] items-center gap-1.5">
+                    <span className="font-data truncate font-medium text-foreground" title={row.actor}>
+                      {row.actor}
+                    </span>
+                    {actorKind === 'mixed' && !row.is_user && (
+                      <span
+                        className="shrink-0 rounded border border-border px-1 text-[10px] leading-4 text-muted-foreground"
+                        title={t('analytics.who.ipBadgeHint')}
+                      >
+                        IP
+                      </span>
+                    )}
                   </span>
                 </td>
                 <td className="font-data py-2 pr-3 text-right">{formatNumber(row.request_count)}</td>

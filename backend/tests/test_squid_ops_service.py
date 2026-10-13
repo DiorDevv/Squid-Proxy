@@ -6,6 +6,7 @@ from datetime import UTC, datetime, timedelta
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.models.client_aggregate import ClientMinuteAggregate
+from app.models.client_category_aggregate import ClientCategoryMinuteAggregate
 from app.models.domain_aggregate import DomainMinuteAggregate
 from app.models.domain_category import DomainCategoryLabel
 from app.models.minute_aggregate import MinuteAggregate
@@ -88,22 +89,31 @@ async def test_percentile_from_histogram_interpolates():
     assert squid_ops_service._percentile_from_hist([0] * 6, 95) == 0.0
 
 
-async def test_actor_leaderboard_prefers_users_and_reports_top_category(db_session: AsyncSession):
+async def test_actor_leaderboard_lists_users_and_login_less_ips_together(db_session: AsyncSession):
     db_session.add_all(
         [
             ClientMinuteAggregate(
                 bucket_ts=BUCKET, client_ip="10.0.0.1", branch="default", user="alice",
                 request_count=100, blocked_count=10, total_bytes=5000,
             ),
+            # alice's own IP without a user (the 407 auth challenge): not a
+            # second row for the same person, reported as unattributed
+            ClientMinuteAggregate(
+                bucket_ts=BUCKET, client_ip="10.0.0.1", branch="default", user=None,
+                request_count=50, blocked_count=50, total_bytes=100,
+            ),
             ClientMinuteAggregate(
                 bucket_ts=BUCKET, client_ip="10.0.0.2", branch="default", user="bob",
                 request_count=40, blocked_count=1, total_bytes=2000,
             ),
-            # unauthenticated traffic: not a row, but reported as
-            # unattributed so the totals visibly don't have to reconcile
+            # a client of a proxy without auth: listed by IP alongside users
             ClientMinuteAggregate(
                 bucket_ts=BUCKET, client_ip="10.0.0.9", branch="default", user=None,
                 request_count=333, blocked_count=0, total_bytes=1000,
+            ),
+            ClientCategoryMinuteAggregate(
+                bucket_ts=BUCKET, client_ip="10.0.0.9", branch="default",
+                category=DomainCategoryLabel.NEWS, request_count=333, total_bytes=1000,
             ),
             UserCategoryMinuteAggregate(
                 bucket_ts=BUCKET, branch="default", user="alice",
@@ -120,13 +130,29 @@ async def test_actor_leaderboard_prefers_users_and_reports_top_category(db_sessi
     board = await squid_ops_service.get_actor_leaderboard(
         db_session, SINCE, NOW, branch=None, limit=25, sort="requests"
     )
-    assert board.actor_kind == "user"
-    assert [r.actor for r in board.rows] == ["alice", "bob"]
-    assert board.unattributed_requests == 333
-    alice = board.rows[0]
+    assert board.actor_kind == "mixed"
+    assert [(r.actor, r.is_user) for r in board.rows] == [
+        ("10.0.0.9", False),
+        ("alice", True),
+        ("bob", True),
+    ]
+    assert board.unattributed_requests == 50
+    ip_row, alice = board.rows[0], board.rows[1]
+    assert ip_row.request_count == 333
+    assert ip_row.top_category == DomainCategoryLabel.NEWS
     assert alice.request_count == 100
     assert alice.blocked_ratio == 0.1
     assert alice.top_category == DomainCategoryLabel.VIDEO_STREAMING
+
+    users_only = await squid_ops_service.get_actor_leaderboard(
+        db_session, SINCE, NOW, branch=None, limit=25, sort="requests", search="alice"
+    )
+    assert users_only.actor_kind == "user"
+    # searching alice's IP must not resurface her 407 rows as an IP actor
+    by_ip = await squid_ops_service.get_actor_leaderboard(
+        db_session, SINCE, NOW, branch=None, limit=25, sort="requests", search="10.0.0.1"
+    )
+    assert [r.actor for r in by_ip.rows] == ["alice"]
 
 
 async def test_actor_leaderboard_sorts_by_uploaded_bytes(db_session: AsyncSession):

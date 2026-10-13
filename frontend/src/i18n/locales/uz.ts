@@ -323,7 +323,9 @@ export const uz = {
 
   'analytics.who.title': 'Kim nima qilyapti',
   'analytics.who.hint': 'Batafsili uchun qatorni bosing',
-  'analytics.who.unattributed': '{{count}} ta so‘rovda foydalanuvchi yo‘q va quyida ko‘rsatilmagan — IP ko‘rinishiga qarang yoki proksi avtorizatsiyasini yoqing.',
+  'analytics.who.unattributed': '{{count}} ta so‘rov login qilgan foydalanuvchilarning IP’laridan login’siz kelgan (asosan proksi avtorizatsiya so‘rovi, 407) — alohida qator qilib ko‘rsatilmagan.',
+  'analytics.who.colUserOrIp': 'Foydalanuvchi / IP',
+  'analytics.who.ipBadgeHint': 'Login’siz trafik — mijoz IP bo‘yicha',
   'analytics.who.empty': 'Bu oraliqda mijoz faolligi yo‘q.',
   'analytics.who.searchPlaceholder': 'Foydalanuvchi yoki mijoz IP qidirish…',
   'analytics.who.searchAriaLabel': 'Reytingni foydalanuvchi yoki mijoz IP boʻyicha qidirish',

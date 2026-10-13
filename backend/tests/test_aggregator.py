@@ -374,9 +374,20 @@ async def test_flush_records_and_merges_client_proxies_across_flushes(db_engine,
         assert client_row.request_count == 4
         assert sorted(client_row.proxy.split(",")) == ["10.9.9.24", "10.9.9.77"]
 
-        raw_proxies = sorted(
-            (p or "") for p in (await session.execute(select(RawEvent.proxy))).scalars().all()
-        )
+    # One proxy first, then a flush carrying it plus a second one: the
+    # stored list is the union, with no label repeated.
+    ring_buffer.append(parse_line(squid_line("example.com", client_ip="10.0.0.6"), proxy="10.9.9.24"))
+    await aggregator.flush()
+    ring_buffer.append(parse_line(squid_line("example.com", client_ip="10.0.0.6"), proxy="10.9.9.24"))
+    ring_buffer.append(parse_line(squid_line("example.com", client_ip="10.0.0.6"), proxy="10.9.9.77"))
+    await aggregator.flush()
+    async with session_factory() as session:
+        query = select(ClientMinuteAggregate).where(ClientMinuteAggregate.client_ip == "10.0.0.6")
+        row = (await session.execute(query)).scalar_one()
+        assert row.proxy == "10.9.9.24,10.9.9.77"
+
+        raw_query = select(RawEvent.proxy).where(RawEvent.client_ip == "10.0.0.5")
+        raw_proxies = sorted((p or "") for p in (await session.execute(raw_query)).scalars().all())
         assert raw_proxies == ["", "10.9.9.24", "10.9.9.77", "10.9.9.77"]
 
 

@@ -337,7 +337,9 @@ export const en = {
   // Who is doing what
   'analytics.who.title': 'Who is doing what',
   'analytics.who.hint': 'Click a row for the full breakdown',
-  'analytics.who.unattributed': '{{count}} request(s) had no user and are not shown below — see the Client IP view or enable proxy auth.',
+  'analytics.who.unattributed': '{{count}} request(s) came without a login from IPs of signed-in users (mostly the proxy auth challenge, 407) and are not shown as separate rows.',
+  'analytics.who.colUserOrIp': 'User / IP',
+  'analytics.who.ipBadgeHint': 'Traffic without a login — by client IP',
   'analytics.who.empty': 'No client activity in this range.',
   'analytics.who.searchPlaceholder': 'Find a user or client IP…',
   'analytics.who.searchAriaLabel': 'Search the leaderboard by user or client IP',

@@ -125,7 +125,7 @@ export default function AnalyticsBlocksPage() {
             ) : (
               <ul className="flex flex-col divide-y divide-border">
                 {(d?.top_actors ?? []).map((a) => (
-                  <li key={a.actor} className="flex items-center gap-2 py-1.5 text-sm">
+                  <li key={`${a.is_user ? 'u' : 'ip'}:${a.actor}`} className="flex items-center gap-2 py-1.5 text-sm">
                     <span className="font-data min-w-0 flex-1 truncate">{a.actor}</span>
                     <span className="font-data text-xs text-destructive">{formatNumber(a.blocked_count)}</span>
                   </li>

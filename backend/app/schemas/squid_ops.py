@@ -64,8 +64,8 @@ class ResponseTimeResponse(BaseModel):
 
 
 class ActorRow(BaseModel):
-    """One row of the "who is doing what" leaderboard -- a proxy-auth user
-    or, when the deployment has no auth, a client IP."""
+    """One row of the "who is doing what" leaderboard -- a proxy-auth user,
+    or a client IP for traffic that carried no user (see is_user)."""
 
     actor: str
     is_user: bool
@@ -78,14 +78,15 @@ class ActorRow(BaseModel):
 
 
 class ActorLeaderboardResponse(BaseModel):
-    # "user" when at least one authenticated user was seen in the window,
-    # else "client_ip" -- tells the frontend which column header to show.
+    # "user" / "client_ip" when every row is that kind, "mixed" when users
+    # and login-less client IPs are both listed -- tells the frontend which
+    # column header to show.
     actor_kind: str
     rows: list[ActorRow]
-    # When actor_kind == "user" and proxy auth is only partial, this is how
-    # many requests in the window had no user and so aren't represented by
-    # any row above (0 for the client_ip view). The frontend surfaces it so
-    # the row totals visibly don't have to reconcile with the Overview tab.
+    # Login-less requests from client IPs that are listed under their user
+    # instead (mostly the 407 auth challenge), so no row above represents
+    # them; 0 when nobody authenticated. The frontend surfaces it so the row
+    # totals visibly don't have to reconcile with the Overview tab.
     unattributed_requests: int = 0
 
 

@@ -126,7 +126,7 @@ async def bulk_upsert_sum(
 
     `csv_merge_columns` are nullable comma-joined label lists (e.g. the
     client aggregates' `proxy`): on conflict the incoming value is appended
-    unless the existing list already contains it, so the stored value stays
+    unless one list already contains the other, so the stored value stays
     bounded by the number of distinct labels rather than growing per flush.
     """
     if not rows:
@@ -142,10 +142,14 @@ async def bulk_upsert_sum(
         set_: dict[str, Any] = {col: table.c[col] + stmt.excluded[col] for col in sum_columns}
         for col in csv_merge_columns:
             old, new = table.c[col], stmt.excluded[col]
+            wrapped_old = literal(",") + old + literal(",")
+            wrapped_new = literal(",") + new + literal(",")
             set_[col] = case(
                 (old.is_(None), new),
                 (new.is_(None), old),
-                (find(literal(",") + old + literal(","), literal(",") + new + literal(",")) > 0, old),
+                (find(wrapped_old, wrapped_new) > 0, old),
+                # "a" then "a,b" -> "a,b", not "a,a,b".
+                (find(wrapped_new, wrapped_old) > 0, new),
                 else_=func.substr(old + literal(",") + new, 1, 255),
             )
         stmt = stmt.on_conflict_do_update(index_elements=list(index_elements), set_=set_)

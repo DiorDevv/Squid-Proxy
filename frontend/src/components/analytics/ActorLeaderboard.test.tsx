@@ -41,6 +41,35 @@ describe('ActorLeaderboard', () => {
     expect(screen.getByText('Client IP')).toBeInTheDocument()
   })
 
+  it('marks login-less IP rows in the mixed view and passes is_user on select', async () => {
+    const onSelect = vi.fn()
+    const ipRow: ActorRow = {
+      actor: '172.25.55.39',
+      is_user: false,
+      request_count: 10,
+      blocked_count: 0,
+      blocked_ratio: 0,
+      total_bytes: 100,
+      bytes_received: 0,
+      top_category: null,
+    }
+    const user = userEvent.setup()
+    render(
+      <ActorLeaderboard
+        rows={[...ROWS, ipRow]}
+        actorKind="mixed"
+        sort="requests"
+        onSortChange={() => {}}
+        onSelect={onSelect}
+      />,
+    )
+    expect(screen.getByText('User / IP')).toBeInTheDocument()
+    // exactly one badge -- on the IP row, not on alice
+    expect(screen.getAllByText('IP')).toHaveLength(1)
+    await user.click(screen.getByText('172.25.55.39'))
+    expect(onSelect).toHaveBeenCalledWith(expect.objectContaining({ actor: '172.25.55.39', is_user: false }))
+  })
+
   it('calls onSelect when a row is clicked', async () => {
     const onSelect = vi.fn()
     const user = userEvent.setup()

@@ -320,7 +320,9 @@ export const ru = {
 
   'analytics.who.title': 'Кто чем занят',
   'analytics.who.hint': 'Нажмите на строку для детализации',
-  'analytics.who.unattributed': '{{count}} запрос(ов) без пользователя не показаны ниже — см. представление по IP или включите авторизацию прокси.',
+  'analytics.who.unattributed': '{{count}} запрос(ов) пришли без логина с IP авторизованных пользователей (в основном запрос авторизации прокси, 407) и не показаны отдельными строками.',
+  'analytics.who.colUserOrIp': 'Пользователь / IP',
+  'analytics.who.ipBadgeHint': 'Трафик без логина — по IP клиента',
   'analytics.who.empty': 'Нет активности клиентов за этот период.',
   'analytics.who.searchPlaceholder': 'Найти пользователя или IP клиента…',
   'analytics.who.searchAriaLabel': 'Поиск по пользователю или IP клиента',

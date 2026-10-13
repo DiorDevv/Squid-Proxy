@@ -98,6 +98,7 @@ jobs:
         env:
           DATABASE_URL: "sqlite+aiosqlite:///./e2e_test.db"
           JWT_SECRET: "e2e-ci-secret-not-for-production"
+          ADMIN_USERNAME: "admin"
           ADMIN_EMAIL: "admin@example.com"
           ADMIN_PASSWORD: "admin12345"
           # A path CI can actually write to -- the log tailer handles a
@@ -129,7 +130,7 @@ jobs:
         run: npx playwright install --with-deps chromium
       - name: Run e2e suite
         working-directory: frontend
-        # E2E_ADMIN_EMAIL/PASSWORD default to the same admin@example.com /
+        # E2E_ADMIN_USERNAME/PASSWORD default to the same admin /
         # admin12345 the backend was just bootstrapped with above (see
         # e2e/global-setup.ts and e2e/smoke.spec.ts), so no override needed.
         run: npm run test:e2e

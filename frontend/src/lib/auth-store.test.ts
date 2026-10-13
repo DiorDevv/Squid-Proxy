@@ -8,17 +8,25 @@ function makeJwt(payload: object): string {
 }
 
 beforeEach(() => {
-  useAuthStore.setState({ accessToken: null, role: null, email: null, branch: null, status: 'checking' })
+  useAuthStore.setState({
+    accessToken: null,
+    role: null,
+    username: null,
+    fullName: null,
+    branch: null,
+    mustChangePassword: false,
+    status: 'checking',
+  })
 })
 
 describe('useAuthStore', () => {
-  it('setAuth stores token, role, email, and branch and marks authenticated', () => {
-    useAuthStore.getState().setAuth({ accessToken: 'tok', role: 'admin', email: 'a@example.com', branch: null })
+  it('setAuth stores token, role, username, and branch and marks authenticated', () => {
+    useAuthStore.getState().setAuth({ accessToken: 'tok', role: 'admin', username: 'a', fullName: null, mustChangePassword: false, branch: null })
 
     const state = useAuthStore.getState()
     expect(state.accessToken).toBe('tok')
     expect(state.role).toBe('admin')
-    expect(state.email).toBe('a@example.com')
+    expect(state.username).toBe('a')
     expect(state.branch).toBeNull()
     expect(state.status).toBe('authenticated')
   })
@@ -26,20 +34,19 @@ describe('useAuthStore', () => {
   it('setAuth stores a non-null branch for a scoped user', () => {
     useAuthStore
       .getState()
-      .setAuth({ accessToken: 'tok', role: 'viewer', email: 'a@example.com', branch: 'filiallar' })
+      .setAuth({ accessToken: 'tok', role: 'viewer', username: 'a', fullName: null, mustChangePassword: false, branch: 'filiallar' })
 
     expect(useAuthStore.getState().branch).toBe('filiallar')
   })
 
-  // Regression test for the silent-session-death bug: a session restored
-  // via a hard reload (bootstrap) has email=null since /api/auth/refresh
-  // never returns it. A later silent token refresh (setAccessToken) must
-  // update the token without requiring or clobbering email.
-  it('setAccessToken updates the token without requiring or touching email', () => {
+  // Regression test for the silent-session-death bug: a silent token
+  // refresh (setAccessToken) must update the token without requiring or
+  // clobbering profile fields, which /api/auth/refresh never returns.
+  it('setAccessToken updates the token without requiring or touching username', () => {
     useAuthStore.setState({
       accessToken: 'old-tok',
       role: 'viewer',
-      email: null,
+      username: null,
       branch: null,
       status: 'authenticated',
     })
@@ -49,35 +56,36 @@ describe('useAuthStore', () => {
     const state = useAuthStore.getState()
     expect(state.accessToken).toBe('new-tok')
     expect(state.role).toBe('viewer')
-    expect(state.email).toBeNull()
+    expect(state.username).toBeNull()
     expect(state.status).toBe('authenticated')
   })
 
-  it('setAccessToken preserves an existing email if one is set', () => {
+  it('setAccessToken preserves an existing username if one is set', () => {
     useAuthStore.setState({
       accessToken: 'old-tok',
       role: 'admin',
-      email: 'known@example.com',
+      username: 'known',
       branch: null,
       status: 'authenticated',
     })
 
     useAuthStore.getState().setAccessToken('new-tok', 'admin', null)
 
-    expect(useAuthStore.getState().email).toBe('known@example.com')
+    expect(useAuthStore.getState().username).toBe('known')
   })
 
   it('clearAuth resets everything to unauthenticated', () => {
     useAuthStore
       .getState()
-      .setAuth({ accessToken: 'tok', role: 'admin', email: 'a@example.com', branch: 'hq' })
+      .setAuth({ accessToken: 'tok', role: 'admin', username: 'a', fullName: null, mustChangePassword: false, branch: 'hq' })
 
     useAuthStore.getState().clearAuth()
 
     const state = useAuthStore.getState()
     expect(state.accessToken).toBeNull()
     expect(state.role).toBeNull()
-    expect(state.email).toBeNull()
+    expect(state.username).toBeNull()
+    expect(state.mustChangePassword).toBe(false)
     expect(state.branch).toBeNull()
     expect(state.status).toBe('unauthenticated')
   })
@@ -85,7 +93,7 @@ describe('useAuthStore', () => {
   it('setChecking sets status without touching other fields', () => {
     useAuthStore
       .getState()
-      .setAuth({ accessToken: 'tok', role: 'admin', email: 'a@example.com', branch: null })
+      .setAuth({ accessToken: 'tok', role: 'admin', username: 'a', fullName: null, mustChangePassword: false, branch: null })
 
     useAuthStore.getState().setChecking()
 
@@ -97,7 +105,7 @@ describe('useAuthStore', () => {
   it('getAccessToken reads the current token from the store', () => {
     useAuthStore
       .getState()
-      .setAuth({ accessToken: 'read-me', role: 'viewer', email: 'x@example.com', branch: null })
+      .setAuth({ accessToken: 'read-me', role: 'viewer', username: 'x', fullName: null, mustChangePassword: false, branch: null })
     expect(getAccessToken()).toBe('read-me')
   })
 })
@@ -106,6 +114,11 @@ describe('decodeAccessTokenRole', () => {
   it('decodes a valid admin role from the payload', () => {
     const token = makeJwt({ sub: 'user-1', role: 'admin' })
     expect(decodeAccessTokenRole(token)).toBe('admin')
+  })
+
+  it('decodes the superadmin role from the payload', () => {
+    const token = makeJwt({ sub: 'user-1', role: 'superadmin' })
+    expect(decodeAccessTokenRole(token)).toBe('superadmin')
   })
 
   it('decodes a valid viewer role from the payload', () => {

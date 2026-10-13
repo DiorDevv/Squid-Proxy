@@ -20,6 +20,7 @@ async def _scoped_viewer_token(
 ) -> str:
     db_session.add(
         User(
+            username=email.split("@")[0],
             email=email,
             hashed_password=hash_password("scoped-pass-123"),
             role=UserRole.VIEWER,
@@ -28,7 +29,7 @@ async def _scoped_viewer_token(
     )
     await db_session.commit()
     response = await app_client.post(
-        "/api/auth/login", json={"email": email, "password": "scoped-pass-123"}
+        "/api/auth/login", json={"username": email, "password": "scoped-pass-123"}
     )
     assert response.status_code == 200, response.text
     return response.json()["access_token"]
@@ -37,6 +38,7 @@ async def _scoped_viewer_token(
 async def test_login_response_includes_branch(app_client: AsyncClient, db_session: AsyncSession):
     db_session.add(
         User(
+            username="branch-in-response",
             email="branch-in-response@example.com",
             hashed_password=hash_password("scoped-pass-123"),
             role=UserRole.VIEWER,
@@ -46,18 +48,14 @@ async def test_login_response_includes_branch(app_client: AsyncClient, db_sessio
     await db_session.commit()
     login_response = await app_client.post(
         "/api/auth/login",
-        json={"email": "branch-in-response@example.com", "password": "scoped-pass-123"},
+        json={"username": "branch-in-response@example.com", "password": "scoped-pass-123"},
     )
     assert login_response.status_code == 200
     assert login_response.json()["branch"] == "default"
 
 
-async def test_unrestricted_admin_can_request_any_branch(
-    app_client: AsyncClient, admin_token, auth_headers
-):
-    response = await app_client.get(
-        "/api/events/recent?branch=default", headers=auth_headers(admin_token)
-    )
+async def test_unrestricted_admin_can_request_any_branch(app_client: AsyncClient, admin_token, auth_headers):
+    response = await app_client.get("/api/events/recent?branch=default", headers=auth_headers(admin_token))
     assert response.status_code == 200
 
 
@@ -73,9 +71,7 @@ async def test_scoped_user_requesting_own_branch_succeeds(
     app_client: AsyncClient, db_session: AsyncSession, auth_headers
 ):
     token = await _scoped_viewer_token(app_client, db_session, branch="default")
-    response = await app_client.get(
-        "/api/events/recent?branch=default", headers=auth_headers(token)
-    )
+    response = await app_client.get("/api/events/recent?branch=default", headers=auth_headers(token))
     assert response.status_code == 200
 
 
@@ -106,15 +102,12 @@ async def test_branches_route_returns_full_list_for_unrestricted_user(
     assert response.json()["items"] == [{"slug": "default", "label": "Default"}]
 
 
-async def test_create_user_rejects_an_unknown_branch(
-    app_client: AsyncClient, admin_token, auth_headers
-):
+async def test_create_user_rejects_an_unknown_branch(app_client: AsyncClient, admin_token, auth_headers):
     response = await app_client.post(
         "/api/users",
         headers=auth_headers(admin_token),
         json={
-            "email": "bad-branch@example.com",
-            "password": "supersecret1",
+            "username": "bad-branch",
             "role": "viewer",
             "branch": "not-a-real-branch",
         },
@@ -127,14 +120,13 @@ async def test_create_user_accepts_a_valid_branch(app_client: AsyncClient, admin
         "/api/users",
         headers=auth_headers(admin_token),
         json={
-            "email": "good-branch@example.com",
-            "password": "supersecret1",
+            "username": "good-branch",
             "role": "viewer",
             "branch": "default",
         },
     )
     assert response.status_code == 201
-    assert response.json()["branch"] == "default"
+    assert response.json()["user"]["branch"] == "default"
 
 
 async def test_update_user_branch_route_records_audit_entry(
@@ -147,9 +139,9 @@ async def test_update_user_branch_route_records_audit_entry(
     create_response = await app_client.post(
         "/api/users",
         headers=auth_headers(admin_token),
-        json={"email": "will-be-scoped@example.com", "password": "supersecret1", "role": "viewer"},
+        json={"username": "will-be-scoped", "role": "viewer"},
     )
-    user_id = create_response.json()["id"]
+    user_id = create_response.json()["user"]["id"]
 
     update_response = await app_client.patch(
         f"/api/users/{user_id}/branch", headers=auth_headers(admin_token), json={"branch": "default"}
@@ -162,5 +154,5 @@ async def test_update_user_branch_route_records_audit_entry(
             select(AuditLogEntry).where(AuditLogEntry.action == AuditAction.USER_BRANCH_CHANGED)
         )
     ).scalar_one()
-    assert entry.target_email == "will-be-scoped@example.com"
+    assert entry.target_email == "will-be-scoped"
     assert "unrestricted -> default" in entry.detail

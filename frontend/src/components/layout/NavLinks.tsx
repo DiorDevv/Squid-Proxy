@@ -1,7 +1,7 @@
 import { NavLink } from 'react-router-dom'
 import { BarChart3, Globe, LayoutDashboard, ScrollText, ShieldAlert, Settings, Users } from 'lucide-react'
 import { cn } from '@/lib/utils'
-import { useAuthStore } from '@/lib/auth-store'
+import { isAdminRole, useAuthStore } from '@/lib/auth-store'
 import { useLiveEvents } from '@/hooks/useLiveEvents'
 import { useTranslation, type TranslationKey } from '@/i18n'
 
@@ -59,7 +59,7 @@ export function NavLinks({ onNavigate }: NavLinksProps) {
           )}
         </NavLink>
       ))}
-      {(role === 'admin' || role === 'auditor') && (
+      {(isAdminRole(role) || role === 'auditor') && (
         <NavLink to="/settings" className={linkClassName} onClick={onNavigate}>
           {({ isActive }) => (
             <>

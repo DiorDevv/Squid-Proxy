@@ -7,6 +7,24 @@ All notable changes to this project are documented here. Format loosely follows
 
 ### Added
 
+- **Super-admin user management.** A new `superadmin` role (always all
+  branches) is the only one that manages admins, auditors and other super
+  admins; an admin now manages only *viewer* accounts in their own scope.
+  Accounts sign in with a **username** (the email becomes optional contact
+  info; signing in with an existing email still works). Admins never choose
+  passwords: creating a user or resetting a password generates a one-time
+  temporary password, shown once, that must be replaced at first sign-in
+  under a real policy (12+ chars, 3 of 4 classes, no username/common words,
+  no reuse of the last 5). Sensitive actions require re-entering your own
+  password within `REAUTH_MINUTES` (default 10). Accounts are deactivated
+  instead of deleted; admins can also edit full name/note, unlock a
+  throttled sign-in, reset 2FA, and see/end a user's sessions. Every user
+  gets **My profile** (password, 2FA, own sessions). Migration
+  `c3a7f1e9d2b4` backfills usernames from the email's local part and makes
+  every unrestricted admin a super admin. `ADMIN_USERNAME` replaces
+  `ADMIN_EMAIL` for the first-boot account (the latter still works), and
+  `scripts/create_admin.py` now takes `--username`.
+
 - **Upload vs download, per client IP.** When a proxy box logs the 11-field
   two-size Squid `logformat` (`%>st` request bytes then `%<st` reply bytes),
   the parser now reads both — `%>st` into a new `raw_events.bytes_received`

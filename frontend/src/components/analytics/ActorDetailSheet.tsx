@@ -20,7 +20,7 @@ import {
 import { formatBytes, formatDateTime, formatNumber } from '@/lib/format'
 import { CATEGORY_COLORS, CATEGORY_LABEL_KEYS } from '@/lib/categories'
 import { downloadSubjectDossier } from '@/lib/api-client'
-import { useAuthStore } from '@/lib/auth-store'
+import { isAdminRole, useAuthStore } from '@/lib/auth-store'
 import { useFiltersStore } from '@/lib/filters-store'
 import { useActorDetail } from '@/hooks/useAnalytics'
 import { isWatchlistConflict, useCreateWatchlistEntry, useDeleteWatchlistEntry, useWatchlist } from '@/hooks/useWatchlist'
@@ -46,7 +46,7 @@ export function ActorDetailSheet({ actor, rangeParams, onOpenChange }: ActorDeta
   // Admin-only (backend enforces it too) -- lets an admin watch a suspicious
   // actor right from the investigation view instead of retyping its value
   // into Settings > Watchlist.
-  const watchlistQuery = useWatchlist(role === 'admin')
+  const watchlistQuery = useWatchlist(isAdminRole(role))
   const createWatch = useCreateWatchlistEntry()
   const deleteWatch = useDeleteWatchlistEntry()
   const watchEntry = actor
@@ -112,7 +112,7 @@ export function ActorDetailSheet({ actor, rangeParams, onOpenChange }: ActorDeta
                   {t('analytics.who.viewAllEvents')}
                 </Button>
               )}
-              {role === 'admin' && actor && (
+              {isAdminRole(role) && actor && (
                 <Tooltip>
                   <TooltipTrigger asChild>
                     <Button
@@ -138,7 +138,7 @@ export function ActorDetailSheet({ actor, rangeParams, onOpenChange }: ActorDeta
               {/* Full subject-access dossier (docs/PRODUCT.md #4) -- admin-only
                   on the backend (it includes watchlist status); every
                   generation is itself audited there. */}
-              {role === 'admin' && actor && (
+              {isAdminRole(role) && actor && (
                 <Tooltip>
                   <TooltipTrigger asChild>
                     <Button

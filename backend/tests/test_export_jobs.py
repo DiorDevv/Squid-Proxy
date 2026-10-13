@@ -610,7 +610,7 @@ async def test_download_export_job_route_records_audit_entry(
             select(AuditLogEntry).where(AuditLogEntry.action == AuditAction.EXPORT_DOWNLOADED)
         )
     ).scalar_one()
-    assert entry.actor_email == "admin@example.com"
+    assert entry.actor_email == "admin"
     assert f"job_id={job_id}" in entry.detail
 
 

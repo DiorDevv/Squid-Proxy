@@ -1,5 +1,6 @@
 import { NavLink, Outlet } from 'react-router-dom'
 import { useAuth } from '@/hooks/useAuth'
+import { isAdminRole } from '@/lib/auth-store'
 import { cn } from '@/lib/utils'
 import { useTranslation, type TranslationKey } from '@/i18n'
 
@@ -17,8 +18,8 @@ const SETTINGS_NAV_ITEMS: { to: string; labelKey: TranslationKey; adminOnly: boo
   { to: 'retention', labelKey: 'settings.nav.retention', adminOnly: true },
 ]
 
-// Only an unrestricted admin (branch === null) may link the global
-// super-admin Telegram chat -- see SettingsTelegramPage. Kept out of
+// Only a super admin (or an unrestricted admin, branch === null) may link
+// the global super-admin Telegram chat -- see SettingsTelegramPage. Kept out of
 // SETTINGS_NAV_ITEMS (rather than filtered inline below) so a
 // branch-scoped admin's nav is otherwise identical to today's.
 const SUPER_ADMIN_NAV_ITEM: { to: string; labelKey: TranslationKey } = {
@@ -32,9 +33,9 @@ const SUPER_ADMIN_NAV_ITEM: { to: string; labelKey: TranslationKey } = {
 export default function SettingsLayout() {
   const { t } = useTranslation()
   const { branch, role } = useAuth()
-  const visible = SETTINGS_NAV_ITEMS.filter((item) => role === 'admin' || !item.adminOnly)
+  const visible = SETTINGS_NAV_ITEMS.filter((item) => isAdminRole(role) || !item.adminOnly)
   const navItems =
-    role === 'admin' && branch === null ? [...visible, SUPER_ADMIN_NAV_ITEM] : visible
+    isAdminRole(role) && branch === null ? [...visible, SUPER_ADMIN_NAV_ITEM] : visible
 
   return (
     <div className="flex flex-col gap-4 sm:flex-row sm:gap-6">

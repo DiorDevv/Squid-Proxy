@@ -1,9 +1,14 @@
-from pydantic import BaseModel, EmailStr
+from datetime import datetime
+
+from pydantic import BaseModel, Field
 
 
 class LoginRequest(BaseModel):
-    email: EmailStr
-    password: str
+    # The username. An email address is still accepted (looked up against
+    # the optional contact email) so people who signed in by email before
+    # username login existed aren't stranded.
+    username: str = Field(min_length=1, max_length=255)
+    password: str = Field(max_length=256)
 
 
 class LoginResponse(BaseModel):
@@ -19,8 +24,13 @@ class LoginResponse(BaseModel):
     token_type: str = "bearer"
     expires_in_seconds: int | None = None
     role: str | None = None
+    username: str | None = None
+    full_name: str | None = None
     email: str | None = None
     branch: str | None = None
+    # True: the account is on an admin-issued temporary password -- every
+    # route but GET /me and POST /password answers 403 until it's changed.
+    must_change_password: bool = False
     mfa_required: bool = False
     challenge_token: str | None = None
 
@@ -60,3 +70,48 @@ class TotpDisableRequest(BaseModel):
 
 class TotpStatusResponse(BaseModel):
     enabled: bool
+
+
+class MeResponse(BaseModel):
+    id: str
+    username: str
+    full_name: str
+    email: str | None
+    role: str
+    branch: str | None
+    must_change_password: bool
+    totp_enabled: bool
+    password_changed_at: datetime | None
+    last_login_at: datetime | None
+
+
+class ReauthRequest(BaseModel):
+    password: str = Field(max_length=256)
+
+
+class ReauthResponse(BaseModel):
+    valid_minutes: int
+
+
+class ChangePasswordRequest(BaseModel):
+    current_password: str = Field(max_length=256)
+    new_password: str = Field(max_length=256)
+
+
+class ChangePasswordResponse(BaseModel):
+    # Sign-ins on other devices closed by the change.
+    sessions_closed: int
+
+
+class SessionOut(BaseModel):
+    id: str
+    ip: str | None
+    user_agent: str | None
+    started_at: datetime | None
+    last_seen_at: datetime | None
+    expires_at: datetime
+    current: bool
+
+
+class SessionsRevokedResponse(BaseModel):
+    closed: int

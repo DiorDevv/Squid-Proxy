@@ -1,4 +1,4 @@
-export type Role = 'admin' | 'viewer' | 'auditor'
+export type Role = 'superadmin' | 'admin' | 'viewer' | 'auditor'
 
 export interface LoginResponse {
   // Absent (undefined/null) exactly when mfa_required is true -- the
@@ -8,7 +8,12 @@ export interface LoginResponse {
   token_type: string
   expires_in_seconds: number | null
   role: Role | null
+  username: string | null
+  full_name: string | null
   email: string | null
+  // True: signed in with an admin-issued temporary password -- every API
+  // call but /me and /password answers 403 until it's changed.
+  must_change_password: boolean
   // null = unrestricted (every user before branch-scoping existed); set to
   // one branch tag to restrict this account to only that branch's data.
   branch: string | null
@@ -38,4 +43,27 @@ export interface TotpConfirmResponse {
 
 export interface TotpStatusResponse {
   enabled: boolean
+}
+
+export interface MeResponse {
+  id: string
+  username: string
+  full_name: string
+  email: string | null
+  role: Role
+  branch: string | null
+  must_change_password: boolean
+  totp_enabled: boolean
+  password_changed_at: string | null
+  last_login_at: string | null
+}
+
+export interface SessionInfo {
+  id: string
+  ip: string | null
+  user_agent: string | null
+  started_at: string | null
+  last_seen_at: string | null
+  expires_at: string
+  current: boolean
 }

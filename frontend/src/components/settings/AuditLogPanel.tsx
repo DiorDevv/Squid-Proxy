@@ -6,11 +6,21 @@ import { useAuditLog } from '@/hooks/useAuditLog'
 import { useTranslation, type TranslationKey } from '@/i18n'
 import type { AuditAction, AuditLogEntry } from '@/types/api'
 
-const ACTION_LABEL_KEYS: Record<AuditAction, TranslationKey> = {
+// Partial: the backend records more actions than have labels here (alert
+// rules, exports, ...) -- those fall back to their raw action name below
+// rather than rendering a blank cell.
+const ACTION_LABEL_KEYS: Partial<Record<AuditAction, TranslationKey>> = {
   user_created: 'auditLog.actionUserCreated',
   user_role_changed: 'auditLog.actionUserRoleChanged',
   user_password_reset: 'auditLog.actionUserPasswordReset',
   user_deleted: 'auditLog.actionUserDeleted',
+  user_updated: 'auditLog.actionUserUpdated',
+  user_deactivated: 'auditLog.actionUserDeactivated',
+  user_activated: 'auditLog.actionUserActivated',
+  user_unlocked: 'auditLog.actionUserUnlocked',
+  user_sessions_revoked: 'auditLog.actionUserSessionsRevoked',
+  user_password_changed: 'auditLog.actionUserPasswordChanged',
+  user_totp_reset: 'auditLog.actionUserTotpReset',
   export_created: 'auditLog.actionExportCreated',
   export_downloaded: 'auditLog.actionExportDownloaded',
 }
@@ -36,7 +46,11 @@ export function AuditLogPanel() {
       {
         accessorKey: 'action',
         header: t('auditLog.columnAction'),
-        cell: ({ getValue }) => <span className="text-foreground">{t(ACTION_LABEL_KEYS[getValue<AuditAction>()])}</span>,
+        cell: ({ getValue }) => {
+          const action = getValue<AuditAction>()
+          const labelKey = ACTION_LABEL_KEYS[action]
+          return <span className="text-foreground">{labelKey ? t(labelKey) : action}</span>
+        },
       },
       {
         accessorKey: 'actor_email',

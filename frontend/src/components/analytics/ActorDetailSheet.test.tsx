@@ -76,9 +76,13 @@ vi.mock('@/hooks/useAnalytics', () => ({
 
 // Mutable so individual tests can flip role without a fresh vi.mock per test.
 let mockRole = 'auditor'
-vi.mock('@/lib/auth-store', () => ({
-  useAuthStore: (selector: (state: { role: string }) => unknown) => selector({ role: mockRole }),
-}))
+vi.mock('@/lib/auth-store', async () => {
+  const actual = await vi.importActual<typeof import('@/lib/auth-store')>('@/lib/auth-store')
+  return {
+    isAdminRole: actual.isAdminRole,
+    useAuthStore: (selector: (state: { role: string }) => unknown) => selector({ role: mockRole }),
+  }
+})
 
 const ACTOR: ActorRow = {
   actor: '10.0.0.5',

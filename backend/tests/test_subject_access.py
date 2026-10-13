@@ -110,7 +110,7 @@ async def test_dossier_route_returns_activity_and_records_audit_entry(
     ).scalars().all()
     assert len(entries) == 1
     assert "client_ip=10.0.0.9" in entries[0].detail
-    assert entries[0].actor_email == "admin@example.com"
+    assert entries[0].actor_email == "admin"
 
 
 async def test_two_dossier_generations_are_both_audited_not_deduplicated(

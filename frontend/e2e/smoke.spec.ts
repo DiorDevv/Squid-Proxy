@@ -8,14 +8,14 @@ import { test, expect, type Page } from '@playwright/test'
  * Precondition: the backend must already be running and reachable (default
  * assumed at http://localhost:8000, override with E2E_API_BASE_URL) with
  * an admin user bootstrapped (this happens automatically on first backend
- * startup from ADMIN_EMAIL/ADMIN_PASSWORD -- see README.md). Playwright
+ * startup from ADMIN_USERNAME/ADMIN_PASSWORD -- see README.md). Playwright
  * only manages the frontend dev server (see playwright.config.ts's
  * webServer block) and authenticates once up front (see global-setup.ts).
  *
- * Override credentials with E2E_ADMIN_EMAIL / E2E_ADMIN_PASSWORD env vars
+ * Override credentials with E2E_ADMIN_USERNAME / E2E_ADMIN_PASSWORD env vars
  * if your backend wasn't bootstrapped with the documented dev defaults.
  */
-const ADMIN_EMAIL = process.env.E2E_ADMIN_EMAIL ?? 'admin@example.com'
+const ADMIN_USERNAME = process.env.E2E_ADMIN_USERNAME ?? 'admin'
 const ADMIN_PASSWORD = process.env.E2E_ADMIN_PASSWORD ?? 'admin12345'
 
 // Whether the backend has any matching events or not, a page must reach a
@@ -44,7 +44,7 @@ test.describe('login', () => {
 
   test('successful login reaches the dashboard', async ({ page }) => {
     await page.goto('/login')
-    await page.getByLabel('Email', { exact: false }).fill(ADMIN_EMAIL)
+    await page.getByLabel('Username', { exact: false }).fill(ADMIN_USERNAME)
     await page.locator('input[type="password"]').fill(ADMIN_PASSWORD)
     await page.getByRole('button', { name: 'Sign in' }).click()
 
@@ -54,7 +54,7 @@ test.describe('login', () => {
 
   test('failed login shows an error and stays on the login page', async ({ page }) => {
     await page.goto('/login')
-    await page.getByLabel('Email', { exact: false }).fill(ADMIN_EMAIL)
+    await page.getByLabel('Username', { exact: false }).fill(ADMIN_USERNAME)
     await page.locator('input[type="password"]').fill('definitely-the-wrong-password')
     await page.getByRole('button', { name: 'Sign in' }).click()
 

@@ -20,6 +20,7 @@ from sqlalchemy import and_, case, func, or_, select, true
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.sql.selectable import Select, Subquery
 
+from app.core.branch_scope import BranchScope, branch_filter
 from app.models.client_category_aggregate import ClientCategoryMinuteAggregate
 from app.models.domain_aggregate import DomainMinuteAggregate
 from app.models.domain_category import DomainCategoryLabel
@@ -121,14 +122,14 @@ async def get_result_codes(
     since: datetime,
     until: datetime,
     granularity: TrendGranularity,
-    branch: str | None,
+    branch: BranchScope,
 ) -> ResultCodeResponse:
     conditions = [
         ResultCodeMinuteAggregate.bucket_ts >= since,
         ResultCodeMinuteAggregate.bucket_ts <= until,
     ]
     if branch is not None:
-        conditions.append(ResultCodeMinuteAggregate.branch == branch)
+        conditions.append(branch_filter(ResultCodeMinuteAggregate.branch, branch))
     rows = (
         await session.execute(
             select(
@@ -207,11 +208,11 @@ async def get_response_time(
     since: datetime,
     until: datetime,
     granularity: TrendGranularity,
-    branch: str | None,
+    branch: BranchScope,
 ) -> ResponseTimeResponse:
     conditions = [MinuteAggregate.bucket_ts >= since, MinuteAggregate.bucket_ts <= until]
     if branch is not None:
-        conditions.append(MinuteAggregate.branch == branch)
+        conditions.append(branch_filter(MinuteAggregate.branch, branch))
     band_cols = [getattr(MinuteAggregate, col) for _lo, _hi, col, _label in _DUR_BANDS]
     rows = (
         await session.execute(
@@ -292,7 +293,7 @@ _SORTABLE = {
 
 
 async def _logged_in_ips(
-    session: AsyncSession, since: datetime, until: datetime, branch: str | None
+    session: AsyncSession, since: datetime, until: datetime, branch: BranchScope
 ) -> list[str]:
     """Client IPs that carried an authenticated user anywhere in the range
     (search-independent). Fetched once as a list: a handful to a few hundred
@@ -402,7 +403,7 @@ def _sort_column(combined: Subquery, sort: str) -> Any:
 
 
 async def _fill_top_categories(
-    session: AsyncSession, since: datetime, until: datetime, branch: str | None, rows: list[ActorRow]
+    session: AsyncSession, since: datetime, until: datetime, branch: BranchScope, rows: list[ActorRow]
 ) -> None:
     for is_user in (True, False):
         ids = [r.actor for r in rows if r.is_user is is_user]
@@ -416,7 +417,7 @@ async def get_actor_leaderboard(
     session: AsyncSession,
     since: datetime,
     until: datetime,
-    branch: str | None,
+    branch: BranchScope,
     limit: int,
     sort: str,
     search: str | None = None,
@@ -495,7 +496,7 @@ async def list_all_actors(
     session: AsyncSession,
     since: datetime,
     until: datetime,
-    branch: str | None,
+    branch: BranchScope,
     sort: str,
     search: str | None = None,
     kind: str = "all",
@@ -515,7 +516,7 @@ async def _top_category_per_actor(
     session: AsyncSession,
     since: datetime,
     until: datetime,
-    branch: str | None,
+    branch: BranchScope,
     actor_ids: list[str],
     is_user: bool,
 ) -> dict[str, DomainCategoryLabel]:
@@ -528,7 +529,7 @@ async def _top_category_per_actor(
         actor_col.in_(actor_ids),
     ]
     if branch is not None:
-        conditions.append(model.branch == branch)
+        conditions.append(branch_filter(model.branch, branch))
     rows = (
         await session.execute(
             select(actor_col, model.category, func.sum(model.request_count))
@@ -551,7 +552,7 @@ async def get_actor_detail(
     is_user: bool,
     since: datetime,
     until: datetime,
-    branch: str | None,
+    branch: BranchScope,
 ) -> ActorDetailResponse:
     combined = client_bucket_rows(since, until, branch=branch)
     actor_col = combined.c.user if is_user else combined.c.client_ip
@@ -662,7 +663,7 @@ async def get_actor_detail(
         cat_actor_col == actor,
     ]
     if branch is not None:
-        cat_conditions.append(cat_model.branch == branch)
+        cat_conditions.append(branch_filter(cat_model.branch, branch))
     cat_rows = (
         await session.execute(
             select(
@@ -732,7 +733,7 @@ async def _actor_domains(
     is_user: bool,
     since: datetime,
     until: datetime,
-    branch: str | None,
+    branch: BranchScope,
     blocked_only: bool,
     *,
     overrides: dict[str, DomainCategoryLabel],
@@ -751,7 +752,7 @@ async def _actor_domains(
         RawEvent.domain.is_not(None),
     ]
     if branch is not None:
-        conditions.append(RawEvent.branch == branch)
+        conditions.append(branch_filter(RawEvent.branch, branch))
     if blocked_only:
         conditions.append(RawEvent.blocked.is_(True))
         # Every matching row is already blocked=True here -- gating the sum
@@ -794,7 +795,7 @@ async def _actor_domains(
 
 
 async def get_new_entities(
-    session: AsyncSession, since: datetime, until: datetime, branch: str | None
+    session: AsyncSession, since: datetime, until: datetime, branch: BranchScope
 ) -> NewEntitiesResponse:
     # "New" means "first seen anywhere in the retained history falls inside
     # [since, until]" -- so it looks back over the whole client-aggregate
@@ -837,7 +838,7 @@ async def get_denials(
     since: datetime,
     until: datetime,
     granularity: TrendGranularity,
-    branch: str | None,
+    branch: BranchScope,
 ) -> DenialsResponse:
     # Reason split, all from aggregates (no raw_events scan). A request is
     # `blocked` when its status is 403 or 407, or the result tag is
@@ -862,8 +863,8 @@ async def get_denials(
     http_conditions = [HttpMinuteAggregate.bucket_ts >= since, HttpMinuteAggregate.bucket_ts <= until]
     min_conditions = [MinuteAggregate.bucket_ts >= since, MinuteAggregate.bucket_ts <= until]
     if branch is not None:
-        http_conditions.append(HttpMinuteAggregate.branch == branch)
-        min_conditions.append(MinuteAggregate.branch == branch)
+        http_conditions.append(branch_filter(HttpMinuteAggregate.branch, branch))
+        min_conditions.append(branch_filter(MinuteAggregate.branch, branch))
 
     http_rows = (
         await session.execute(
@@ -922,7 +923,7 @@ async def get_denials(
         DomainMinuteAggregate.bucket_ts <= until,
     ]
     if branch is not None:
-        dom_conditions.append(DomainMinuteAggregate.branch == branch)
+        dom_conditions.append(branch_filter(DomainMinuteAggregate.branch, branch))
     dom_rows = (
         await session.execute(
             select(

@@ -1,19 +1,23 @@
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import CurrentUser, get_current_user, get_db, require_admin, resolve_branch
+from app.api.deps import CurrentUser, get_current_user, get_db, require_permission, resolve_branch
+from app.core.branch_scope import BranchScope
+from app.core.permissions import SUBJECT_ACCESS
 from app.models.audit_log import AuditAction
 from app.schemas.subject_access import SubjectDossierResponse, SubjectType
 from app.services import audit_service, subject_access_service
 
-router = APIRouter(prefix="/api", tags=["subject-access"], dependencies=[Depends(require_admin)])
+router = APIRouter(
+    prefix="/api", tags=["subject-access"], dependencies=[Depends(require_permission(SUBJECT_ACCESS))]
+)
 
 
 @router.get("/subject-access/dossier", response_model=SubjectDossierResponse)
 async def read_subject_dossier(
     subject_type: SubjectType = Query(),
     value: str = Query(min_length=1, max_length=255),
-    branch: str | None = Depends(resolve_branch),
+    branch: BranchScope = Depends(resolve_branch),
     db: AsyncSession = Depends(get_db),
     current_user: CurrentUser = Depends(get_current_user),
 ) -> SubjectDossierResponse:

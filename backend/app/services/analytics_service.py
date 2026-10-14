@@ -18,6 +18,7 @@ from datetime import UTC, datetime, timedelta
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.branch_scope import BranchScope, branch_filter, scope_branches
 from app.core.config import DEFAULT_BRANCH, get_settings
 from app.models.alert_settings import AlertSettings
 from app.models.anomaly_event import AnomalyEvent
@@ -65,13 +66,14 @@ def _pct_change(current: float, previous: float | None) -> float | None:
     return (current - previous) / previous * 100
 
 
-def _branches_in_scope(branch: str | None) -> list[str]:
+def _branches_in_scope(branch: BranchScope) -> list[str]:
     """A branch-scoped caller only ever sees their own branch; an
     unrestricted caller sees every configured branch (even one with no
     traffic in the window -- "which branch went quiet" is a useful thing to
     see)."""
-    if branch is not None:
-        return [branch]
+    scoped = scope_branches(branch)
+    if scoped is not None:
+        return list(scoped)
     sources = get_settings().effective_log_sources
     seen: dict[str, None] = {}
     for source in sources:
@@ -80,7 +82,7 @@ def _branches_in_scope(branch: str | None) -> list[str]:
 
 
 async def _minute_totals(
-    session: AsyncSession, since: datetime, until: datetime, branch: str | None
+    session: AsyncSession, since: datetime, until: datetime, branch: BranchScope
 ) -> tuple[int, int, int, int, int]:
     """(total_requests, blocked_requests, allowed_requests, total_bytes,
     allowed_bytes) for one window, summed across the branch filter.
@@ -91,7 +93,7 @@ async def _minute_totals(
     side by side, rather than picking one and losing the other."""
     conditions = [MinuteAggregate.bucket_ts >= since, MinuteAggregate.bucket_ts <= until]
     if branch is not None:
-        conditions.append(MinuteAggregate.branch == branch)
+        conditions.append(branch_filter(MinuteAggregate.branch, branch))
     row = (
         await session.execute(
             select(
@@ -107,14 +109,14 @@ async def _minute_totals(
 
 
 async def _active_client_count(
-    session: AsyncSession, since: datetime, until: datetime, branch: str | None
+    session: AsyncSession, since: datetime, until: datetime, branch: BranchScope
 ) -> int:
     combined = client_bucket_rows(since, until, branch=branch)
     return int((await session.execute(select(func.count(func.distinct(combined.c.client_ip))))).scalar_one())
 
 
 async def get_overview(
-    session: AsyncSession, since: datetime, until: datetime, branch: str | None
+    session: AsyncSession, since: datetime, until: datetime, branch: BranchScope
 ) -> AnalyticsOverview:
     duration = until - since
     prev_until = since
@@ -242,7 +244,7 @@ async def get_category_trend(
     until: datetime,
     granularity: TrendGranularity,
     metric: TrendMetric,
-    branch: str | None,
+    branch: BranchScope,
 ) -> CategoryTrendResponse:
     # Coarsen an hourly request to daily once the window is wide enough that
     # hourly would blow past CATEGORY_TREND_MAX_BUCKETS points -- the
@@ -259,7 +261,7 @@ async def get_category_trend(
         DomainMinuteAggregate.bucket_ts <= until,
     ]
     if branch is not None:
-        conditions.append(DomainMinuteAggregate.branch == branch)
+        conditions.append(branch_filter(DomainMinuteAggregate.branch, branch))
 
     rows = (
         await session.execute(
@@ -350,7 +352,7 @@ async def _branch_active_clients(
 
 
 async def get_branch_breakdown(
-    session: AsyncSession, since: datetime, until: datetime, branch: str | None
+    session: AsyncSession, since: datetime, until: datetime, branch: BranchScope
 ) -> BranchBreakdownResponse:
     branches = _branches_in_scope(branch)
     duration = until - since
@@ -383,7 +385,7 @@ async def get_branch_trend(
     since: datetime,
     until: datetime,
     granularity: TrendGranularity,
-    branch: str | None,
+    branch: BranchScope,
 ) -> BranchTrendResponse:
     """Requests-over-time, split by branch -- the small-multiples view on
     the Branches tab. Same auto-coarsening and in-progress-bucket drop as
@@ -446,7 +448,7 @@ async def get_branch_trend(
 
 
 async def get_branch_category_breakdown(
-    session: AsyncSession, since: datetime, until: datetime, branch: str | None
+    session: AsyncSession, since: datetime, until: datetime, branch: BranchScope
 ) -> BranchCategoryBreakdownResponse:
     """What each branch's traffic is actually going to, by category -- one
     query over domain_minute_aggregates grouped by (branch, domain), each
@@ -507,7 +509,7 @@ async def get_branch_category_breakdown(
 
 
 async def get_branch_top_blocked_domains(
-    session: AsyncSession, since: datetime, until: datetime, branch: str | None, limit: int = 8
+    session: AsyncSession, since: datetime, until: datetime, branch: BranchScope, limit: int = 8
 ) -> BranchBlockedDomainsResponse:
     """Which domains a branch is blocking the most -- one query grouped by
     (branch, domain) across every branch in scope, top-N sliced per branch
@@ -669,7 +671,7 @@ async def _branch_uncategorized_counts(
 
 
 async def get_branch_signals(
-    session: AsyncSession, since: datetime, until: datetime, branch: str | None
+    session: AsyncSession, since: datetime, until: datetime, branch: BranchScope
 ) -> BranchSignalsResponse:
     """The raw per-branch attention signals -- blocked ratio, sensitive
     traffic share, anomaly count, quota breaches, uncategorized-domain count
@@ -725,7 +727,7 @@ async def get_activity_heatmap(
     session: AsyncSession,
     since: datetime,
     until: datetime,
-    branch: str | None,
+    branch: BranchScope,
     blocked_only: bool,
     tz_offset_minutes: int = 0,
 ) -> ActivityHeatmapResponse:
@@ -735,7 +737,7 @@ async def get_activity_heatmap(
     viewer's local time; 0 keeps it in UTC."""
     conditions = [MinuteAggregate.bucket_ts >= since, MinuteAggregate.bucket_ts <= until]
     if branch is not None:
-        conditions.append(MinuteAggregate.branch == branch)
+        conditions.append(branch_filter(MinuteAggregate.branch, branch))
 
     rows = (
         await session.execute(

@@ -1,4 +1,4 @@
-from collections.abc import AsyncGenerator, Awaitable, Callable
+from collections.abc import AsyncGenerator, Awaitable, Callable, Iterable
 from datetime import UTC, datetime, timedelta
 
 from fastapi import Depends, HTTPException, Query, status
@@ -7,6 +7,8 @@ from jwt import InvalidTokenError
 from sqlalchemy import exists, select, true
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core import permissions as permission_catalog
+from app.core.branch_scope import BranchScope, as_scope, normalize_branches, scope_tag
 from app.core.config import get_settings
 from app.core.security import decode_access_token
 from app.models.db import get_session
@@ -30,21 +32,58 @@ class CurrentUser:
         branch: str | None = None,
         session_id: str | None = None,
         username: str | None = None,
+        branches: Iterable[str] | None = None,
+        permissions: Iterable[str] | None = None,
     ) -> None:
         self.user_id = user_id
         self.role = role
-        # None means unrestricted (every user today) -- set to one branch
-        # tag to scope this account to only that branch's data, see
-        # resolve_branch below.
-        self.branch = branch
+        # None means unrestricted -- otherwise the sorted branch tags this
+        # account is limited to (see core/branch_scope.py and
+        # resolve_branch below). `branch` is the single-branch shorthand.
+        self.branches: tuple[str, ...] | None = normalize_branches(
+            branches if branches is not None else ([branch] if branch else None)
+        )
         # The sign-in session this request's access token belongs to (None
         # for a token minted before sessions carried an id).
         self.session_id = session_id
         self.username = username
+        # Explicit permission list, or None for the role's defaults.
+        self.permissions: frozenset[str] = permission_catalog.effective(
+            role, list(permissions) if permissions is not None else None
+        )
 
     @property
     def is_superadmin(self) -> bool:
         return self.role == "superadmin"
+
+    @property
+    def is_restricted(self) -> bool:
+        return self.branches is not None
+
+    @property
+    def scope(self) -> BranchScope:
+        """This account's full reach as a BranchScope (None, one tag, or
+        a tuple) -- what a data route uses when nothing narrower is asked."""
+        return as_scope(self.branches)
+
+    @property
+    def branch(self) -> str | None:
+        """Scope tag: None only when unrestricted. Kept for call sites that
+        compare a single stored branch against it -- for a multi-branch
+        account the joined tag never equals one branch, so those fail
+        closed. New code should use can_access()/scope instead."""
+        return scope_tag(self.scope)
+
+    def can_access(self, branch: str | None) -> bool:
+        """May this account see rows tagged with `branch`? A None/empty tag
+        (a row with no branch dimension, or one covering every branch) is
+        only visible to an unrestricted account."""
+        if self.branches is None:
+            return True
+        return branch is not None and branch in self.branches
+
+    def has_permission(self, permission: str) -> bool:
+        return permission in self.permissions
 
 
 async def get_db(session: AsyncSession = Depends(get_session)) -> AsyncGenerator[AsyncSession]:
@@ -104,8 +143,9 @@ async def _authenticate(token: str | None, session: AsyncSession) -> tuple[User,
         raise unauthorized
 
     # Deactivation also bumps token_version, so this is belt-and-braces for
-    # a token minted without a tv claim.
-    if not user.is_active or not live:
+    # a token minted without a tv claim. An account past its expires_at is
+    # cut off on the very next request, same as a deactivated one.
+    if not user.is_active or not live or user.is_expired():
         raise unauthorized
 
     return user, session_id
@@ -115,9 +155,10 @@ def _current_user(user: User, session_id: str | None) -> CurrentUser:
     return CurrentUser(
         user_id=user.id,
         role=user.role.value,
-        branch=user.branch,
+        branches=user.branch_scope,
         session_id=session_id,
         username=user.username,
+        permissions=user.permissions,
     )
 
 
@@ -167,6 +208,22 @@ require_any_role = require_role("superadmin", "admin", "viewer", "auditor")
 require_admin_or_auditor = require_role("superadmin", "admin", "auditor")
 
 
+def require_permission(permission: str) -> Callable[[CurrentUser], Awaitable[CurrentUser]]:
+    """Gates one feature area (core/permissions.py) instead of a role --
+    a viewer granted "export" may export; an admin without "alerts" may
+    not change alert settings."""
+
+    async def checker(current_user: CurrentUser = Depends(get_current_user)) -> CurrentUser:
+        if not current_user.has_permission(permission):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="You do not have permission to perform this action.",
+            )
+        return current_user
+
+    return checker
+
+
 async def require_reauth(
     current_user: CurrentUser = Depends(require_admin),
     session: AsyncSession = Depends(get_session),
@@ -196,24 +253,28 @@ async def require_reauth(
     return current_user
 
 
+NO_BRANCH_ACCESS_DETAIL = "You do not have access to this branch."
+
+
 async def resolve_branch(
     branch: str | None = Query(default=None),
     current_user: CurrentUser = Depends(get_current_user),
-) -> str | None:
+) -> BranchScope:
     """Drop-in replacement for `branch: str | None = Query(default=None)` on
     every data-read route -- one shared enforcement point instead of ~20
-    separate checks. An unrestricted user (current_user.branch is None,
-    every user before this feature and every admin/viewer not explicitly
-    scoped) passes the requested branch through unchanged, including None
-    ("all branches"), so nothing changes for them. A branch-scoped user
-    always gets their own branch's data: silently substituted if they
-    didn't ask for a specific branch, rejected with 403 if they explicitly
-    asked for a *different* one (rather than silently overriding it, which
-    would hide the fact that the request as-sent wasn't honored)."""
-    if current_user.branch is None:
+    separate checks. Returns a BranchScope (core/branch_scope.py):
+
+    - Unrestricted user: the requested branch passes through unchanged,
+      including None ("all branches").
+    - Branch-limited user: a requested branch inside their set is honored;
+      one outside it is a 403 (rather than silently overridden, which would
+      hide that the request as-sent wasn't honored). Nothing requested means
+      their whole set -- one tag, or a tuple for a multi-branch account,
+      which services filter with branch_filter() as `IN (...)`."""
+    if not current_user.is_restricted:
         return branch
-    if branch is not None and branch != current_user.branch:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN, detail="You do not have access to this branch."
-        )
-    return current_user.branch
+    if branch is not None:
+        if not current_user.can_access(branch):
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=NO_BRANCH_ACCESS_DETAIL)
+        return branch
+    return current_user.scope

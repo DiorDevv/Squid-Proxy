@@ -4,6 +4,7 @@ import logging
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect, WebSocketException, status
 
+from app.core.branch_scope import BranchScope, as_scope
 from app.models import db as db_module
 
 logger = logging.getLogger(__name__)
@@ -55,7 +56,7 @@ async def _drain_incoming(websocket: WebSocket) -> None:
 
 
 async def _reauthorize_periodically(
-    websocket: WebSocket, user_id: str, branch: str | None, token_version: int | None
+    websocket: WebSocket, user_id: str, branch: BranchScope, token_version: int | None
 ) -> None:
     """Closes the connection if the account behind it was deleted, its
     branch scope changed, or its sessions were invalidated (token_version
@@ -71,7 +72,7 @@ async def _reauthorize_periodically(
             user = await session.get(User, user_id)
         revoked = (
             user is None
-            or user.branch != branch
+            or as_scope(user.branch_scope) != branch
             or (token_version is not None and user.token_version != token_version)
         )
         if revoked:

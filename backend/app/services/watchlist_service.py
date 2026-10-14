@@ -6,6 +6,7 @@ from sqlalchemy import or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.branch_scope import BranchScope, branch_filter
 from app.models.watchlist_entry import WatchlistEntry, WatchlistTargetType
 from app.schemas.watchlist import WatchlistEntryOut
 
@@ -35,12 +36,12 @@ def _to_out(row: WatchlistEntry) -> WatchlistEntryOut:
     )
 
 
-async def list_entries(session: AsyncSession, branch: str | None) -> list[WatchlistEntryOut]:
+async def list_entries(session: AsyncSession, branch: BranchScope) -> list[WatchlistEntryOut]:
     """A branch-scoped admin sees the "any branch" entries plus their own
     branch's; an unrestricted admin sees everything."""
     query = select(WatchlistEntry)
     if branch is not None:
-        query = query.where(or_(WatchlistEntry.branch == "", WatchlistEntry.branch == branch))
+        query = query.where(or_(WatchlistEntry.branch == "", branch_filter(WatchlistEntry.branch, branch)))
     query = query.order_by(WatchlistEntry.created_at.desc())
     rows = (await session.execute(query)).scalars().all()
     return [_to_out(row) for row in rows]

@@ -2,9 +2,10 @@ import enum
 import uuid
 from datetime import UTC, datetime
 
-from sqlalchemy import Boolean, Enum, ForeignKey, Integer, String, false, true
+from sqlalchemy import JSON, Boolean, Enum, ForeignKey, Integer, String, false, true
 from sqlalchemy.orm import Mapped, mapped_column
 
+from app.core.branch_scope import as_scope, normalize_branches, scope_tag
 from app.models.db import Base
 from app.models.types import UTCDateTime
 
@@ -39,12 +40,18 @@ class User(Base):
     note: Mapped[str | None] = mapped_column(String(200), nullable=True)
     hashed_password: Mapped[str] = mapped_column(String(255), nullable=False)
     role: Mapped[UserRole] = mapped_column(Enum(UserRole), nullable=False, default=UserRole.VIEWER)
-    # None (the default) means unrestricted -- every user has this today.
-    # Set to one of Settings.effective_log_sources' branch tags to restrict
-    # this account to that branch's data only (see api/deps.py's
-    # resolve_branch) -- a viewer at one office/site who shouldn't see
-    # other branches' traffic, not a privilege level like role above.
-    branch: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    # None (the default) means unrestricted. Otherwise a sorted, non-empty
+    # list of Settings.effective_log_sources' branch tags this account is
+    # limited to (see core/branch_scope.py and api/deps.resolve_branch) --
+    # e.g. ["filial", "main"] for someone who watches two branches but not
+    # the third. Not a privilege level like role above.
+    branches: Mapped[list[str] | None] = mapped_column(JSON, nullable=True)
+    # None means "whatever the role grants by default"; a list is an explicit
+    # set of feature permissions (see core/permissions.py).
+    permissions: Mapped[list[str] | None] = mapped_column(JSON, nullable=True)
+    # Access ends at this moment (sign-in and every request refuse after
+    # it). None = no end date.
+    expires_at: Mapped[datetime | None] = mapped_column(UTCDateTime, nullable=True)
     # Bumped whenever every existing session of this account must be
     # invalidated at once -- a role or branch change, a password reset (see
     # app/services/user_service.py). Every access token carries the value
@@ -77,6 +84,29 @@ class User(Base):
     # Username of whoever created this account (None for bootstrap/CLI).
     created_by: Mapped[str | None] = mapped_column(String(64), nullable=True)
     updated_at: Mapped[datetime | None] = mapped_column(UTCDateTime, nullable=True)
+
+    @property
+    def branch_scope(self) -> tuple[str, ...] | None:
+        return normalize_branches(self.branches)
+
+    # Single-branch shorthand kept for older call sites and tests:
+    # `User(branch="x")` limits the account to that one branch. Reading it
+    # gives the scope tag -- None only when unrestricted, so code that still
+    # compares against it fails closed for a multi-branch account rather
+    # than treating it as unrestricted.
+    @property
+    def branch(self) -> str | None:
+        return scope_tag(as_scope(self.branch_scope))
+
+    @branch.setter
+    def branch(self, value: str | None) -> None:
+        scope = normalize_branches([value] if value else None)
+        self.branches = list(scope) if scope is not None else None
+
+    def is_expired(self, now: datetime | None = None) -> bool:
+        if self.expires_at is None:
+            return False
+        return (now or datetime.now(UTC)) >= self.expires_at
 
 
 class PasswordHistory(Base):

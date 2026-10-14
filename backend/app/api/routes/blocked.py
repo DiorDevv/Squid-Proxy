@@ -10,11 +10,13 @@ from app.api.deps import (
     CurrentUser,
     get_current_user,
     get_db,
-    require_admin_or_auditor,
     require_any_role,
+    require_permission,
     resolve_branch,
 )
+from app.core.branch_scope import BranchScope, scope_label
 from app.core.config import get_settings
+from app.core.permissions import EXPORT
 from app.core.rate_limit import limiter
 from app.models.audit_log import AuditAction
 from app.schemas.blocked_domains import (
@@ -48,7 +50,7 @@ async def read_summary(
     kind: BlockKind = Query(default="denied"),
     filters: BlockFilters = Depends(block_filters),
     effective_range: EffectiveRange = Depends(resolve_range),
-    branch: str | None = Depends(resolve_branch),
+    branch: BranchScope = Depends(resolve_branch),
     db: AsyncSession = Depends(get_db),
 ) -> BlockSummary:
     return await blocked_analysis_service.get_summary(
@@ -65,7 +67,7 @@ async def read_groups(
     offset: int = Query(default=0, ge=0),
     filters: BlockFilters = Depends(block_filters),
     effective_range: EffectiveRange = Depends(resolve_range),
-    branch: str | None = Depends(resolve_branch),
+    branch: BranchScope = Depends(resolve_branch),
     db: AsyncSession = Depends(get_db),
     current_user: CurrentUser = Depends(get_current_user),
 ) -> BlockGroupsResponse:
@@ -91,7 +93,7 @@ async def read_groups(
     return result
 
 
-@router.get("/groups/export", dependencies=[Depends(require_admin_or_auditor)])
+@router.get("/groups/export", dependencies=[Depends(require_permission(EXPORT))])
 @limiter.limit(get_settings().SENSITIVE_ACTION_RATE_LIMIT)
 async def export_groups(
     request: Request,
@@ -107,7 +109,7 @@ async def export_groups(
     users: str | None = Query(default=None, max_length=2000),
     proxy: str | None = Query(default=None, max_length=64),
     effective_range: EffectiveRange = Depends(resolve_range),
-    branch: str | None = Depends(resolve_branch),
+    branch: BranchScope = Depends(resolve_branch),
     db: AsyncSession = Depends(get_db),
     current_user: CurrentUser = Depends(get_current_user),
 ) -> Response:
@@ -144,7 +146,7 @@ async def export_groups(
     )
     await db.commit()
     stamp = effective_range.until.strftime("%Y%m%d-%H%M")
-    filename = f"bloklangan-{group}-{branch or 'barcha'}-{stamp}.{format}"
+    filename = f"bloklangan-{group}-{scope_label(branch, '+') or 'barcha'}-{stamp}.{format}"
     return Response(
         content=content,
         media_type=media_type,

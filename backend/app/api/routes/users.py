@@ -2,6 +2,7 @@ from fastapi import APIRouter, Depends, Request, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import CurrentUser, get_db, require_admin, require_reauth
+from app.core import permissions as permission_catalog
 from app.core.config import get_settings
 from app.core.rate_limit import limiter
 from app.core.security import LoginThrottle
@@ -12,7 +13,9 @@ from app.schemas.users import (
     UserBranchUpdateRequest,
     UserCreatedResponse,
     UserCreateRequest,
+    UserExpiryUpdateRequest,
     UserPasswordResetResponse,
+    UserPermissionsUpdateRequest,
     UserProfileUpdateRequest,
     UserRoleUpdateRequest,
     UserSummary,
@@ -39,6 +42,8 @@ async def _summaries(request: Request, db: AsyncSession, users: list[User]) -> l
             update={
                 "active_sessions": counts.get(u.id, 0),
                 "throttled": throttle.is_throttled(LoginThrottle.key(u.username)),
+                "branches": list(u.branch_scope) if u.branch_scope is not None else None,
+                "effective_permissions": sorted(permission_catalog.effective(u.role.value, u.permissions)),
             }
         )
         for u in users
@@ -73,6 +78,9 @@ async def create_user(
         note=body.note,
         email=str(body.email) if body.email else None,
         branch=body.branch,
+        branches=body.branches,
+        permissions=body.permissions,
+        expires_at=body.expires_at,
     )
     return UserCreatedResponse(user=await _summary(request, db, user), temporary_password=temporary_password)
 
@@ -118,7 +126,36 @@ async def update_user_branch(
     db: AsyncSession = Depends(get_db),
     current_user: CurrentUser = Depends(require_reauth),
 ) -> UserSummary:
-    user = await user_service.update_branch(db, user_id, body.branch, current_user)
+    if "branches" in body.model_fields_set:
+        user = await user_service.update_branches(db, user_id, body.branches, current_user)
+    else:
+        user = await user_service.update_branch(db, user_id, body.branch, current_user)
+    return await _summary(request, db, user)
+
+
+@router.patch("/{user_id}/permissions", response_model=UserSummary)
+@limiter.limit(get_settings().SENSITIVE_ACTION_RATE_LIMIT)
+async def update_user_permissions(
+    request: Request,
+    user_id: str,
+    body: UserPermissionsUpdateRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: CurrentUser = Depends(require_reauth),
+) -> UserSummary:
+    user = await user_service.update_permissions(db, user_id, body.permissions, current_user)
+    return await _summary(request, db, user)
+
+
+@router.patch("/{user_id}/expiry", response_model=UserSummary)
+@limiter.limit(get_settings().SENSITIVE_ACTION_RATE_LIMIT)
+async def update_user_expiry(
+    request: Request,
+    user_id: str,
+    body: UserExpiryUpdateRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: CurrentUser = Depends(require_reauth),
+) -> UserSummary:
+    user = await user_service.update_expiry(db, user_id, body.expires_at, current_user)
     return await _summary(request, db, user)
 
 

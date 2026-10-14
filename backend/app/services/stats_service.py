@@ -9,6 +9,7 @@ from typing import Literal
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.branch_scope import BranchScope, branch_filter
 from app.models.domain_aggregate import DomainMinuteAggregate
 from app.models.domain_category import DomainCategoryLabel
 from app.models.minute_aggregate import MinuteAggregate
@@ -26,11 +27,11 @@ async def get_summary(
     since: datetime,
     until: datetime,
     range_param: RangeParam | None,
-    branch: str | None = None,
+    branch: BranchScope = None,
 ) -> SummaryResponse:
     conditions = [MinuteAggregate.bucket_ts >= since, MinuteAggregate.bucket_ts <= until]
     if branch is not None:
-        conditions.append(MinuteAggregate.branch == branch)
+        conditions.append(branch_filter(MinuteAggregate.branch, branch))
     totals_row = (
         await session.execute(
             select(
@@ -72,7 +73,7 @@ async def get_summary(
 
 
 async def get_cache_efficiency(
-    session: AsyncSession, since: datetime, until: datetime, branch: str | None = None
+    session: AsyncSession, since: datetime, until: datetime, branch: BranchScope = None
 ) -> CacheEfficiencyResponse:
     """How much of this window's traffic Squid served from cache vs. fetched
     fresh -- see MinuteAggregate.hit_requests/miss_requests and
@@ -83,7 +84,7 @@ async def get_cache_efficiency(
     minute granularity for its whole retention window."""
     conditions = [MinuteAggregate.bucket_ts >= since, MinuteAggregate.bucket_ts <= until]
     if branch is not None:
-        conditions.append(MinuteAggregate.branch == branch)
+        conditions.append(branch_filter(MinuteAggregate.branch, branch))
 
     hit_requests, miss_requests = (
         await session.execute(
@@ -106,7 +107,7 @@ async def get_timeseries(
     since: datetime,
     until: datetime,
     granularity: Granularity,
-    branch: str | None = None,
+    branch: BranchScope = None,
 ) -> TimeseriesResponse:
     # Grouped by bucket_ts (summing across branches) rather than selecting
     # MinuteAggregate rows directly: that table is now unique per
@@ -117,7 +118,7 @@ async def get_timeseries(
     # row-per-minute behavior, just expressed the same way for both cases.
     conditions = [MinuteAggregate.bucket_ts >= since, MinuteAggregate.bucket_ts <= until]
     if branch is not None:
-        conditions.append(MinuteAggregate.branch == branch)
+        conditions.append(branch_filter(MinuteAggregate.branch, branch))
     rows = (
         await session.execute(
             select(
@@ -171,11 +172,11 @@ async def _domains_in_category(
     until: datetime,
     category: DomainCategoryLabel,
     overrides: dict[str, DomainCategoryLabel],
-    branch: str | None = None,
+    branch: BranchScope = None,
 ) -> set[str]:
     conditions = [DomainMinuteAggregate.bucket_ts >= since, DomainMinuteAggregate.bucket_ts <= until]
     if branch is not None:
-        conditions.append(DomainMinuteAggregate.branch == branch)
+        conditions.append(branch_filter(DomainMinuteAggregate.branch, branch))
     domains = (
         await session.execute(select(DomainMinuteAggregate.domain).where(*conditions).distinct())
     ).scalars().all()
@@ -190,7 +191,7 @@ async def get_top_domains(
     blocked_only: bool = False,
     order_by: Literal["requests", "blocked", "bytes"] | None = None,
     category: DomainCategoryLabel | None = None,
-    branch: str | None = None,
+    branch: BranchScope = None,
     search: str | None = None,
 ) -> list[DomainStat]:
     """`order_by` defaults to "blocked" when `blocked_only` is set (matching
@@ -219,7 +220,7 @@ async def get_top_domains(
 
     conditions = [DomainMinuteAggregate.bucket_ts >= since, DomainMinuteAggregate.bucket_ts <= until]
     if branch is not None:
-        conditions.append(DomainMinuteAggregate.branch == branch)
+        conditions.append(branch_filter(DomainMinuteAggregate.branch, branch))
     if category is not None:
         matching_domains = await _domains_in_category(session, since, until, category, overrides, branch)
         if not matching_domains:
@@ -251,7 +252,7 @@ async def get_top_domains(
 
 
 async def get_usage_by_category(
-    session: AsyncSession, since: datetime, until: datetime, branch: str | None = None
+    session: AsyncSession, since: datetime, until: datetime, branch: BranchScope = None
 ) -> list[CategoryStat]:
     """Every domain in `domain_minute_aggregates` gets bucketed under its
     effective category (admin override, else the auto-inferred guess --
@@ -260,7 +261,7 @@ async def get_usage_by_category(
     breakdown instead of one giant uncategorized bucket."""
     conditions = [DomainMinuteAggregate.bucket_ts >= since, DomainMinuteAggregate.bucket_ts <= until]
     if branch is not None:
-        conditions.append(DomainMinuteAggregate.branch == branch)
+        conditions.append(branch_filter(DomainMinuteAggregate.branch, branch))
     rows = (
         await session.execute(
             select(

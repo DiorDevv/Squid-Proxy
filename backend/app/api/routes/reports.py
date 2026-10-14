@@ -5,8 +5,10 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import CurrentUser, get_current_user, get_db, require_admin, resolve_branch
+from app.api.deps import CurrentUser, get_current_user, get_db, require_permission, resolve_branch
+from app.core.branch_scope import BranchScope, scope_branches, scope_tag
 from app.core.config import get_settings
+from app.core.permissions import REPORTS
 from app.models.audit_log import AuditAction
 from app.models.report_schedule_state import ReportScheduleState
 from app.schemas.reports import ReportStatusOut, SendReportNowResponse
@@ -15,7 +17,9 @@ from app.services.report_scheduler import STATE_ROW_ID
 from app.services.report_service import generate_and_send_report
 
 logger = logging.getLogger(__name__)
-router = APIRouter(prefix="/api/reports", tags=["reports"], dependencies=[Depends(require_admin)])
+router = APIRouter(
+    prefix="/api/reports", tags=["reports"], dependencies=[Depends(require_permission(REPORTS))]
+)
 
 
 @router.get("/status", response_model=ReportStatusOut)
@@ -34,7 +38,7 @@ async def read_report_status(db: AsyncSession = Depends(get_db)) -> ReportStatus
 
 @router.post("/send-now", response_model=SendReportNowResponse)
 async def send_report_now(
-    branch: str | None = Depends(resolve_branch),
+    branch: BranchScope = Depends(resolve_branch),
     db: AsyncSession = Depends(get_db),
     current_user: CurrentUser = Depends(get_current_user),
 ) -> SendReportNowResponse:
@@ -50,7 +54,8 @@ async def send_report_now(
     since = now - timedelta(hours=24)
     # No branch given: send one report per configured branch, same as the
     # scheduler (see report_scheduler.py), rather than a single combined one.
-    branches = [branch] if branch else settings.effective_branches
+    scoped = scope_branches(branch)
+    branches = list(scoped) if scoped is not None else settings.effective_branches
     try:
         for target_branch in branches:
             await generate_and_send_report(db, since, now, target_branch)
@@ -59,7 +64,7 @@ async def send_report_now(
         # the log only -- same "log the real error, return a generic one"
         # contract as the app-wide handler in core/exceptions.py, which a
         # raised HTTPException here bypasses.
-        logger.exception("Failed to send report on demand", extra={"branch": branch})
+        logger.exception("Failed to send report on demand", extra={"branch": scope_tag(branch)})
         raise HTTPException(
             status.HTTP_502_BAD_GATEWAY, "Failed to send report. Check server logs for details."
         ) from exc
@@ -69,7 +74,7 @@ async def send_report_now(
         action=AuditAction.REPORT_SENT_NOW,
         actor_user_id=current_user.user_id,
         branch=branch,
-        detail=f"branch={branch or 'all'}",
+        detail=f"branch={scope_tag(branch) or 'all'}",
     )
     await db.commit()
 

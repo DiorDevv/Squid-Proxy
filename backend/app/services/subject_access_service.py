@@ -10,6 +10,7 @@ from datetime import UTC, datetime, timedelta
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.branch_scope import BranchScope, scope_tag
 from app.core.config import get_settings
 from app.models.watchlist_entry import WatchlistTargetType
 from app.schemas.subject_access import SubjectDossierResponse, SubjectType, WatchlistStatus
@@ -17,7 +18,7 @@ from app.services import export_signing, squid_ops_service, watchlist_service
 
 
 async def _watchlist_status(
-    session: AsyncSession, subject_type: SubjectType, value: str, branch: str | None
+    session: AsyncSession, subject_type: SubjectType, value: str, branch: BranchScope
 ) -> WatchlistStatus:
     target_type = WatchlistTargetType.USER if subject_type == "user" else WatchlistTargetType.CLIENT_IP
     normalized = watchlist_service.normalize_value(target_type, value)
@@ -56,7 +57,7 @@ def _manifest(response: SubjectDossierResponse) -> dict:
 
 
 async def build_dossier(
-    session: AsyncSession, subject_type: SubjectType, value: str, branch: str | None
+    session: AsyncSession, subject_type: SubjectType, value: str, branch: BranchScope
 ) -> SubjectDossierResponse:
     settings = get_settings()
     until = datetime.now(UTC)
@@ -74,7 +75,7 @@ async def build_dossier(
     response = SubjectDossierResponse(
         subject_type=subject_type,
         value=value,
-        branch=branch,
+        branch=scope_tag(branch),
         window_since=since,
         window_until=until,
         generated_at=until,

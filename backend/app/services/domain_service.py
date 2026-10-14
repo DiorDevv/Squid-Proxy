@@ -11,6 +11,7 @@ from datetime import datetime
 from sqlalchemy import case, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.branch_scope import BranchScope, branch_filter
 from app.models.raw_event import RawEvent
 from app.schemas.common import Page, SortOrder
 from app.schemas.domains import DomainClientStat, DomainSummary
@@ -19,7 +20,7 @@ from app.services.domain_category_service import get_overrides_map
 
 
 async def get_domain_summary(
-    session: AsyncSession, domain: str, since: datetime, until: datetime, branch: str | None = None
+    session: AsyncSession, domain: str, since: datetime, until: datetime, branch: BranchScope = None
 ) -> DomainSummary:
     blocked_requests = func.coalesce(func.sum(case((RawEvent.blocked, 1), else_=0)), 0)
     # Excludes blocked requests' bytes -- a denial page's byte count isn't
@@ -30,7 +31,7 @@ async def get_domain_summary(
 
     conditions = [RawEvent.domain == domain, RawEvent.timestamp >= since, RawEvent.timestamp <= until]
     if branch is not None:
-        conditions.append(RawEvent.branch == branch)
+        conditions.append(branch_filter(RawEvent.branch, branch))
 
     total_requests, blocked_total, bytes_total, client_count = (
         await session.execute(
@@ -59,7 +60,7 @@ async def get_domain_clients(
     offset: int,
     sort_by: str = "visit_count",
     order: SortOrder = SortOrder.DESC,
-    branch: str | None = None,
+    branch: BranchScope = None,
 ) -> Page[DomainClientStat]:
     """One row per (client, branch) that hit this domain in range, with a
     `user` roll-up the same way get_client_summary rolls up users for one IP
@@ -78,7 +79,7 @@ async def get_domain_clients(
 
     conditions = [RawEvent.domain == domain, RawEvent.timestamp >= since, RawEvent.timestamp <= until]
     if branch is not None:
-        conditions.append(RawEvent.branch == branch)
+        conditions.append(branch_filter(RawEvent.branch, branch))
 
     base_query = (
         select(

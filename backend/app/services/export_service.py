@@ -15,6 +15,7 @@ from openpyxl.utils import get_column_letter
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.branch_scope import BranchScope
 from app.models import db as db_module
 from app.models.domain_category import DomainCategoryLabel
 from app.models.raw_event import RawEvent
@@ -68,7 +69,7 @@ async def resolve_category_domains(
     since: datetime,
     until: datetime,
     category: DomainCategoryLabel,
-    branch: str | None = None,
+    branch: BranchScope = None,
 ) -> set[str]:
     """Turns a `category` filter into the concrete domain set
     build_event_conditions' `domain_in` actually filters on -- which
@@ -100,7 +101,7 @@ def _escape_csv_formula(value: object) -> object:
 
 
 async def _fetch_rows(
-    session: AsyncSession, since: datetime, until: datetime, blocked_only: bool, branch: str | None = None
+    session: AsyncSession, since: datetime, until: datetime, blocked_only: bool, branch: BranchScope = None
 ) -> Sequence[RawEvent]:
     conditions = build_event_conditions(since, until, blocked_only=blocked_only, branch=branch)
 
@@ -138,7 +139,7 @@ def _row_to_dict(row: RawEvent) -> dict:
 
 
 async def export_as_csv(
-    session: AsyncSession, since: datetime, until: datetime, blocked_only: bool, branch: str | None = None
+    session: AsyncSession, since: datetime, until: datetime, blocked_only: bool, branch: BranchScope = None
 ) -> str:
     rows = await _fetch_rows(session, since, until, blocked_only, branch)
     buffer = io.StringIO()
@@ -150,7 +151,7 @@ async def export_as_csv(
 
 
 async def export_as_json(
-    session: AsyncSession, since: datetime, until: datetime, blocked_only: bool, branch: str | None = None
+    session: AsyncSession, since: datetime, until: datetime, blocked_only: bool, branch: BranchScope = None
 ) -> str:
     rows = await _fetch_rows(session, since, until, blocked_only, branch)
     return json.dumps([_row_to_dict(row) for row in rows])
@@ -175,7 +176,7 @@ async def _iter_batches(
     since: datetime,
     until: datetime,
     blocked_only: bool,
-    branch: str | None = None,
+    branch: BranchScope = None,
     client_ip: str | None = None,
     domain: str | None = None,
     domain_in: set[str] | None = None,
@@ -211,7 +212,7 @@ async def stream_csv(
     since: datetime,
     until: datetime,
     blocked_only: bool,
-    branch: str | None = None,
+    branch: BranchScope = None,
     row_counter: list[int] | None = None,
     client_ip: str | None = None,
     domain: str | None = None,
@@ -254,7 +255,7 @@ async def stream_json(
     since: datetime,
     until: datetime,
     blocked_only: bool,
-    branch: str | None = None,
+    branch: BranchScope = None,
     row_counter: list[int] | None = None,
     client_ip: str | None = None,
     domain: str | None = None,
@@ -283,7 +284,7 @@ async def download_csv(
     since: datetime,
     until: datetime,
     blocked_only: bool,
-    branch: str | None = None,
+    branch: BranchScope = None,
     client_ip: str | None = None,
     domain: str | None = None,
     category: DomainCategoryLabel | None = None,
@@ -316,7 +317,7 @@ async def download_json(
     since: datetime,
     until: datetime,
     blocked_only: bool,
-    branch: str | None = None,
+    branch: BranchScope = None,
     client_ip: str | None = None,
     domain: str | None = None,
     category: DomainCategoryLabel | None = None,
@@ -373,7 +374,7 @@ async def write_xlsx_rows(
     since: datetime,
     until: datetime,
     blocked_only: bool,
-    branch: str | None,
+    branch: BranchScope,
     client_ip: str | None,
     domain: str | None,
     domain_in: set[str] | None,

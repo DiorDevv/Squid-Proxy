@@ -28,6 +28,7 @@ from pathlib import Path
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.branch_scope import BranchScope, parse_scope_tag, scope_tag, scope_within
 from app.core.config import get_settings
 from app.models import db as db_module
 from app.models.audit_log import AuditAction
@@ -139,7 +140,7 @@ async def create_job(
     until: datetime,
     format: str,
     blocked_only: bool,
-    branch: str | None,
+    branch: BranchScope,
     actor_user_id: str,
     *,
     client_ip: str | None = None,
@@ -151,6 +152,9 @@ async def create_job(
     # background run) -- resolve_columns raises ValueError on an unknown
     # name, which api/routes/export.py turns into a clean 400.
     resolved_columns = resolve_columns(columns)
+    # A multi-branch scope is stored as its joined tag (see core/branch_scope)
+    # and parsed back by run_job.
+    branch = scope_tag(branch)
     job = ExportJob(
         id=str(uuid.uuid4()),
         status=ExportJobStatus.PENDING,
@@ -268,11 +272,18 @@ async def delete_file_if_after_download_mode(job_id: str) -> None:
         await session.commit()
 
 
-async def list_jobs(session: AsyncSession, limit: int = 20, branch: str | None = None) -> list[ExportJob]:
-    query = select(ExportJob).order_by(ExportJob.created_at.desc()).limit(limit)
-    if branch is not None:
-        query = query.where(ExportJob.branch == branch)
-    return list((await session.execute(query)).scalars().all())
+async def list_jobs(session: AsyncSession, limit: int = 20, branch: BranchScope = None) -> list[ExportJob]:
+    query = select(ExportJob).order_by(ExportJob.created_at.desc())
+    if branch is None:
+        return list((await session.execute(query.limit(limit))).scalars().all())
+    if isinstance(branch, str):
+        rows = await session.execute(query.where(ExportJob.branch == branch).limit(limit))
+        return list(rows.scalars().all())
+    # Several branches: a job is listed when everything it covers is inside
+    # them -- its own single branch, or a joined tag of a subset.
+    rows = await session.execute(query.where(ExportJob.branch.is_not(None)).limit(limit * 10))
+    candidates = rows.scalars()
+    return [job for job in candidates if scope_within(parse_scope_tag(job.branch), branch)][:limit]
 
 
 _ACTIVE_STATUSES = (ExportJobStatus.PENDING, ExportJobStatus.RUNNING)
@@ -398,7 +409,11 @@ async def run_job(job_id: str) -> None:
         try:
             domain_in = (
                 await resolve_category_domains(
-                    session, job.since, job.until, DomainCategoryLabel(job.category), job.branch
+                    session,
+                    job.since,
+                    job.until,
+                    DomainCategoryLabel(job.category),
+                    parse_scope_tag(job.branch),
                 )
                 if job.category is not None
                 else None
@@ -428,7 +443,7 @@ async def run_job(job_id: str) -> None:
                         job.since,
                         job.until,
                         job.blocked_only,
-                        job.branch,
+                        parse_scope_tag(job.branch),
                         job.client_ip,
                         job.domain,
                         domain_in,
@@ -465,7 +480,7 @@ async def run_job(job_id: str) -> None:
                     job.since,
                     job.until,
                     job.blocked_only,
-                    job.branch,
+                    parse_scope_tag(job.branch),
                     row_counter,
                     client_ip=job.client_ip,
                     domain=job.domain,

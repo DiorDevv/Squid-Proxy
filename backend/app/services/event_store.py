@@ -10,6 +10,7 @@ from collections import deque
 from collections.abc import Iterator
 from dataclasses import dataclass
 
+from app.core.branch_scope import BranchScope, branch_matches
 from app.services.log_parser import ParsedEvent
 
 
@@ -48,7 +49,7 @@ class RingBuffer:
         limit: int = 100,
         blocked_only: bool = False,
         client_ip: str | None = None,
-        branch: str | None = None,
+        branch: BranchScope = None,
     ) -> list[StoredEvent]:
         results: list[StoredEvent] = []
         for stored in reversed(self._buffer):
@@ -56,7 +57,7 @@ class RingBuffer:
                 continue
             if client_ip and stored.event.client_ip != client_ip:
                 continue
-            if branch and stored.event.branch != branch:
+            if branch and not branch_matches(stored.event.branch, branch):
                 continue
             results.append(stored)
             if len(results) >= limit:

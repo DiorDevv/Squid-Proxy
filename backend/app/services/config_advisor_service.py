@@ -11,6 +11,7 @@ from datetime import UTC, datetime, timedelta
 from sqlalchemy import case, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.branch_scope import BranchScope, branch_filter
 from app.models.client_aggregate import ClientMinuteAggregate
 from app.models.domain_aggregate import DomainMinuteAggregate
 from app.models.domain_category import DomainCategoryLabel
@@ -26,13 +27,13 @@ _MIN_REQUESTS = 500
 _SENSITIVE_CATEGORIES = {DomainCategoryLabel.GAMBLING, DomainCategoryLabel.ADULT_CONTENT}
 
 
-async def analyze(session: AsyncSession, branch: str | None) -> ConfigAdvisorResponse:
+async def analyze(session: AsyncSession, branch: BranchScope) -> ConfigAdvisorResponse:
     now = datetime.now(UTC)
     since = now - timedelta(hours=_WINDOW_HOURS)
 
     min_conditions = [MinuteAggregate.bucket_ts >= since, MinuteAggregate.bucket_ts <= now]
     if branch is not None:
-        min_conditions.append(MinuteAggregate.branch == branch)
+        min_conditions.append(branch_filter(MinuteAggregate.branch, branch))
     totals = (
         await session.execute(
             select(
@@ -76,7 +77,7 @@ async def analyze(session: AsyncSession, branch: str | None) -> ConfigAdvisorRes
         ClientMinuteAggregate.bucket_ts <= now,
     ]
     if branch is not None:
-        client_conditions.append(ClientMinuteAggregate.branch == branch)
+        client_conditions.append(branch_filter(ClientMinuteAggregate.branch, branch))
     total_client, anon_client = (
         await session.execute(
             select(
@@ -107,7 +108,7 @@ async def analyze(session: AsyncSession, branch: str | None) -> ConfigAdvisorRes
         DomainMinuteAggregate.bucket_ts <= now,
     ]
     if branch is not None:
-        dom_conditions.append(DomainMinuteAggregate.branch == branch)
+        dom_conditions.append(branch_filter(DomainMinuteAggregate.branch, branch))
     dom_rows = (
         await session.execute(
             select(

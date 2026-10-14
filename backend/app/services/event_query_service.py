@@ -9,6 +9,7 @@ from datetime import datetime
 from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.branch_scope import BranchScope, branch_filter
 from app.models.raw_event import RawEvent
 from app.schemas.blocked_domains import BlockKind
 from app.schemas.common import Page
@@ -30,7 +31,7 @@ def build_event_conditions(
     method: str | None = None,
     user: str | None = None,
     search: str | None = None,
-    branch: str | None = None,
+    branch: BranchScope = None,
     domain_in: set[str] | None = None,
     block_kind: BlockKind = "all",
     block_filters: BlockFilters | None = None,
@@ -66,7 +67,7 @@ def build_event_conditions(
     if user and user.strip():
         conditions.append(RawEvent.user.ilike(f"%{user.strip()}%"))
     if branch:
-        conditions.append(RawEvent.branch == branch)
+        conditions.append(branch_filter(RawEvent.branch, branch))
     if search and search.strip():
         needle = f"%{search.strip()}%"
         # Every column here gets a GIN trigram index from
@@ -99,7 +100,7 @@ def build_event_conditions(
 
 
 async def distinct_domains(
-    session: AsyncSession, since: datetime, until: datetime, branch: str | None = None
+    session: AsyncSession, since: datetime, until: datetime, branch: BranchScope = None
 ) -> list[str]:
     """Every distinct domain seen by a raw event in [since, until] -- the
     candidate set export_service._resolve_category_domains() narrows down to
@@ -108,7 +109,7 @@ async def distinct_domains(
     uses against the aggregate table."""
     conditions = [RawEvent.timestamp >= since, RawEvent.timestamp <= until]
     if branch:
-        conditions.append(RawEvent.branch == branch)
+        conditions.append(branch_filter(RawEvent.branch, branch))
     rows = (
         await session.execute(select(RawEvent.domain).where(*conditions).distinct())
     ).scalars().all()
@@ -127,7 +128,7 @@ async def get_events(
     method: str | None = None,
     user: str | None = None,
     search: str | None = None,
-    branch: str | None = None,
+    branch: BranchScope = None,
     block_kind: BlockKind = "all",
     block_filters: BlockFilters | None = None,
 ) -> Page[EventDetail]:

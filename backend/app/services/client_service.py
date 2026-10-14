@@ -16,6 +16,7 @@ from sqlalchemy import func, or_, select, union_all
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.sql.selectable import Select, Subquery
 
+from app.core.branch_scope import BranchScope, branch_filter
 from app.models.client_aggregate import ClientMinuteAggregate
 from app.models.client_hourly_aggregate import ClientHourlyAggregate
 from app.models.raw_event import RawEvent
@@ -31,7 +32,7 @@ def client_bucket_rows(
     until: datetime,
     client_ip: str | None = None,
     search: str | None = None,
-    branch: str | None = None,
+    branch: BranchScope = None,
 ) -> Subquery:
     """A client_ip/user/branch/bucket_ts/counts subquery unioning
     client_minute_aggregates and client_hourly_aggregates over the same
@@ -69,7 +70,7 @@ def client_bucket_rows(
         if client_ip is not None:
             conditions.append(model.client_ip == client_ip)
         if branch is not None:
-            conditions.append(model.branch == branch)
+            conditions.append(branch_filter(model.branch, branch))
         if needle is not None:
             conditions.append(or_(model.client_ip.ilike(needle), model.user.ilike(needle)))
         return select(
@@ -98,7 +99,7 @@ async def list_clients(
     sort_by: str = "total_requests",
     order: SortOrder = SortOrder.DESC,
     search: str | None = None,
-    branch: str | None = None,
+    branch: BranchScope = None,
 ) -> Page[ClientSummary]:
     """`search`, when given, filters server-side (case-insensitive substring
     match on IP or user) *before* pagination -- so `total`/`offset` and the
@@ -193,7 +194,7 @@ def _split_proxies(values: Iterable[str]) -> list[str]:
 
 
 async def get_client_summary(
-    session: AsyncSession, client_ip: str, since: datetime, until: datetime, branch: str | None = None
+    session: AsyncSession, client_ip: str, since: datetime, until: datetime, branch: BranchScope = None
 ) -> ClientSummary:
     """Rolls up all `user` values seen for this IP within the range into one
     summary row -- `user` in the result is the one from the most recently
@@ -235,7 +236,9 @@ async def get_client_summary(
         proxies=_split_proxies(proxy_values),
         client_ip=client_ip,
         user=user,
-        branch=branch if branch is not None else seen_branch,
+        # A several-branch scope isn't one branch to report -- show where it
+        # was actually seen, as for an unrestricted request.
+        branch=branch if isinstance(branch, str) else seen_branch,
         total_requests=requests_total,
         blocked_requests=blocked_total,
         total_bytes=bytes_total,
@@ -253,7 +256,7 @@ async def get_client_activity(
     blocked_only: bool = False,
     domain: str | None = None,
     method: str | None = None,
-    branch: str | None = None,
+    branch: BranchScope = None,
 ) -> Page[EventDetail]:
     conditions = build_event_conditions(
         since,

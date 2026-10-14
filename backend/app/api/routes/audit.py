@@ -1,19 +1,21 @@
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import get_db, require_admin_or_auditor, resolve_branch
+from app.api.deps import get_db, require_permission, resolve_branch
+from app.core.branch_scope import BranchScope
+from app.core.permissions import AUDIT
 from app.schemas.audit import AuditChainBreak, AuditChainVerifyResponse, AuditLogEntryOut
 from app.schemas.common import Page
 from app.services import audit_service
 
-router = APIRouter(prefix="/api", tags=["audit"], dependencies=[Depends(require_admin_or_auditor)])
+router = APIRouter(prefix="/api", tags=["audit"], dependencies=[Depends(require_permission(AUDIT))])
 
 
 @router.get("/audit-log", response_model=Page[AuditLogEntryOut])
 async def read_audit_log(
     limit: int = Query(default=50, ge=1, le=1000),
     offset: int = Query(default=0, ge=0),
-    branch: str | None = Depends(resolve_branch),
+    branch: BranchScope = Depends(resolve_branch),
     db: AsyncSession = Depends(get_db),
 ) -> Page[AuditLogEntryOut]:
     return await audit_service.list_entries(db, limit, offset, branch=branch)

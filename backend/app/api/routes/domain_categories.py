@@ -2,8 +2,9 @@ from fastapi import APIRouter, Depends, Request, UploadFile
 from fastapi.responses import Response
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import CurrentUser, get_current_user, get_db, require_admin
+from app.api.deps import CurrentUser, get_current_user, get_db, require_permission
 from app.core.config import get_settings
+from app.core.permissions import CATEGORIES
 from app.core.rate_limit import limiter
 from app.schemas.domains import (
     DomainCategoryImportError,
@@ -14,7 +15,9 @@ from app.schemas.domains import (
 from app.services import domain_category_service
 
 router = APIRouter(
-    prefix="/api/domain-categories", tags=["domain-categories"], dependencies=[Depends(require_admin)]
+    prefix="/api/domain-categories",
+    tags=["domain-categories"],
+    dependencies=[Depends(require_permission(CATEGORIES))],
 )
 
 

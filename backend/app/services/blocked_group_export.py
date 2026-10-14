@@ -10,6 +10,7 @@ from openpyxl import Workbook
 from openpyxl.styles import Font
 from openpyxl.utils import get_column_letter
 
+from app.core.branch_scope import BranchScope, scope_label
 from app.schemas.blocked_domains import BlockGroupRow
 from app.services.export_service import _escape_csv_formula, _sanitize_xlsx_value
 
@@ -106,7 +107,7 @@ def groups_xlsx(
     group: str,
     lang: str,
     *,
-    branch: str | None,
+    branch: BranchScope,
     since: datetime,
     until: datetime,
     kind: str,
@@ -130,7 +131,7 @@ def groups_xlsx(
     info = wb.create_sheet(text["info"])
     for label, value in [
         (text["group"], text["groups"][group]),
-        (text["branch"], branch or text["all_branches"]),
+        (text["branch"], scope_label(branch) or text["all_branches"]),
         (text["range"], f"{since:%Y-%m-%d %H:%M} — {until:%Y-%m-%d %H:%M}"),
         (text["kind"], text["kinds"].get(kind, kind)),
         *[(name, _escape_csv_formula(value)) for name, value in filters],

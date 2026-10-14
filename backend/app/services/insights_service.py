@@ -4,6 +4,7 @@ InsightsProvider (see app/insights/__init__.py, app/services/aggregator.py)."""
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.branch_scope import BranchScope, branch_filter
 from app.core.config import DEFAULT_BRANCH
 from app.insights.base import Anomaly
 from app.models.anomaly_event import AnomalyEvent
@@ -31,9 +32,9 @@ def persist(session: AsyncSession, anomalies: list[Anomaly]) -> list[AnomalyEven
 
 
 async def list_recent(
-    session: AsyncSession, limit: int, offset: int, branch: str | None = None
+    session: AsyncSession, limit: int, offset: int, branch: BranchScope = None
 ) -> Page[AnomalyEventOut]:
-    conditions = [AnomalyEvent.branch == branch] if branch is not None else []
+    conditions = [branch_filter(AnomalyEvent.branch, branch)] if branch is not None else []
     query = (
         select(AnomalyEvent)
         .where(*conditions)

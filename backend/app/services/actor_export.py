@@ -13,6 +13,7 @@ from openpyxl import Workbook
 from openpyxl.styles import Font
 from openpyxl.utils import get_column_letter
 
+from app.core.branch_scope import BranchScope, scope_label
 from app.schemas.squid_ops import ActorRow
 from app.services.export_service import _escape_csv_formula, _sanitize_xlsx_value
 
@@ -87,7 +88,7 @@ def actors_xlsx(
     rows: list[ActorRow],
     lang: str,
     *,
-    branch: str | None,
+    branch: BranchScope,
     since: datetime,
     until: datetime,
     kind: str,
@@ -110,7 +111,7 @@ def actors_xlsx(
 
     info = wb.create_sheet(text["info"])
     for label, value in [
-        (text["branch"], branch or text["all_branches"]),
+        (text["branch"], scope_label(branch) or text["all_branches"]),
         (text["range"], f"{since:%Y-%m-%d %H:%M} — {until:%Y-%m-%d %H:%M}"),
         (text["kind"], text["kinds"].get(kind, kind)),
         (text["search"], _escape_csv_formula(search or "—")),

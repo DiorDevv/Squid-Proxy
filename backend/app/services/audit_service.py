@@ -10,6 +10,7 @@ from datetime import UTC, datetime, timedelta
 from sqlalchemy import and_, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.branch_scope import BranchScope, branch_filter, scope_tag
 from app.models.audit_log import AuditAction, AuditLogEntry
 from app.models.user import User
 from app.schemas.audit import AuditLogEntryOut
@@ -108,7 +109,7 @@ async def record(
     *,
     action: AuditAction,
     actor_user_id: str,
-    branch: str | None = None,
+    branch: BranchScope = None,
     target_user_id: str | None = None,
     target_email: str | None = None,
     detail: str | None = None,
@@ -121,7 +122,10 @@ async def record(
     branch value the caller already resolved for the change itself (e.g. the
     target user's branch, the export job's branch). Leave it unset (None)
     only for actions with no branch dimension or with unrestricted reach --
-    see AuditLogEntry.branch and list_entries for how that's read back."""
+    see AuditLogEntry.branch and list_entries for how that's read back.
+    A multi-branch scope is stored as its joined tag ("filial,main"), which
+    matches no single branch -- so only unrestricted readers see it."""
+    branch = scope_tag(branch)
     actor_email = await _resolve_actor_email(session, actor_user_id)
     # Generate id/created_at here rather than leaning on the column defaults
     # so the exact values that go into the hash are known before flush.
@@ -172,7 +176,7 @@ async def record_read_access(
     *,
     action: AuditAction,
     actor_user_id: str,
-    branch: str | None = None,
+    branch: BranchScope = None,
     detail: str,
 ) -> None:
     """Record (and commit on its own) that `actor_user_id` viewed something.
@@ -209,7 +213,7 @@ async def record_read_access(
 
 
 async def list_entries(
-    session: AsyncSession, limit: int, offset: int, branch: str | None = None
+    session: AsyncSession, limit: int, offset: int, branch: BranchScope = None
 ) -> Page[AuditLogEntryOut]:
     """`branch` follows the same contract as api.deps.resolve_branch: None
     (an unrestricted caller, or no branch requested) returns every entry.
@@ -222,7 +226,7 @@ async def list_entries(
     query = select(AuditLogEntry)
     count_query = select(func.count()).select_from(AuditLogEntry)
     if branch is not None:
-        scope = or_(AuditLogEntry.branch.is_(None), AuditLogEntry.branch == branch)
+        scope = or_(AuditLogEntry.branch.is_(None), branch_filter(AuditLogEntry.branch, branch))
         query = query.where(scope)
         count_query = count_query.where(scope)
 

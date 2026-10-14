@@ -1,8 +1,9 @@
 from fastapi import APIRouter, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import get_db, require_admin_or_auditor
+from app.api.deps import get_db, require_permission
 from app.core.config import get_settings
+from app.core.permissions import AUDIT
 from app.schemas.policy import (
     ArchivingPolicy,
     CollectedField,
@@ -11,7 +12,7 @@ from app.schemas.policy import (
 )
 from app.services import retention_settings_service
 
-router = APIRouter(prefix="/api", tags=["policy"], dependencies=[Depends(require_admin_or_auditor)])
+router = APIRouter(prefix="/api", tags=["policy"], dependencies=[Depends(require_permission(AUDIT))])
 
 # What a raw_events row actually holds (app/models/raw_event.py). Stated
 # here, in code, so the policy surface can't drift from a hand-kept doc.

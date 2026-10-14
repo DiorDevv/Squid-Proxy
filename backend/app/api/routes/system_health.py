@@ -1,11 +1,12 @@
 from fastapi import APIRouter, Depends, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import get_db, require_admin_or_auditor
+from app.api.deps import get_db, require_permission
+from app.core.permissions import AUDIT
 from app.schemas.system_health import SystemHealthResponse
 from app.services import system_health_service
 
-router = APIRouter(prefix="/api", tags=["system-health"], dependencies=[Depends(require_admin_or_auditor)])
+router = APIRouter(prefix="/api", tags=["system-health"], dependencies=[Depends(require_permission(AUDIT))])
 
 
 @router.get("/system-health", response_model=SystemHealthResponse)

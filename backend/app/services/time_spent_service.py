@@ -13,6 +13,7 @@ from datetime import datetime, timedelta
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.branch_scope import BranchScope, branch_filter
 from app.core.config import get_settings
 from app.models.domain_category import DomainCategoryLabel
 from app.models.raw_event import RawEvent
@@ -47,7 +48,7 @@ async def get_time_spent(
     client_ip: str,
     since: datetime,
     until: datetime,
-    branch: str | None = None,
+    branch: BranchScope = None,
 ) -> list[DomainTimeSpent]:
     gap = timedelta(minutes=get_settings().SESSION_GAP_MINUTES)
 
@@ -63,7 +64,7 @@ async def get_time_spent(
         # merged across branches instead of scoped to the one being viewed
         # -- every sibling client/domain endpoint already threads `branch`
         # through, this was the one pair of gaps.
-        conditions.append(RawEvent.branch == branch)
+        conditions.append(branch_filter(RawEvent.branch, branch))
 
     rows = (
         await session.execute(
@@ -91,7 +92,7 @@ async def get_time_spent_by_category(
     client_ip: str,
     since: datetime,
     until: datetime,
-    branch: str | None = None,
+    branch: BranchScope = None,
 ) -> list[CategoryTimeSpent]:
     """Rolls up get_time_spent()'s per-domain totals by effective category
     (admin override, else the auto-inferred guess -- see

@@ -19,6 +19,7 @@ from datetime import datetime
 from sqlalchemy import ColumnElement, case, func, literal, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.branch_scope import BranchScope, branch_filter
 from app.models.blocked_domain_aggregate import (
     BlockedDomainClientHourlyAggregate as C,
 )
@@ -51,14 +52,14 @@ def _floor_hour(ts: datetime) -> datetime:
 
 
 def _conditions(
-    table: Table, since: datetime, until: datetime, branch: str | None, f: BlockFilters
+    table: Table, since: datetime, until: datetime, branch: BranchScope, f: BlockFilters
 ) -> list[ColumnElement[bool]]:
     conditions: list[ColumnElement[bool]] = [
         table.bucket_ts >= _floor_hour(since),
         table.bucket_ts <= until,
     ]
     if branch:
-        conditions.append(table.branch == branch)
+        conditions.append(branch_filter(table.branch, branch))
     if f.proxy:
         conditions.append(table.proxy == f.proxy)
     if f.domains:
@@ -116,7 +117,7 @@ async def _groups(
     session: AsyncSession,
     since: datetime,
     until: datetime,
-    branch: str | None,
+    branch: BranchScope,
     f: BlockFilters,
     *,
     group: BlockGroupBy,
@@ -224,7 +225,7 @@ async def get_groups(
     session: AsyncSession,
     since: datetime,
     until: datetime,
-    branch: str | None,
+    branch: BranchScope,
     f: BlockFilters,
     *,
     group: BlockGroupBy = "domain",
@@ -243,7 +244,7 @@ async def list_all_groups(
     session: AsyncSession,
     since: datetime,
     until: datetime,
-    branch: str | None,
+    branch: BranchScope,
     f: BlockFilters,
     *,
     group: BlockGroupBy = "domain",
@@ -269,7 +270,7 @@ async def get_summary(
     session: AsyncSession,
     since: datetime,
     until: datetime,
-    branch: str | None,
+    branch: BranchScope,
     f: BlockFilters,
     *,
     kind: BlockKind = "denied",

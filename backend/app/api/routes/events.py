@@ -3,6 +3,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import CurrentUser, get_current_user, get_db, require_any_role, resolve_branch
 from app.api.routes.blocked import block_filters
+from app.core.branch_scope import BranchScope
 from app.models.audit_log import AuditAction
 from app.schemas.blocked_domains import BlockKind
 from app.schemas.common import EffectiveRange, Page, resolve_range
@@ -20,7 +21,7 @@ async def read_recent_events(
     limit: int = Query(default=100, ge=1, le=1000),
     blocked_only: bool = Query(default=False),
     client_ip: str | None = Query(default=None),
-    branch: str | None = Depends(resolve_branch),
+    branch: BranchScope = Depends(resolve_branch),
 ) -> list[EventDetail]:
     ring_buffer = request.app.state.ring_buffer
     stored_events = ring_buffer.recent(
@@ -45,7 +46,7 @@ async def read_events(
     search: str | None = Query(default=None, max_length=255),
     # domains / clients / users / proxy -- the Blocked page's shared filters.
     filters: BlockFilters = Depends(block_filters),
-    branch: str | None = Depends(resolve_branch),
+    branch: BranchScope = Depends(resolve_branch),
     db: AsyncSession = Depends(get_db),
     current_user: CurrentUser = Depends(get_current_user),
 ) -> Page[EventDetail]:

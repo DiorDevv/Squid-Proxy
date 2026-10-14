@@ -21,13 +21,17 @@ router = APIRouter(prefix="/api", tags=["branches"], dependencies=[Depends(requi
 
 @router.get("/branches", response_model=BranchesResponse)
 async def read_branches(current_user: CurrentUser = Depends(get_current_user)) -> BranchesResponse:
-    # A branch-scoped user only ever sees their own branch here -- this is
-    # what makes the frontend's BranchSelector self-hide for them (it
-    # already hides whenever there's <= 1 item, the same logic that hides
-    # it for any single-branch deployment).
-    if current_user.branch is not None:
-        return BranchesResponse(items=[_to_branch(current_user.branch)])
-
+    # A branch-limited user only ever sees their own branches here, in
+    # config order -- with one, the frontend's BranchSelector self-hides (it
+    # hides whenever there's <= 1 item, the same logic that hides it for any
+    # single-branch deployment); with several it offers just those.
     settings = get_settings()
-    items = [_to_branch(branch) for branch in settings.effective_branches]
+    items = [
+        _to_branch(branch) for branch in settings.effective_branches if current_user.can_access(branch)
+    ]
+    if current_user.branches is not None:
+        # A branch dropped from config since the account was set up still
+        # shows, so the account isn't left with an empty picker.
+        configured = set(settings.effective_branches)
+        items += [_to_branch(branch) for branch in current_user.branches if branch not in configured]
     return BranchesResponse(items=items)

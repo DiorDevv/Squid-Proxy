@@ -18,6 +18,7 @@ from email.mime.text import MIMEText
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.branch_scope import BranchScope, scope_label
 from app.core.config import get_settings
 from app.schemas.domains import CategoryStat, DomainStat
 from app.schemas.insights import AnomalyEventOut
@@ -70,9 +71,10 @@ def render_report_html(
     top_blocked: list[DomainStat],
     by_category: list[CategoryStat],
     anomalies: list[AnomalyEventOut],
-    branch: str | None = None,
+    branch: BranchScope = None,
 ) -> str:
-    title = f"Squid Watch report &mdash; {html.escape(branch)}" if branch else "Squid Watch report"
+    label = scope_label(branch)
+    title = f"Squid Watch report &mdash; {html.escape(label)}" if label else "Squid Watch report"
     return f"""\
 <html>
 <body style="font-family: -apple-system, Arial, sans-serif; color: #1a1a1a;">
@@ -106,7 +108,7 @@ def render_report_html(
 
 
 async def generate_report(
-    session: AsyncSession, since: datetime, until: datetime, branch: str | None = None
+    session: AsyncSession, since: datetime, until: datetime, branch: BranchScope = None
 ) -> str:
     summary = await stats_service.get_summary(session, since, until, range_param=None, branch=branch)
     top_domains = await stats_service.get_top_domains(
@@ -160,7 +162,7 @@ def send_report_email(
 
 
 async def generate_and_send_report(
-    session: AsyncSession, since: datetime, until: datetime, branch: str | None = None
+    session: AsyncSession, since: datetime, until: datetime, branch: BranchScope = None
 ) -> bool:
     """Returns False (no-op) if REPORT_RECIPIENTS isn't configured -- mirrors
     alerting.maybe_alert's "no config, no-op" shape. `branch=None` reports on
@@ -175,7 +177,7 @@ async def generate_and_send_report(
     csv_attachment = await export_service.export_as_csv(
         session, since, until, blocked_only=False, branch=branch
     )
-    branch_suffix = f" ({branch})" if branch else ""
+    branch_suffix = f" ({scope_label(branch)})" if branch else ""
     subject = f"Squid Watch report{branch_suffix}: {since.date()} to {until.date()}"
 
     await asyncio.to_thread(

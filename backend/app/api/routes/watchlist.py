@@ -1,7 +1,8 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import CurrentUser, get_current_user, get_db, require_admin
+from app.api.deps import CurrentUser, get_current_user, get_db, require_permission
+from app.core.permissions import WATCHLIST
 from app.schemas.watchlist import (
     CreateWatchlistEntryRequest,
     UpdateWatchlistEntryRequest,
@@ -10,20 +11,22 @@ from app.schemas.watchlist import (
 from app.services import watchlist_service
 from app.services.watchlist_service import WatchlistConflict
 
-router = APIRouter(prefix="/api/watchlist", tags=["watchlist"], dependencies=[Depends(require_admin)])
+router = APIRouter(
+    prefix="/api/watchlist", tags=["watchlist"], dependencies=[Depends(require_permission(WATCHLIST))]
+)
 
 
 def _resolve_branch_for_write(requested: str, current_user: CurrentUser) -> str:
-    """A branch-scoped admin may only create/scope entries within their own
-    branch (or the shared "any branch" scope). An unrestricted admin may
+    """A branch-limited account may only create/scope entries within its own
+    branches (or the shared "any branch" scope). An unrestricted one may
     target any branch, or "" for all."""
-    if current_user.branch is None:
+    if not current_user.is_restricted:
         return requested
-    if requested and requested != current_user.branch:
+    if requested and not current_user.can_access(requested):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN, detail="You cannot watch another branch."
         )
-    return requested  # "" (any) or their own branch
+    return requested  # "" (any) or one of their own branches
 
 
 @router.get("", response_model=list[WatchlistEntryOut])
@@ -31,7 +34,7 @@ async def list_watchlist(
     db: AsyncSession = Depends(get_db),
     current_user: CurrentUser = Depends(get_current_user),
 ) -> list[WatchlistEntryOut]:
-    return await watchlist_service.list_entries(db, current_user.branch)
+    return await watchlist_service.list_entries(db, current_user.scope)
 
 
 @router.post("", response_model=WatchlistEntryOut, status_code=status.HTTP_201_CREATED)
@@ -80,5 +83,5 @@ def _assert_visible(row: object, current_user: CurrentUser) -> None:
     if row is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Entry not found.")
     entry_branch = getattr(row, "branch", "")
-    if current_user.branch is not None and entry_branch not in ("", current_user.branch):
+    if entry_branch and not current_user.can_access(entry_branch):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not your branch.")

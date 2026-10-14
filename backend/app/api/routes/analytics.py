@@ -7,12 +7,14 @@ from app.api.deps import (
     CurrentUser,
     get_current_user,
     get_db,
-    require_admin_or_auditor,
     require_any_role,
+    require_permission,
     resolve_branch,
 )
 from app.api.routes.health import build_health_snapshot
+from app.core.branch_scope import BranchScope, scope_label
 from app.core.config import get_settings
+from app.core.permissions import EXPORT
 from app.core.rate_limit import limiter
 from app.models.audit_log import AuditAction
 from app.schemas.analytics import (
@@ -54,7 +56,7 @@ router = APIRouter(prefix="/api/analytics", tags=["analytics"], dependencies=[De
 @router.get("/overview", response_model=AnalyticsOverview)
 async def read_overview(
     effective_range: EffectiveRange = Depends(resolve_range),
-    branch: str | None = Depends(resolve_branch),
+    branch: BranchScope = Depends(resolve_branch),
     db: AsyncSession = Depends(get_db),
 ) -> AnalyticsOverview:
     return await analytics_service.get_overview(db, effective_range.since, effective_range.until, branch)
@@ -65,7 +67,7 @@ async def read_category_trend(
     granularity: TrendGranularity = Query(default=TrendGranularity.HOUR),
     metric: TrendMetric = Query(default=TrendMetric.BYTES),
     effective_range: EffectiveRange = Depends(resolve_range),
-    branch: str | None = Depends(resolve_branch),
+    branch: BranchScope = Depends(resolve_branch),
     db: AsyncSession = Depends(get_db),
 ) -> CategoryTrendResponse:
     return await analytics_service.get_category_trend(
@@ -76,7 +78,7 @@ async def read_category_trend(
 @router.get("/branch-breakdown", response_model=BranchBreakdownResponse)
 async def read_branch_breakdown(
     effective_range: EffectiveRange = Depends(resolve_range),
-    branch: str | None = Depends(resolve_branch),
+    branch: BranchScope = Depends(resolve_branch),
     db: AsyncSession = Depends(get_db),
 ) -> BranchBreakdownResponse:
     return await analytics_service.get_branch_breakdown(
@@ -87,7 +89,7 @@ async def read_branch_breakdown(
 @router.get("/branch-signals", response_model=BranchSignalsResponse)
 async def read_branch_signals(
     effective_range: EffectiveRange = Depends(resolve_range),
-    branch: str | None = Depends(resolve_branch),
+    branch: BranchScope = Depends(resolve_branch),
     db: AsyncSession = Depends(get_db),
 ) -> BranchSignalsResponse:
     return await analytics_service.get_branch_signals(
@@ -99,7 +101,7 @@ async def read_branch_signals(
 async def read_branch_trend(
     granularity: TrendGranularity = Query(default=TrendGranularity.HOUR),
     effective_range: EffectiveRange = Depends(resolve_range),
-    branch: str | None = Depends(resolve_branch),
+    branch: BranchScope = Depends(resolve_branch),
     db: AsyncSession = Depends(get_db),
 ) -> BranchTrendResponse:
     return await analytics_service.get_branch_trend(
@@ -110,7 +112,7 @@ async def read_branch_trend(
 @router.get("/branch-category-breakdown", response_model=BranchCategoryBreakdownResponse)
 async def read_branch_category_breakdown(
     effective_range: EffectiveRange = Depends(resolve_range),
-    branch: str | None = Depends(resolve_branch),
+    branch: BranchScope = Depends(resolve_branch),
     db: AsyncSession = Depends(get_db),
 ) -> BranchCategoryBreakdownResponse:
     return await analytics_service.get_branch_category_breakdown(
@@ -122,7 +124,7 @@ async def read_branch_category_breakdown(
 async def read_branch_blocked_domains(
     limit: int = Query(default=8, ge=1, le=50),
     effective_range: EffectiveRange = Depends(resolve_range),
-    branch: str | None = Depends(resolve_branch),
+    branch: BranchScope = Depends(resolve_branch),
     db: AsyncSession = Depends(get_db),
 ) -> BranchBlockedDomainsResponse:
     return await analytics_service.get_branch_top_blocked_domains(
@@ -134,7 +136,7 @@ async def read_branch_blocked_domains(
 async def read_result_codes(
     granularity: TrendGranularity = Query(default=TrendGranularity.HOUR),
     effective_range: EffectiveRange = Depends(resolve_range),
-    branch: str | None = Depends(resolve_branch),
+    branch: BranchScope = Depends(resolve_branch),
     db: AsyncSession = Depends(get_db),
 ) -> ResultCodeResponse:
     return await squid_ops_service.get_result_codes(
@@ -146,7 +148,7 @@ async def read_result_codes(
 async def read_response_time(
     granularity: TrendGranularity = Query(default=TrendGranularity.HOUR),
     effective_range: EffectiveRange = Depends(resolve_range),
-    branch: str | None = Depends(resolve_branch),
+    branch: BranchScope = Depends(resolve_branch),
     db: AsyncSession = Depends(get_db),
 ) -> ResponseTimeResponse:
     return await squid_ops_service.get_response_time(
@@ -162,7 +164,7 @@ async def read_actor_leaderboard(
     kind: Literal["all", "user", "ip"] = Query(default="all"),
     search: str | None = Query(default=None, max_length=255),
     effective_range: EffectiveRange = Depends(resolve_range),
-    branch: str | None = Depends(resolve_branch),
+    branch: BranchScope = Depends(resolve_branch),
     db: AsyncSession = Depends(get_db),
 ) -> ActorLeaderboardResponse:
     return await squid_ops_service.get_actor_leaderboard(
@@ -171,7 +173,7 @@ async def read_actor_leaderboard(
     )
 
 
-@router.get("/actors/export", dependencies=[Depends(require_admin_or_auditor)])
+@router.get("/actors/export", dependencies=[Depends(require_permission(EXPORT))])
 @limiter.limit(get_settings().SENSITIVE_ACTION_RATE_LIMIT)
 async def export_actor_leaderboard(
     request: Request,
@@ -181,7 +183,7 @@ async def export_actor_leaderboard(
     kind: Literal["all", "user", "ip"] = Query(default="all"),
     search: str | None = Query(default=None, max_length=255),
     effective_range: EffectiveRange = Depends(resolve_range),
-    branch: str | None = Depends(resolve_branch),
+    branch: BranchScope = Depends(resolve_branch),
     db: AsyncSession = Depends(get_db),
     current_user: CurrentUser = Depends(get_current_user),
 ) -> Response:
@@ -208,7 +210,7 @@ async def export_actor_leaderboard(
     )
     await db.commit()
     stamp = effective_range.until.strftime("%Y%m%d-%H%M")
-    filename = f"kim-{branch or 'barcha'}-{stamp}.{format}"
+    filename = f"kim-{scope_label(branch, '+') or 'barcha'}-{stamp}.{format}"
     return Response(
         content=content,
         media_type=media_type,
@@ -221,7 +223,7 @@ async def read_actor_detail(
     actor: str = Query(min_length=1, max_length=255),
     is_user: bool = Query(default=True),
     effective_range: EffectiveRange = Depends(resolve_range),
-    branch: str | None = Depends(resolve_branch),
+    branch: BranchScope = Depends(resolve_branch),
     db: AsyncSession = Depends(get_db),
     current_user: CurrentUser = Depends(get_current_user),
 ) -> ActorDetailResponse:
@@ -241,7 +243,7 @@ async def read_actor_detail(
 @router.get("/new-entities", response_model=NewEntitiesResponse)
 async def read_new_entities(
     effective_range: EffectiveRange = Depends(resolve_range),
-    branch: str | None = Depends(resolve_branch),
+    branch: BranchScope = Depends(resolve_branch),
     db: AsyncSession = Depends(get_db),
 ) -> NewEntitiesResponse:
     return await squid_ops_service.get_new_entities(db, effective_range.since, effective_range.until, branch)
@@ -251,7 +253,7 @@ async def read_new_entities(
 async def read_denials(
     granularity: TrendGranularity = Query(default=TrendGranularity.HOUR),
     effective_range: EffectiveRange = Depends(resolve_range),
-    branch: str | None = Depends(resolve_branch),
+    branch: BranchScope = Depends(resolve_branch),
     db: AsyncSession = Depends(get_db),
 ) -> DenialsResponse:
     return await squid_ops_service.get_denials(
@@ -272,7 +274,7 @@ async def read_retention(db: AsyncSession = Depends(get_db)) -> RetentionInfo:
 
 @router.get("/config-advisor", response_model=ConfigAdvisorResponse)
 async def read_config_advisor(
-    branch: str | None = Depends(resolve_branch),
+    branch: BranchScope = Depends(resolve_branch),
     db: AsyncSession = Depends(get_db),
 ) -> ConfigAdvisorResponse:
     """Heuristic checks over the last 24h of aggregates for common Squid
@@ -301,7 +303,7 @@ async def read_activity_heatmap(
         description="Minutes east of UTC to bucket weekday/hour in (0 = UTC).",
     ),
     effective_range: EffectiveRange = Depends(resolve_range),
-    branch: str | None = Depends(resolve_branch),
+    branch: BranchScope = Depends(resolve_branch),
     db: AsyncSession = Depends(get_db),
 ) -> ActivityHeatmapResponse:
     return await analytics_service.get_activity_heatmap(

@@ -7,6 +7,7 @@ from sqlalchemy import CursorResult, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import CurrentUser, get_current_user, get_current_user_pending_ok, get_db
+from app.core import permissions as permission_catalog
 from app.core.config import get_settings
 from app.core.rate_limit import limiter
 from app.core.security import (
@@ -53,6 +54,9 @@ INVALID_CREDENTIALS = HTTPException(
 ACCOUNT_DISABLED = HTTPException(
     status_code=status.HTTP_403_FORBIDDEN, detail="This account has been deactivated."
 )
+# Machine-readable like deps.PASSWORD_CHANGE_REQUIRED -- the login page shows
+# its own message for it.
+ACCOUNT_EXPIRED = HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="account_expired")
 INVALID_REFRESH = HTTPException(
     status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid or expired session."
 )
@@ -78,6 +82,10 @@ def _set_refresh_cookie(response: Response, row: RefreshToken, raw_secret: str) 
         max_age=int((row.expires_at - datetime.now(UTC)).total_seconds()),
         **_cookie_kwargs(),
     )
+
+
+def _effective_permissions(user: User) -> frozenset[str]:
+    return permission_catalog.effective(user.role.value, user.permissions)
 
 
 async def _find_login_user(db: AsyncSession, login: str) -> User | None:
@@ -113,6 +121,9 @@ async def _complete_login(
         full_name=user.full_name,
         email=user.email,
         branch=user.branch,
+        branches=list(user.branch_scope or []),
+        permissions=sorted(_effective_permissions(user)),
+        expires_at=user.expires_at,
         must_change_password=user.must_change_password,
     )
 
@@ -148,6 +159,8 @@ async def login(
     # them why is more useful than a generic failure.
     if not user.is_active:
         raise ACCOUNT_DISABLED
+    if user.is_expired():
+        raise ACCOUNT_EXPIRED
 
     if user.totp_enabled:
         # Password alone isn't enough -- hand back a short-lived, single-use
@@ -173,7 +186,7 @@ async def verify_mfa(
         raise INVALID_CREDENTIALS
 
     user = (await db.execute(select(User).where(User.id == user_id))).scalar_one_or_none()
-    if user is None or not user.totp_enabled or not user.is_active:
+    if user is None or not user.totp_enabled or not user.is_active or user.is_expired():
         raise INVALID_CREDENTIALS
 
     if not await totp_service.verify_login_code(db, user, body.code):
@@ -242,7 +255,7 @@ async def refresh(
         raise INVALID_REFRESH
 
     user = (await db.execute(select(User).where(User.id == token_row.user_id))).scalar_one_or_none()
-    if user is None or not user.is_active:
+    if user is None or not user.is_active or user.is_expired():
         await db.commit()
         response.delete_cookie(REFRESH_COOKIE_NAME, path=REFRESH_COOKIE_PATH)
         raise INVALID_REFRESH
@@ -303,7 +316,7 @@ async def issue_ws_ticket(
     ticket = store.issue(
         user_id=current_user.user_id,
         role=current_user.role,
-        branch=current_user.branch,
+        branch=current_user.scope,
         token_version=user.token_version,
     )
     return WsTicketResponse(ticket=ticket, expires_in_seconds=int(store.ttl_seconds))
@@ -370,7 +383,13 @@ async def read_me(
     db: AsyncSession = Depends(get_db), current_user: CurrentUser = Depends(get_current_user_pending_ok)
 ) -> MeResponse:
     user = await _load_current_user(db, current_user)
-    return MeResponse.model_validate(user, from_attributes=True).model_copy(update={"role": user.role.value})
+    return MeResponse.model_validate(user, from_attributes=True).model_copy(
+        update={
+            "role": user.role.value,
+            "branches": list(user.branch_scope or []),
+            "permissions": sorted(_effective_permissions(user)),
+        }
+    )
 
 
 async def _check_own_password(request: Request, db: AsyncSession, user: User, password: str) -> None:

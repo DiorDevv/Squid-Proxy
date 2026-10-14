@@ -4,8 +4,10 @@ from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, R
 from fastapi.responses import FileResponse, StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import CurrentUser, get_current_user, get_db, require_admin, resolve_branch
+from app.api.deps import CurrentUser, get_current_user, get_db, require_permission, resolve_branch
+from app.core.branch_scope import BranchScope, parse_scope_tag, scope_within
 from app.core.config import get_settings
+from app.core.permissions import RAW_EXPORT
 from app.core.rate_limit import limiter
 from app.models.audit_log import AuditAction
 from app.models.domain_category import DomainCategoryLabel
@@ -19,12 +21,12 @@ router = APIRouter(prefix="/api", tags=["export"])
 
 
 def _authorize_job_access(job: ExportJob, current_user: CurrentUser) -> None:
-    """A branch-scoped admin may only read/cancel/download/share a job
-    scoped to their own branch. A job with no branch (created by an
-    unrestricted admin, covers every branch) is out of reach too -- treated
-    as 404 rather than 403 since, from a branch-scoped caller's point of
-    view, a job it can't touch shouldn't confirm it exists."""
-    if current_user.branch is not None and job.branch != current_user.branch:
+    """A branch-limited account may only read/cancel/download/share a job
+    whose scope lies inside its own branches. A job with no branch (created
+    by an unrestricted account, covers every branch) is out of reach too --
+    treated as 404 rather than 403 since, from a branch-limited caller's
+    point of view, a job it can't touch shouldn't confirm it exists."""
+    if not scope_within(parse_scope_tag(job.branch), current_user.branches):
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Export job not found.")
 
 
@@ -55,14 +57,14 @@ def _parse_columns(columns: str | None) -> list[str] | None:
     return requested
 
 
-@router.get("/export", dependencies=[Depends(require_admin)])
+@router.get("/export", dependencies=[Depends(require_permission(RAW_EXPORT))])
 @limiter.limit(get_settings().SENSITIVE_ACTION_RATE_LIMIT)
 async def export_events(
     request: Request,
     effective_range: EffectiveRange = Depends(resolve_range),
     format: ExportFormat = Query(default=ExportFormat.CSV),
     blocked_only: bool = Query(default=False),
-    branch: str | None = Depends(resolve_branch),
+    branch: BranchScope = Depends(resolve_branch),
     client_ip: str | None = Query(default=None),
     domain: str | None = Query(default=None),
     category: DomainCategoryLabel | None = Query(default=None),
@@ -117,14 +119,16 @@ async def export_events(
     )
 
 
-@router.post("/export/jobs", dependencies=[Depends(require_admin)], status_code=status.HTTP_201_CREATED)
+@router.post(
+    "/export/jobs", dependencies=[Depends(require_permission(RAW_EXPORT))], status_code=status.HTTP_201_CREATED
+)
 @limiter.limit(get_settings().SENSITIVE_ACTION_RATE_LIMIT)
 async def create_export_job(
     request: Request,
     effective_range: EffectiveRange = Depends(resolve_range),
     format: ExportFormat = Query(default=ExportFormat.CSV),
     blocked_only: bool = Query(default=False),
-    branch: str | None = Depends(resolve_branch),
+    branch: BranchScope = Depends(resolve_branch),
     client_ip: str | None = Query(default=None),
     domain: str | None = Query(default=None),
     category: DomainCategoryLabel | None = Query(default=None),
@@ -172,15 +176,15 @@ async def create_export_job(
     return export_job_service.to_out(job)
 
 
-@router.get("/export/jobs", dependencies=[Depends(require_admin)])
+@router.get("/export/jobs", dependencies=[Depends(require_permission(RAW_EXPORT))])
 async def list_export_jobs(
-    branch: str | None = Depends(resolve_branch), db: AsyncSession = Depends(get_db)
+    branch: BranchScope = Depends(resolve_branch), db: AsyncSession = Depends(get_db)
 ) -> list[ExportJobOut]:
     jobs = await export_job_service.list_jobs(db, branch=branch)
     return [export_job_service.to_out(job) for job in jobs]
 
 
-@router.get("/export/jobs/{job_id}", dependencies=[Depends(require_admin)])
+@router.get("/export/jobs/{job_id}", dependencies=[Depends(require_permission(RAW_EXPORT))])
 async def get_export_job(
     job_id: str,
     db: AsyncSession = Depends(get_db),
@@ -194,7 +198,9 @@ async def get_export_job(
 
 
 @router.get(
-    "/export/jobs/{job_id}/manifest", dependencies=[Depends(require_admin)], response_model=ExportManifestOut
+    "/export/jobs/{job_id}/manifest",
+    dependencies=[Depends(require_permission(RAW_EXPORT))],
+    response_model=ExportManifestOut,
 )
 async def get_export_job_manifest(
     job_id: str,
@@ -219,7 +225,7 @@ async def get_export_job_manifest(
     return manifest
 
 
-@router.post("/export/jobs/{job_id}/cancel", dependencies=[Depends(require_admin)])
+@router.post("/export/jobs/{job_id}/cancel", dependencies=[Depends(require_permission(RAW_EXPORT))])
 async def cancel_export_job(
     job_id: str,
     db: AsyncSession = Depends(get_db),
@@ -254,7 +260,7 @@ async def cancel_export_job(
     return export_job_service.to_out(job)
 
 
-@router.get("/export/jobs/{job_id}/download", dependencies=[Depends(require_admin)])
+@router.get("/export/jobs/{job_id}/download", dependencies=[Depends(require_permission(RAW_EXPORT))])
 async def download_export_job(
     job_id: str,
     background_tasks: BackgroundTasks,
@@ -292,7 +298,7 @@ def _media_type_for(format: str) -> str:
     return "application/zip"
 
 
-@router.post("/export/jobs/{job_id}/share", dependencies=[Depends(require_admin)])
+@router.post("/export/jobs/{job_id}/share", dependencies=[Depends(require_permission(RAW_EXPORT))])
 @limiter.limit(get_settings().SENSITIVE_ACTION_RATE_LIMIT)
 async def share_export_job(
     request: Request,
@@ -317,7 +323,7 @@ async def share_export_job(
     return await export_job_service.create_share_link(db, job, current_user.user_id)
 
 
-@router.post("/export/jobs/{job_id}/share/revoke", dependencies=[Depends(require_admin)])
+@router.post("/export/jobs/{job_id}/share/revoke", dependencies=[Depends(require_permission(RAW_EXPORT))])
 async def revoke_export_job_share(
     job_id: str,
     db: AsyncSession = Depends(get_db),

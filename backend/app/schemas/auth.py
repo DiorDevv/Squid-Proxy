@@ -27,7 +27,13 @@ class LoginResponse(BaseModel):
     username: str | None = None
     full_name: str | None = None
     email: str | None = None
+    # Scope tag (core/branch_scope.scope_tag) -- None only when unrestricted.
     branch: str | None = None
+    # [] = every branch; otherwise the branches this account is limited to.
+    branches: list[str] = Field(default_factory=list)
+    # Effective feature permissions (core/permissions.py).
+    permissions: list[str] = Field(default_factory=list)
+    expires_at: datetime | None = None
     # True: the account is on an admin-issued temporary password -- every
     # route but GET /me and POST /password answers 403 until it's changed.
     must_change_password: bool = False
@@ -79,6 +85,11 @@ class MeResponse(BaseModel):
     email: str | None
     role: str
     branch: str | None
+    # Filled in by the route: [] = every branch, and the effective
+    # permissions (not the stored override).
+    branches: list[str] | None = None
+    permissions: list[str] | None = None
+    expires_at: datetime | None = None
     must_change_password: bool
     totp_enabled: bool
     password_changed_at: datetime | None

@@ -12,7 +12,15 @@ class UserSummary(BaseModel):
     email: str | None = None
     note: str | None = None
     role: UserRole
+    # Scope tag -- None only when unrestricted (kept for older clients).
     branch: str | None = None
+    # None/[] = every branch; otherwise the branches this account is limited to.
+    branches: list[str] | None = None
+    # None = the role's defaults (see `effective_permissions` for the result).
+    permissions: list[str] | None = None
+    # Filled in by the route.
+    effective_permissions: list[str] = Field(default_factory=list)
+    expires_at: datetime | None = None
     is_active: bool
     must_change_password: bool
     totp_enabled: bool
@@ -39,6 +47,13 @@ class UserCreateRequest(BaseModel):
     # Settings.effective_log_sources' branch tags to scope this account to
     # that branch's data only. Must stay None for a super admin.
     branch: str | None = None
+    # Several branches at once; takes precedence over `branch`. []/None =
+    # unrestricted.
+    branches: list[str] | None = None
+    # None = the role's defaults; a list is the exact set (core/permissions.py).
+    permissions: list[str] | None = None
+    # Access ends at this moment; None = no end date.
+    expires_at: datetime | None = None
 
 
 class UserCreatedResponse(BaseModel):
@@ -59,6 +74,18 @@ class UserRoleUpdateRequest(BaseModel):
 
 class UserBranchUpdateRequest(BaseModel):
     branch: str | None = None
+    # Takes precedence over `branch` when sent. []/None = unrestricted.
+    branches: list[str] | None = None
+
+
+class UserPermissionsUpdateRequest(BaseModel):
+    # None restores the role's defaults.
+    permissions: list[str] | None = None
+
+
+class UserExpiryUpdateRequest(BaseModel):
+    # None removes the end date.
+    expires_at: datetime | None = None
 
 
 class UserActiveRequest(BaseModel):

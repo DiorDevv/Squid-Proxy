@@ -4,8 +4,9 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import CurrentUser, get_current_user, get_db, require_admin
+from app.api.deps import CurrentUser, get_current_user, get_db, require_permission
 from app.core.config import DEFAULT_BRANCH, get_settings
+from app.core.permissions import ALERTS
 from app.models.alert_rule import AlertRule
 from app.models.alert_settings import AlertSettings
 from app.models.telegram_link_code import TelegramLinkCode, TelegramLinkTarget
@@ -28,7 +29,7 @@ from app.services import (
 )
 
 router = APIRouter(
-    prefix="/api/alert-settings", tags=["alert-settings"], dependencies=[Depends(require_admin)]
+    prefix="/api/alert-settings", tags=["alert-settings"], dependencies=[Depends(require_permission(ALERTS))]
 )
 
 
@@ -43,11 +44,18 @@ async def _scoped_branch(
     explicitly asked for a different one -- previously unchecked, letting
     any branch-scoped admin read or overwrite another branch's alert
     thresholds."""
-    if current_user.branch is not None and branch != DEFAULT_BRANCH and branch != current_user.branch:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN, detail="You do not have access to this branch."
-        )
-    return current_user.branch or branch
+    if not current_user.is_restricted:
+        return branch
+    if branch != DEFAULT_BRANCH:
+        if not current_user.can_access(branch):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN, detail="You do not have access to this branch."
+            )
+        return branch
+    # Nothing specific asked: a multi-branch account lands on the first of
+    # its branches (the page's branch picker selects the others).
+    assert current_user.branches is not None
+    return current_user.branches[0]
 
 
 async def _require_unrestricted_admin(
@@ -57,8 +65,10 @@ async def _require_unrestricted_admin(
     branch -- only an unrestricted admin (current_user.branch is None) may
     view or (re-)link it. A branch-scoped admin has no legitimate reason to
     reach these endpoints at all, so this rejects outright rather than
-    substituting/redirecting the way _scoped_branch does."""
-    if current_user.branch is not None:
+    substituting/redirecting the way _scoped_branch does. Also admin-only:
+    the "alerts" permission alone (which a viewer can be granted) doesn't
+    reach the global chat."""
+    if current_user.is_restricted or current_user.role not in ("superadmin", "admin"):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Only an unrestricted admin can manage the super-admin Telegram chat.",
@@ -264,9 +274,9 @@ async def get_telegram_link_status(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Code not found.")
 
     if row.target == TelegramLinkTarget.SUPER_ADMIN:
-        if current_user.branch is not None:
+        if current_user.is_restricted:
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized.")
-    elif current_user.branch is not None and row.branch != current_user.branch:
+    elif current_user.is_restricted and not current_user.can_access(row.branch):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized.")
 
     return TelegramLinkStatusOut(

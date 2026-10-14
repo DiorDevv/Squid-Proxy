@@ -13,6 +13,7 @@ import logging
 
 from fastapi import WebSocket
 
+from app.core.branch_scope import BranchScope, branch_matches
 from app.schemas.events import EventDetail
 from app.services.event_store import StoredEvent
 
@@ -34,7 +35,7 @@ class WebSocketManager:
         # every existing caller's default, so a connection whose branch is
         # never specified behaves exactly as before this per-connection
         # filtering existed.
-        self._connections: dict[WebSocket, str | None] = {}
+        self._connections: dict[WebSocket, BranchScope] = {}
         self._loop: asyncio.AbstractEventLoop | None = None
         self._pending: list[dict] = []
         self._flush_scheduled = False
@@ -42,7 +43,7 @@ class WebSocketManager:
     def bind_loop(self, loop: asyncio.AbstractEventLoop) -> None:
         self._loop = loop
 
-    async def connect(self, websocket: WebSocket, branch: str | None = None) -> None:
+    async def connect(self, websocket: WebSocket, branch: BranchScope = None) -> None:
         await websocket.accept()
         self._connections[websocket] = branch
         if self._loop is None:
@@ -96,7 +97,7 @@ class WebSocketManager:
             filtered = (
                 batch
                 if conn_branch is None
-                else [item for item in batch if item.get("branch") == conn_branch]
+                else [item for item in batch if branch_matches(item.get("branch"), conn_branch)]
             )
             if not filtered:
                 # Nothing in this batch belongs to this connection's branch

@@ -81,4 +81,36 @@ describe('DataTable', () => {
     expect(screen.getByText('Alice')).toBeInTheDocument()
     expect(onOffsetChange).not.toHaveBeenCalled()
   })
+
+  it('shows a total that reached the backend count cap as "at least"', () => {
+    render(
+      <DataTable
+        columns={columns}
+        data={[{ id: 1, name: 'Alice' }]}
+        total={10_000}
+        limit={50}
+        offset={0}
+        onOffsetChange={vi.fn()}
+        totalCap={10_000}
+      />,
+    )
+
+    expect(screen.getByText(/of 200\+ · 10,000\+ total/)).toBeInTheDocument()
+  })
+
+  it('shows an exact total below the cap as-is', () => {
+    render(
+      <DataTable
+        columns={columns}
+        data={[{ id: 1, name: 'Alice' }]}
+        total={120}
+        limit={50}
+        offset={0}
+        onOffsetChange={vi.fn()}
+        totalCap={10_000}
+      />,
+    )
+
+    expect(screen.getByText('Page 1 of 3 · 120 total')).toBeInTheDocument()
+  })
 })

@@ -12,6 +12,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { EmptyState } from '@/components/common/EmptyState'
+import { formatNumber } from '@/lib/format'
 import { cn } from '@/lib/utils'
 import { useTranslation } from '@/i18n'
 
@@ -28,6 +29,9 @@ interface DataTableProps<T> {
   isLoading?: boolean
   emptyMessage?: string
   onRowClick?: (row: T) => void
+  /** The backend stops counting at this many rows; a total that reaches it
+   *  is shown as "N+" (at least), not an exact figure. */
+  totalCap?: number
 }
 
 export function DataTable<T>({
@@ -43,6 +47,7 @@ export function DataTable<T>({
   isLoading,
   emptyMessage,
   onRowClick,
+  totalCap,
 }: DataTableProps<T>) {
   const { t } = useTranslation()
   const table = useReactTable({
@@ -57,6 +62,7 @@ export function DataTable<T>({
 
   const page = Math.floor(offset / limit) + 1
   const totalPages = Math.max(1, Math.ceil(total / limit))
+  const capped = totalCap !== undefined && total >= totalCap
 
   // If the page we're parked on comes back empty while offset > 0, the
   // underlying result set shrank out from under us (e.g. a rolling relative
@@ -138,7 +144,11 @@ export function DataTable<T>({
 
       {total > limit && (
         <div className="flex items-center justify-between text-xs text-muted-foreground">
-          <span className="font-data">{t('common.pageOf', { page, totalPages, total })}</span>
+          <span className="font-data">{t('common.pageOf', {
+              page,
+              totalPages: capped ? `${totalPages}+` : totalPages,
+              total: capped ? `${formatNumber(total)}+` : total,
+            })}</span>
           <div className="flex items-center gap-1">
             <Button
               variant="outline"

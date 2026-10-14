@@ -2,6 +2,7 @@ import { useMemo } from 'react'
 import type { ColumnDef } from '@tanstack/react-table'
 import { DataTable } from '@/components/common/DataTable'
 import { StatusBadge } from '@/components/common/StatusBadge'
+import { EVENTS_COUNT_CAP } from '@/lib/constants'
 import { formatDateTime } from '@/lib/format'
 import { useTranslation } from '@/i18n'
 import { cn } from '@/lib/utils'
@@ -107,6 +108,7 @@ export function BlockedEventsTable({
       isLoading={isLoading}
       onRowClick={onRowClick}
       emptyMessage={emptyMessage ?? t('blocked.emptyDefault')}
+      totalCap={EVENTS_COUNT_CAP}
     />
   )
 }

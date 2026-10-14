@@ -17,6 +17,10 @@ export const WS_BASE_URL = import.meta.env.VITE_WS_URL ?? (import.meta.env.PROD 
 
 export const POLLING_FALLBACK_INTERVAL_MS = 10_000
 
+/** /api/events stops counting at this many matches (backend
+ *  event_query_service._EVENTS_COUNT_CAP); a total this high means "at least". */
+export const EVENTS_COUNT_CAP = 10_000
+
 export const RANGE_OPTIONS = [
   { value: '1h', label: '1h' },
   { value: '24h', label: '24h' },

@@ -15,9 +15,10 @@ from app.schemas.common import Page
 from app.schemas.events import EventDetail
 from app.services.block_filters import BlockFilters
 
-# Above this many search matches, /api/events reports the total as the cap
-# rather than paying for an exact COUNT(*) over the whole match set.
-_SEARCH_COUNT_CAP = 10_000
+# Above this many matches, /api/events reports the total as the cap rather
+# than paying for an exact COUNT(*) over the whole match set (the frontend's
+# EVENTS_COUNT_CAP shows it as "10 000+").
+_EVENTS_COUNT_CAP = 10_000
 
 
 def build_event_conditions(
@@ -140,20 +141,14 @@ async def get_events(
     )
     rows = (await session.execute(query)).scalars().all()
 
-    if search and search.strip():
-        # A free-text search that matches a large fraction of the table
-        # still makes an exact COUNT(*) walk every match. Cap it: past
-        # _SEARCH_COUNT_CAP the total is reported as the cap (the UI reads
-        # it as "at least this many") and the term is too broad to page
-        # through anyway.
-        capped = (
-            select(RawEvent.id).where(*conditions).limit(_SEARCH_COUNT_CAP).subquery()
-        )
-        total = (await session.execute(select(func.count()).select_from(capped))).scalar_one()
-    else:
-        total = (
-            await session.execute(select(func.count()).select_from(RawEvent).where(*conditions))
-        ).scalar_one()
+    # An exact COUNT(*) walks every match -- millions for a day of blocked
+    # events or a broad domain pattern (*.microsoft.com: ~40 s), while the
+    # page itself takes milliseconds. Cap it: past _EVENTS_COUNT_CAP the
+    # total is reported as the cap (the UI shows "at least this many"), and
+    # a set that large is too broad to page through anyway. Exact blocked
+    # totals live on the Blocked page's aggregate summary.
+    capped = select(RawEvent.id).where(*conditions).limit(_EVENTS_COUNT_CAP).subquery()
+    total = (await session.execute(select(func.count()).select_from(capped))).scalar_one()
 
     items = [EventDetail.from_raw_event(row) for row in rows]
     return Page(items=items, total=total, limit=limit, offset=offset)

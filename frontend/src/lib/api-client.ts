@@ -5,6 +5,7 @@ import { translate, useLocaleStore } from '@/i18n'
 import type {
   LoginResponse,
   MeResponse,
+  Permission,
   RefreshResponse,
   Role,
   SessionInfo,
@@ -183,7 +184,9 @@ export const api = {
     note: string | null
     email: string | null
     role: Role
-    branch: string | null
+    branches: string[] | null
+    permissions: Permission[] | null
+    expires_at: string | null
   }) => apiFetch<UserWithTemporaryPassword>('/api/users', { method: 'POST', body: data }),
   updateUserProfile: (
     userId: string,
@@ -194,10 +197,20 @@ export const api = {
       method: 'PATCH',
       body: { role },
     }),
-  updateUserBranch: (userId: string, branch: string | null) =>
+  updateUserBranches: (userId: string, branches: string[] | null) =>
     apiFetch<UserSummary>(`/api/users/${encodeURIComponent(userId)}/branch`, {
       method: 'PATCH',
-      body: { branch },
+      body: { branches },
+    }),
+  updateUserPermissions: (userId: string, permissions: Permission[] | null) =>
+    apiFetch<UserSummary>(`/api/users/${encodeURIComponent(userId)}/permissions`, {
+      method: 'PATCH',
+      body: { permissions },
+    }),
+  updateUserExpiry: (userId: string, expiresAt: string | null) =>
+    apiFetch<UserSummary>(`/api/users/${encodeURIComponent(userId)}/expiry`, {
+      method: 'PATCH',
+      body: { expires_at: expiresAt },
     }),
   resetUserPassword: (userId: string) =>
     apiFetch<UserWithTemporaryPassword>(`/api/users/${encodeURIComponent(userId)}/reset-password`, {

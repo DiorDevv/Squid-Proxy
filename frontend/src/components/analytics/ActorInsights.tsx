@@ -19,7 +19,7 @@ import {
 import { formatBytes, formatDateTime, formatNumber } from '@/lib/format'
 import { CATEGORY_COLORS, CATEGORY_LABEL_KEYS } from '@/lib/categories'
 import { downloadSubjectDossier } from '@/lib/api-client'
-import { isAdminRole, useAuthStore } from '@/lib/auth-store'
+import { useHasPermission } from '@/lib/auth-store'
 import { useFiltersStore } from '@/lib/filters-store'
 import { cn } from '@/lib/utils'
 import { useActorDetail } from '@/hooks/useAnalytics'
@@ -40,13 +40,14 @@ interface ActorActionsProps {
 export function ActorActions({ actor, isUser, branch }: ActorActionsProps) {
   const { t } = useTranslation()
   const navigate = useNavigate()
-  const role = useAuthStore((state) => state.role)
+  const canWatch = useHasPermission('watchlist')
+  const canDossier = useHasPermission('subject_access')
   const setPendingEventsSearch = useFiltersStore((state) => state.setPendingEventsSearch)
 
   // Admin-only (backend enforces it too) -- lets an admin watch a suspicious
   // actor right from the investigation view instead of retyping its value
   // into Settings > Watchlist.
-  const watchlistQuery = useWatchlist(isAdminRole(role))
+  const watchlistQuery = useWatchlist(canWatch)
   const createWatch = useCreateWatchlistEntry()
   const deleteWatch = useDeleteWatchlistEntry()
   const targetType = isUser ? 'user' : 'client_ip'
@@ -86,7 +87,7 @@ export function ActorActions({ actor, isUser, branch }: ActorActionsProps) {
         <ExternalLink className="h-3.5 w-3.5" aria-hidden="true" />
         {t('analytics.who.viewAllEvents')}
       </Button>
-      {isAdminRole(role) && (
+      {canWatch && (
         <Tooltip>
           <TooltipTrigger asChild>
             <Button
@@ -109,10 +110,10 @@ export function ActorActions({ actor, isUser, branch }: ActorActionsProps) {
           </TooltipContent>
         </Tooltip>
       )}
-      {/* Full subject-access dossier (docs/PRODUCT.md #4) -- admin-only
-          on the backend (it includes watchlist status); every
+      {/* Full subject-access dossier (docs/PRODUCT.md #4) -- needs the
+          subject_access permission on the backend; every
           generation is itself audited there. */}
-      {isAdminRole(role) && (
+      {canDossier && (
         <Tooltip>
           <TooltipTrigger asChild>
             <Button

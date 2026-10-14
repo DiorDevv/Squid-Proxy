@@ -1,4 +1,4 @@
-import type { Role } from '@/types/auth'
+import type { Permission, Role } from '@/types/auth'
 
 export type RangeParam = '1h' | '24h' | '7d'
 export type Granularity = 'minute' | 'hour'
@@ -220,7 +220,15 @@ export interface UserSummary {
   email: string | null
   note: string | null
   role: Role
+  // Scope tag ("hq,west") -- null only when unrestricted.
   branch: string | null
+  // null = every branch.
+  branches: string[] | null
+  // null = the role's defaults; effective_permissions is the result.
+  permissions: Permission[] | null
+  effective_permissions: Permission[]
+  // Access ends at this moment; null = no end date.
+  expires_at: string | null
   is_active: boolean
   must_change_password: boolean
   totp_enabled: boolean

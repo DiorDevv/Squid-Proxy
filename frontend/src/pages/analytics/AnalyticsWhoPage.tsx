@@ -12,7 +12,7 @@ import { ActorDetailSheet } from '@/components/analytics/ActorDetailSheet'
 import { formatNumber } from '@/lib/format'
 import { cn } from '@/lib/utils'
 import { downloadActorList } from '@/lib/api-client'
-import { isAdminRole, useAuthStore } from '@/lib/auth-store'
+import { useHasPermission } from '@/lib/auth-store'
 import { useRangeSearchParams } from '@/lib/filters-store'
 import { useDebouncedValue } from '@/hooks/useDebouncedValue'
 import { useActorLeaderboard, useNewEntities } from '@/hooks/useAnalytics'
@@ -116,8 +116,7 @@ function Pager({
 export default function AnalyticsWhoPage() {
   const { t, locale } = useTranslation()
   const rangeParams = useRangeSearchParams()
-  const role = useAuthStore((state) => state.role)
-  const canExport = isAdminRole(role) || role === 'auditor'
+  const canExport = useHasPermission('export')
   const [sort, setSort] = useState('requests')
   // ?actor=<value>&is_user=1|0 opens that actor's panel straight away (the
   // client detail page links a login here); closing the panel drops it.

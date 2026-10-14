@@ -6,6 +6,8 @@ import { ProtectedRoute } from '@/routes/ProtectedRoute'
 import { Skeleton } from '@/components/ui/skeleton'
 import { useAuth } from '@/hooks/useAuth'
 import { useAuthStore } from '@/lib/auth-store'
+import { SETTINGS_PERMISSIONS } from '@/lib/permissions'
+import { firstSettingsPage } from '@/pages/settings/settings-nav'
 
 // Route-level code-splitting: with no dynamic imports anywhere, the whole
 // app (React, every Radix primitive, Recharts, react-table, every page)
@@ -50,11 +52,12 @@ function RouteFallback() {
   )
 }
 
-/** /settings landing: an auditor's only settings sub-page is the audit log;
- * an admin lands on General as before. */
+/** /settings landing: an admin lands on General as before; anyone else on
+ * the first settings page their permissions open. */
 function SettingsIndexRedirect() {
   const role = useAuthStore((state) => state.role)
-  return <Navigate to={role === 'auditor' ? 'audit' : 'general'} replace />
+  const permissions = useAuthStore((state) => state.permissions)
+  return <Navigate to={firstSettingsPage(role, permissions)} replace />
 }
 
 export default function App() {
@@ -91,21 +94,36 @@ export default function App() {
               <Route path="blocks" element={<AnalyticsBlocksPage />} />
               <Route path="branches" element={<AnalyticsBranchesPage />} />
             </Route>
-            <Route element={<ProtectedRoute requiredRole={['admin', 'auditor']} />}>
+            <Route
+              element={
+                <ProtectedRoute requiredRole="admin" requiredPermission={[...SETTINGS_PERMISSIONS]} />
+              }
+            >
               <Route path="settings" element={<SettingsLayout />}>
                 <Route index element={<SettingsIndexRedirect />} />
-                {/* Read-only oversight: admin + auditor. */}
-                <Route path="audit" element={<SettingsAuditPage />} />
-                <Route path="policy" element={<SettingsPolicyPage />} />
-                <Route path="system-health" element={<SettingsSystemHealthPage />} />
-                {/* Everything mutable stays admin-only. */}
+                {/* Each page opens to whoever holds its permission (an admin
+                    holds them all by default); see lib/permissions.ts. */}
+                <Route element={<ProtectedRoute requiredPermission="audit" />}>
+                  <Route path="audit" element={<SettingsAuditPage />} />
+                  <Route path="policy" element={<SettingsPolicyPage />} />
+                  <Route path="system-health" element={<SettingsSystemHealthPage />} />
+                </Route>
+                <Route
+                  element={<ProtectedRoute requiredPermission={['categories', 'alerts', 'reports']} />}
+                >
+                  <Route path="categories" element={<SettingsCategoriesPage />} />
+                </Route>
+                <Route element={<ProtectedRoute requiredPermission="watchlist" />}>
+                  <Route path="watchlist" element={<SettingsWatchlistPage />} />
+                </Route>
+                <Route element={<ProtectedRoute requiredPermission="raw_export" />}>
+                  <Route path="export" element={<SettingsExportPage />} />
+                </Route>
+                {/* Account and system administration stays role-based. */}
                 <Route element={<ProtectedRoute requiredRole="admin" />}>
                   <Route path="general" element={<SettingsGeneralPage />} />
                   <Route path="users" element={<SettingsUsersPage />} />
-                  <Route path="categories" element={<SettingsCategoriesPage />} />
-                  <Route path="watchlist" element={<SettingsWatchlistPage />} />
-                  <Route path="export" element={<SettingsExportPage />} />
-                <Route path="retention" element={<SettingsRetentionPage />} />
+                  <Route path="retention" element={<SettingsRetentionPage />} />
                   <Route path="telegram" element={<SettingsTelegramPage />} />
                 </Route>
               </Route>

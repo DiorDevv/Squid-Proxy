@@ -13,6 +13,7 @@ import {
   Search,
   ShieldCheck,
   ShieldOff,
+  SlidersHorizontal,
   TriangleAlert,
   UserRoundCheck,
   UserRoundX,
@@ -62,7 +63,9 @@ import {
   useRevokeUserSessions,
   useSetUserActive,
   useUnlockUser,
-  useUpdateUserBranch,
+  useUpdateUserBranches,
+  useUpdateUserExpiry,
+  useUpdateUserPermissions,
   useUpdateUserProfile,
   useUpdateUserRole,
   useUserSessions,
@@ -76,22 +79,30 @@ import { USERNAME_PATTERN } from '@/lib/password-policy'
 import { ROLE_LABEL_KEYS, ROLES_BY_RANK } from '@/lib/roles'
 import { cn } from '@/lib/utils'
 import { useTranslation } from '@/i18n'
-import type { Role } from '@/types/auth'
-import type { UserSummary, UserWithTemporaryPassword } from '@/types/api'
+import type { Permission, Role } from '@/types/auth'
+import {
+  AccessSummary,
+  BranchPicker,
+  ExpiryField,
+  PermissionPicker,
+} from '@/components/settings/UserAccessFields'
+import { isExpired } from '@/lib/permissions'
+import type { Branch, UserSummary, UserWithTemporaryPassword } from '@/types/api'
 
 function errorMessage(err: unknown, fallback: string): string {
   return err instanceof ApiError ? err.message : fallback
 }
 
-// Radix Select requires non-empty item values, so "unrestricted" (branch =
-// null) is represented by this sentinel in the UI only -- translated back
-// to/from null right at the boundary, never stored or sent to the API.
-const UNRESTRICTED_BRANCH_VALUE = '__all__'
+// Radix Select requires non-empty item values -- sentinels for the table
+// filters, never sent to the API.
+const FILTER_ANY = '__any__'
+const FILTER_UNRESTRICTED = '__all__'
 
 type ConfirmKind = 'resetPassword' | 'deactivate' | 'resetTotp'
 
 type DialogState =
   | { kind: 'edit'; user: UserSummary }
+  | { kind: 'access'; user: UserSummary }
   | { kind: 'sessions'; user: UserSummary }
   | { kind: ConfirmKind; user: UserSummary }
   | { kind: 'temporaryPassword'; result: UserWithTemporaryPassword; reason: 'created' | 'reset' }
@@ -105,10 +116,15 @@ function useActor() {
   const role = useAuthStore((state) => state.role)
   const username = useAuthStore((state) => state.username)
   const branch = useAuthStore((state) => state.branch)
+  const branches = useAuthStore((state) => state.branches)
+  const permissions = useAuthStore((state) => state.permissions)
   const isSuperadmin = role === 'superadmin'
   return {
     isSuperadmin,
+    // null = unrestricted; a limited actor can only grant within its own.
     branch,
+    branches: branches.length > 0 ? branches : null,
+    grantable: permissions as readonly Permission[],
     isSelf: (user: UserSummary) => user.username === username,
     canManage: (user: UserSummary) =>
       user.username !== username && (isSuperadmin || user.role === 'viewer'),
@@ -121,7 +137,11 @@ export function UserManagementPanel() {
   const query = useUsers()
   const [search, setSearch] = useState('')
   const [showInactive, setShowInactive] = useState(false)
+  const [branchFilter, setBranchFilter] = useState(FILTER_ANY)
+  const [roleFilter, setRoleFilter] = useState<string>(FILTER_ANY)
   const [dialog, setDialog] = useState<DialogState>(null)
+  const branchesQuery = useBranches()
+  const branchOptions = useMemo(() => branchesQuery.data?.items ?? [], [branchesQuery.data])
 
   const users = useMemo(() => query.data ?? [], [query.data])
   const inactiveCount = users.filter((u) => !u.is_active).length
@@ -130,12 +150,17 @@ export function UserManagementPanel() {
     return users.filter(
       (u) =>
         (showInactive || u.is_active) &&
+        (roleFilter === FILTER_ANY || u.role === roleFilter) &&
+        (branchFilter === FILTER_ANY ||
+          (branchFilter === FILTER_UNRESTRICTED
+            ? u.branches === null
+            : u.branches === null || u.branches.includes(branchFilter))) &&
         (!needle ||
           [u.username, u.full_name, u.email ?? '', u.note ?? ''].some((v) =>
             v.toLowerCase().includes(needle),
           )),
     )
-  }, [users, search, showInactive])
+  }, [users, search, showInactive, branchFilter, roleFilter])
 
   if (query.isLoading) {
     return (
@@ -169,6 +194,35 @@ export function UserManagementPanel() {
             className="h-8 pl-8"
           />
         </div>
+        {branchOptions.length > 1 && (
+          <Select value={branchFilter} onValueChange={setBranchFilter}>
+            <SelectTrigger size="sm" className="w-44" aria-label={t('userManagement.filterBranch')}>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value={FILTER_ANY}>{t('userManagement.filterAnyBranch')}</SelectItem>
+              <SelectItem value={FILTER_UNRESTRICTED}>{t('userManagement.allBranches')}</SelectItem>
+              {branchOptions.map((b) => (
+                <SelectItem key={b.slug} value={b.slug}>
+                  {t('userManagement.filterSeesBranch', { branch: b.label })}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        )}
+        <Select value={roleFilter} onValueChange={setRoleFilter}>
+          <SelectTrigger size="sm" className="w-36" aria-label={t('userManagement.filterRole')}>
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value={FILTER_ANY}>{t('userManagement.filterAnyRole')}</SelectItem>
+            {ROLES_BY_RANK.map((r) => (
+              <SelectItem key={r} value={r}>
+                {t(ROLE_LABEL_KEYS[r])}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
         {inactiveCount > 0 && (
           <label className="flex items-center gap-2 text-xs text-muted-foreground">
             <Checkbox checked={showInactive} onCheckedChange={(v) => setShowInactive(v === true)} />
@@ -197,7 +251,7 @@ export function UserManagementPanel() {
           <TableRow className="hover:bg-transparent">
             <TableHead>{t('userManagement.columnUser')}</TableHead>
             <TableHead>{t('userManagement.columnRole')}</TableHead>
-            <TableHead>{t('userManagement.columnBranch')}</TableHead>
+            <TableHead>{t('userManagement.columnAccess')}</TableHead>
             <TableHead>{t('userManagement.columnStatus')}</TableHead>
             <TableHead className="text-right">
               <span className="sr-only">{t('userManagement.columnActions')}</span>
@@ -218,6 +272,9 @@ export function UserManagementPanel() {
       </Table>
 
       {dialog?.kind === 'edit' && <EditUserDialog user={dialog.user} onClose={close} />}
+      {dialog?.kind === 'access' && (
+        <AccessDialog user={dialog.user} branchOptions={branchOptions} onClose={close} />
+      )}
       {dialog?.kind === 'sessions' && <UserSessionsDialog user={dialog.user} onClose={close} />}
       {(dialog?.kind === 'resetPassword' ||
         dialog?.kind === 'deactivate' ||
@@ -248,12 +305,15 @@ function UserRow({
   const { t } = useTranslation()
   const actor = useActor()
   const updateRole = useUpdateUserRole()
-  const updateBranch = useUpdateUserBranch()
   const setActive = useSetUserActive()
   const unlock = useUnlockUser()
   const branchesQuery = useBranches()
-  const branches = branchesQuery.data?.items ?? []
+  const branchLabels = useMemo(
+    () => new Map((branchesQuery.data?.items ?? []).map((b) => [b.slug, b.label])),
+    [branchesQuery.data],
+  )
   const manageable = actor.canManage(user)
+  const accessEditable = manageable && user.role !== 'superadmin'
   const isSelf = actor.isSelf(user)
   const label = user.full_name || user.username
 
@@ -270,16 +330,6 @@ function UserRow({
     )
   }
 
-  function handleBranchChange(value: string) {
-    const branch = value === UNRESTRICTED_BRANCH_VALUE ? null : value
-    updateBranch.mutate(
-      { userId: user.id, branch },
-      {
-        onSuccess: () => toast.success(t('userManagement.toastBranchUpdated', { user: label })),
-        onError: (err) => toast.error(errorMessage(err, t('userManagement.toastBranchError'))),
-      },
-    )
-  }
 
   function handleActivate() {
     setActive.mutate(
@@ -347,41 +397,33 @@ function UserRow({
         )}
       </TableCell>
       <TableCell>
-        {manageable && user.role !== 'superadmin' ? (
-          <Select
-            value={user.branch ?? UNRESTRICTED_BRANCH_VALUE}
-            onValueChange={handleBranchChange}
-            disabled={updateBranch.isPending}
+        {accessEditable ? (
+          <button
+            type="button"
+            className="-m-1 rounded-md p-1 text-left transition-colors hover:bg-secondary"
+            onClick={() => onDialog({ kind: 'access', user })}
+            aria-label={t('userManagement.editAccessAria', { user: user.username })}
           >
-            <SelectTrigger
-              size="sm"
-              className="w-36"
-              aria-label={t('userManagement.changeBranchAria', { user: user.username })}
-            >
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {/* A branch-scoped actor can never grant "all branches" (the
-                  API pins it to their own), so the option isn't offered. */}
-              {actor.branch === null && (
-                <SelectItem value={UNRESTRICTED_BRANCH_VALUE}>
-                  {t('userManagement.allBranches')}
-                </SelectItem>
-              )}
-              {branches.map((branch) => (
-                <SelectItem key={branch.slug} value={branch.slug}>
-                  {branch.label}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+            <AccessSummary
+              branches={user.branches}
+              role={user.role}
+              permissions={user.permissions}
+              effectivePermissions={user.effective_permissions}
+              expiresAt={user.expires_at}
+              branchLabels={branchLabels}
+            />
+          </button>
         ) : (
-          <span className="text-xs text-muted-foreground">
-            {user.branch ?? t('userManagement.allBranches')}
-          </span>
+          <AccessSummary
+            branches={user.branches}
+            role={user.role}
+            permissions={user.permissions}
+            effectivePermissions={user.effective_permissions}
+            expiresAt={user.expires_at}
+            branchLabels={branchLabels}
+          />
         )}
-      </TableCell>
-      <TableCell>
+      </TableCell>      <TableCell>
         {/* Status and last sign-in share a column so the table fits the
             settings pane without scrolling sideways. */}
         <div className="flex flex-col gap-1">
@@ -416,6 +458,12 @@ function UserRow({
               <Pencil className="h-4 w-4" aria-hidden="true" />
               {t('userManagement.actionEdit')}
             </DropdownMenuItem>
+            {accessEditable && (
+              <DropdownMenuItem onSelect={() => onDialog({ kind: 'access', user })}>
+                <SlidersHorizontal className="h-4 w-4" aria-hidden="true" />
+                {t('userManagement.actionAccess')}
+              </DropdownMenuItem>
+            )}
             <DropdownMenuItem onSelect={() => onDialog({ kind: 'sessions', user })}>
               <MonitorSmartphone className="h-4 w-4" aria-hidden="true" />
               {t('userManagement.actionSessions', { count: user.active_sessions })}
@@ -471,6 +519,11 @@ function StatusBadges({ user }: { user: UserSummary }) {
           {t('userManagement.statusInactive')}
         </Badge>
       )}
+      {isExpired(user.expires_at) && (
+        <Badge variant="destructive" className="text-[10px]">
+          {t('userManagement.statusExpired')}
+        </Badge>
+      )}
       {user.must_change_password && (
         <Badge
           variant="secondary"
@@ -508,12 +561,14 @@ function AddUserDialog({ onCreated }: { onCreated: (result: UserWithTemporaryPas
   const [note, setNote] = useState('')
   const [email, setEmail] = useState('')
   const [role, setRole] = useState<Role>('viewer')
-  // A branch-scoped actor can't grant "all branches" (the API substitutes
-  // their own), so default straight to their branch.
-  const [branch, setBranch] = useState<string>(actor.branch ?? UNRESTRICTED_BRANCH_VALUE)
+  // A branch-limited actor can't grant "all branches" (the API substitutes
+  // their own), so default straight to their branches.
+  const [branches, setBranches] = useState<string[] | null>(actor.branches)
+  const [permissions, setPermissions] = useState<Permission[] | null>(null)
+  const [expiresAt, setExpiresAt] = useState<string | null>(null)
   const createUser = useCreateUser()
   const branchesQuery = useBranches()
-  const branches = branchesQuery.data?.items ?? []
+  const branchOptions = branchesQuery.data?.items ?? []
 
   const normalizedUsername = username.trim().toLowerCase()
   const usernameInvalid =
@@ -525,7 +580,9 @@ function AddUserDialog({ onCreated }: { onCreated: (result: UserWithTemporaryPas
     setNote('')
     setEmail('')
     setRole('viewer')
-    setBranch(actor.branch ?? UNRESTRICTED_BRANCH_VALUE)
+    setBranches(actor.branches)
+    setPermissions(null)
+    setExpiresAt(null)
   }
 
   function handleSubmit(e: React.FormEvent) {
@@ -537,7 +594,9 @@ function AddUserDialog({ onCreated }: { onCreated: (result: UserWithTemporaryPas
         note: note.trim() || null,
         email: email.trim() || null,
         role,
-        branch: role === 'superadmin' || branch === UNRESTRICTED_BRANCH_VALUE ? null : branch,
+        branches: role === 'superadmin' ? null : branches,
+        permissions: role === 'superadmin' ? null : permissions,
+        expires_at: role === 'superadmin' ? null : expiresAt,
       },
       {
         onSuccess: (result) => {
@@ -556,7 +615,7 @@ function AddUserDialog({ onCreated }: { onCreated: (result: UserWithTemporaryPas
         <Plus className="h-3.5 w-3.5" aria-hidden="true" />
         {t('userManagement.addUser')}
       </Button>
-      <DialogContent>
+      <DialogContent className="max-h-[90svh] overflow-y-auto sm:max-w-2xl">
         <form onSubmit={handleSubmit} className="flex flex-col gap-4">
           <DialogHeader>
             <DialogTitle>{t('userManagement.addUserTitle')}</DialogTitle>
@@ -616,32 +675,6 @@ function AddUserDialog({ onCreated }: { onCreated: (result: UserWithTemporaryPas
               </Select>
             </div>
             <div className="flex flex-col gap-1.5">
-              <Label htmlFor="new-user-branch">{t('userManagement.columnBranch')}</Label>
-              {role === 'superadmin' ? (
-                <p className="flex h-9 items-center text-sm text-muted-foreground">
-                  {t('userManagement.allBranches')}
-                </p>
-              ) : (
-                <Select value={branch} onValueChange={setBranch}>
-                  <SelectTrigger id="new-user-branch">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {actor.branch === null && (
-                      <SelectItem value={UNRESTRICTED_BRANCH_VALUE}>
-                        {t('userManagement.allBranches')}
-                      </SelectItem>
-                    )}
-                    {branches.map((b) => (
-                      <SelectItem key={b.slug} value={b.slug}>
-                        {b.label}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              )}
-            </div>
-            <div className="flex flex-col gap-1.5">
               <Label htmlFor="new-user-email">
                 {t('userManagement.email')}{' '}
                 <span className="text-muted-foreground">({t('common.optional')})</span>
@@ -667,6 +700,37 @@ function AddUserDialog({ onCreated }: { onCreated: (result: UserWithTemporaryPas
               />
             </div>
           </div>
+          {role !== 'superadmin' && (
+            <div className="flex flex-col gap-3">
+              <div className="flex flex-col gap-1.5">
+                <Label>{t('userManagement.branchesLabel')}</Label>
+                <BranchPicker
+                  idPrefix="new-user-branch"
+                  value={branches}
+                  onChange={setBranches}
+                  options={branchOptions}
+                  allowUnrestricted={actor.branches === null}
+                />
+              </div>
+              <div className="flex flex-col gap-1.5">
+                <Label>{t('userManagement.permissionsLabel')}</Label>
+                <PermissionPicker
+                  idPrefix="new-user-perm"
+                  role={role}
+                  value={permissions}
+                  onChange={setPermissions}
+                  grantable={actor.grantable}
+                />
+              </div>
+              <div className="flex flex-col gap-1.5">
+                <Label htmlFor="new-user-expiry">
+                  {t('userManagement.expiryLabel')}{' '}
+                  <span className="text-muted-foreground">({t('common.optional')})</span>
+                </Label>
+                <ExpiryField id="new-user-expiry" value={expiresAt} onChange={setExpiresAt} />
+              </div>
+            </div>
+          )}
           <p className="rounded-md border border-border bg-muted/40 p-3 text-xs text-muted-foreground">
             {t('userManagement.temporaryPasswordExplainer')}
           </p>
@@ -761,6 +825,103 @@ function EditUserDialog({ user, onClose }: { user: UserSummary; onClose: () => v
   )
 }
 
+/** Branches, feature permissions and end date of one account -- saved as
+ * up to three calls (only what changed), each re-checked by the backend. */
+function AccessDialog({
+  user,
+  branchOptions,
+  onClose,
+}: {
+  user: UserSummary
+  branchOptions: Branch[]
+  onClose: () => void
+}) {
+  const { t } = useTranslation()
+  const actor = useActor()
+  const updateBranches = useUpdateUserBranches()
+  const updatePermissions = useUpdateUserPermissions()
+  const updateExpiry = useUpdateUserExpiry()
+  const [branches, setBranches] = useState<string[] | null>(user.branches)
+  const [permissions, setPermissions] = useState<Permission[] | null>(user.permissions)
+  const [expiresAt, setExpiresAt] = useState<string | null>(user.expires_at)
+  const [saving, setSaving] = useState(false)
+  const label = user.full_name || user.username
+
+  const sameList = (a: readonly string[] | null, b: readonly string[] | null) =>
+    a === null || b === null ? a === b : a.length === b.length && a.every((v, i) => v === b[i])
+  const branchesChanged = !sameList(branches, user.branches)
+  const permissionsChanged = !sameList(permissions, user.permissions)
+  const expiryChanged =
+    (expiresAt === null) !== (user.expires_at === null) ||
+    (expiresAt !== null &&
+      user.expires_at !== null &&
+      new Date(expiresAt).getTime() !== new Date(user.expires_at).getTime())
+  const dirty = branchesChanged || permissionsChanged || expiryChanged
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault()
+    setSaving(true)
+    try {
+      if (branchesChanged) await updateBranches.mutateAsync({ userId: user.id, branches })
+      if (permissionsChanged) await updatePermissions.mutateAsync({ userId: user.id, permissions })
+      if (expiryChanged) await updateExpiry.mutateAsync({ userId: user.id, expiresAt })
+      toast.success(t('userManagement.toastAccessUpdated', { user: label }))
+      onClose()
+    } catch (err) {
+      toast.error(errorMessage(err, t('userManagement.toastActionError')))
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <Dialog open onOpenChange={(open) => !open && onClose()}>
+      <DialogContent className="max-h-[90svh] overflow-y-auto sm:max-w-2xl">
+        <form onSubmit={handleSubmit} className="flex flex-col gap-4">
+          <DialogHeader>
+            <DialogTitle>{t('userManagement.accessTitle', { user: label })}</DialogTitle>
+            <DialogDescription>{t('userManagement.accessDescription')}</DialogDescription>
+          </DialogHeader>
+          <div className="flex flex-col gap-1.5">
+            <Label>{t('userManagement.branchesLabel')}</Label>
+            <BranchPicker
+              idPrefix="access-branch"
+              value={branches}
+              onChange={setBranches}
+              options={branchOptions}
+              allowUnrestricted={actor.branches === null}
+            />
+          </div>
+          <div className="flex flex-col gap-1.5">
+            <Label>{t('userManagement.permissionsLabel')}</Label>
+            <PermissionPicker
+              idPrefix="access-perm"
+              role={user.role}
+              value={permissions}
+              onChange={setPermissions}
+              grantable={actor.grantable}
+            />
+          </div>
+          <div className="flex flex-col gap-1.5">
+            <Label htmlFor="access-expiry">{t('userManagement.expiryLabel')}</Label>
+            <ExpiryField id="access-expiry" value={expiresAt} onChange={setExpiresAt} />
+          </div>
+          {(branchesChanged || permissionsChanged) && (
+            <p className="text-xs text-muted-foreground">{t('userManagement.accessRelogin')}</p>
+          )}
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={onClose}>
+              {t('common.cancel')}
+            </Button>
+            <Button type="submit" disabled={!dirty || saving}>
+              {t('common.save')}
+            </Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
+  )
+}
 function ConfirmActionDialog({
   kind,
   user,

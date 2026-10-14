@@ -3,6 +3,7 @@ import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { ActorLeaderboardResponse, ActorRow } from '@/types/api'
+import type { Permission, Role } from '@/types/auth'
 
 const leaderboardCalls: unknown[][] = []
 const downloadActorList = vi.fn().mockResolvedValue(undefined)
@@ -50,9 +51,14 @@ vi.mock('@/lib/api-client', async (importOriginal) => ({
 }))
 vi.mock('@/lib/auth-store', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/lib/auth-store')>()
+  const { ROLE_DEFAULT_PERMISSIONS } = await vi.importActual<typeof import('@/lib/permissions')>(
+    '@/lib/permissions',
+  )
   return {
     ...actual,
     useAuthStore: (selector: (s: { role: string }) => unknown) => selector({ role }),
+    // Each role's default permissions -- what an account without a custom set holds.
+    useHasPermission: (permission: Permission) => ROLE_DEFAULT_PERMISSIONS[role as Role].includes(permission),
   }
 })
 

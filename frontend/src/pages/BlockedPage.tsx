@@ -19,7 +19,7 @@ import { useBlockGroups, useBlockSummary } from '@/hooks/useBlockedAnalysis'
 import { useDebouncedValue } from '@/hooks/useDebouncedValue'
 import { useLiveEvents } from '@/hooks/useLiveEvents'
 import { downloadBlockedGroups } from '@/lib/api-client'
-import { isAdminRole, useAuthStore } from '@/lib/auth-store'
+import { useHasPermission } from '@/lib/auth-store'
 import {
   filterParams,
   GROUP_LABELS,
@@ -115,8 +115,7 @@ export default function BlockedPage() {
   const setBranch = useFiltersStore((s) => s.setBranch)
   const { connectionState } = useLiveEvents()
   const live = connectionState === 'open'
-  const role = useAuthStore((state) => state.role)
-  const canExport = isAdminRole(role) || role === 'auditor'
+  const canExport = useHasPermission('export')
 
   const { view, group, sort, outcome, filters, update } = useBlockPageState()
   // The aggregates only hold blocked requests.

@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import type { Role } from '@/types/auth'
+import type { Permission, Role } from '@/types/auth'
 
 /**
  * Access token lives in memory only (never localStorage) to limit XSS
@@ -18,6 +18,10 @@ interface AuthState {
   // data (enforced server-side, see api/deps.py's resolve_branch -- this is
   // just for UI state, e.g. deciding whether to show a branch picker).
   branch: string | null
+  // [] = every branch; otherwise the branches this account is limited to.
+  branches: string[]
+  // Effective feature permissions (UI gating only -- the API enforces them).
+  permissions: Permission[]
   // Signed in with an admin-issued temporary password: the app shows only
   // the change-password screen until it's changed (the API refuses
   // everything else anyway, see api-client's password_change_required).
@@ -29,6 +33,8 @@ interface AuthState {
     username: string | null
     fullName: string | null
     branch: string | null
+    branches?: string[]
+    permissions?: Permission[]
     mustChangePassword: boolean
   }) => void
   /** Updates the access token (and its role/branch claims) only, leaving
@@ -37,7 +43,13 @@ interface AuthState {
    * api-client.ts). Deliberately distinct from `setAuth`, which represents
    * a fresh login. */
   setAccessToken: (accessToken: string, role: Role, branch: string | null) => void
-  setProfile: (data: { username: string; fullName: string; mustChangePassword: boolean }) => void
+  setProfile: (data: {
+    username: string
+    fullName: string
+    mustChangePassword: boolean
+    branches?: string[]
+    permissions?: Permission[]
+  }) => void
   setMustChangePassword: (value: boolean) => void
   clearAuth: () => void
   setChecking: () => void
@@ -49,22 +61,32 @@ export const useAuthStore = create<AuthState>((set) => ({
   username: null,
   fullName: null,
   branch: null,
+  branches: [],
+  permissions: [],
   mustChangePassword: false,
   status: 'checking',
-  setAuth: ({ accessToken, role, username, fullName, branch, mustChangePassword }) =>
+  setAuth: ({ accessToken, role, username, fullName, branch, branches, permissions, mustChangePassword }) =>
     set({
       accessToken,
       role,
       username,
       fullName,
       branch,
+      branches: branches ?? [],
+      permissions: permissions ?? [],
       mustChangePassword,
       status: 'authenticated',
     }),
   setAccessToken: (accessToken, role, branch) =>
     set({ accessToken, role, branch, status: 'authenticated' }),
-  setProfile: ({ username, fullName, mustChangePassword }) =>
-    set({ username, fullName, mustChangePassword }),
+  setProfile: ({ username, fullName, mustChangePassword, branches, permissions }) =>
+    set((state) => ({
+      username,
+      fullName,
+      mustChangePassword,
+      branches: branches ?? state.branches,
+      permissions: permissions ?? state.permissions,
+    })),
   setMustChangePassword: (mustChangePassword) => set({ mustChangePassword }),
   clearAuth: () =>
     set({
@@ -73,6 +95,8 @@ export const useAuthStore = create<AuthState>((set) => ({
       username: null,
       fullName: null,
       branch: null,
+      branches: [],
+      permissions: [],
       mustChangePassword: false,
       status: 'unauthenticated',
     }),
@@ -86,6 +110,12 @@ export function getAccessToken(): string | null {
 /** superadmin satisfies every admin check (see backend api/deps.require_admin). */
 export function isAdminRole(role: Role | null | undefined): boolean {
   return role === 'superadmin' || role === 'admin'
+}
+
+/** UI gating for a feature permission -- the backend enforces it anyway
+ * (api/deps.require_permission). */
+export function useHasPermission(permission: Permission): boolean {
+  return useAuthStore((state) => state.permissions.includes(permission))
 }
 
 function decodeTokenPayload(token: string): Record<string, unknown> | null {

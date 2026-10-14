@@ -8,6 +8,7 @@ import { TooltipProvider } from '@/components/ui/tooltip'
 import { useFiltersStore } from '@/lib/filters-store'
 import * as apiClient from '@/lib/api-client'
 import type { ActorDetailResponse, ActorRow, WatchlistEntry } from '@/types/api'
+import type { Permission, Role } from '@/types/auth'
 
 const navigateMock = vi.fn()
 vi.mock('react-router-dom', async () => {
@@ -78,9 +79,15 @@ vi.mock('@/hooks/useAnalytics', () => ({
 let mockRole = 'auditor'
 vi.mock('@/lib/auth-store', async () => {
   const actual = await vi.importActual<typeof import('@/lib/auth-store')>('@/lib/auth-store')
+  const { ROLE_DEFAULT_PERMISSIONS } = await vi.importActual<typeof import('@/lib/permissions')>(
+    '@/lib/permissions',
+  )
   return {
     isAdminRole: actual.isAdminRole,
     useAuthStore: (selector: (state: { role: string }) => unknown) => selector({ role: mockRole }),
+    // Each role's default permissions -- what an account without a custom set holds.
+    useHasPermission: (permission: Permission) =>
+      ROLE_DEFAULT_PERMISSIONS[mockRole as Role].includes(permission),
   }
 })
 

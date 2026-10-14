@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from '@/lib/api-client'
-import type { Role } from '@/types/auth'
+import type { Permission, Role } from '@/types/auth'
 
 const USERS_QUERY_KEY = ['users']
 
@@ -31,7 +31,9 @@ export function useCreateUser() {
       note: string | null
       email: string | null
       role: Role
-      branch: string | null
+      branches: string[] | null
+      permissions: Permission[] | null
+      expires_at: string | null
     }) => api.createUser(data),
   )
 }
@@ -56,9 +58,22 @@ export function useUpdateUserRole() {
   )
 }
 
-export function useUpdateUserBranch() {
-  return useUserMutation(({ userId, branch }: { userId: string; branch: string | null }) =>
-    api.updateUserBranch(userId, branch),
+export function useUpdateUserBranches() {
+  return useUserMutation(({ userId, branches }: { userId: string; branches: string[] | null }) =>
+    api.updateUserBranches(userId, branches),
+  )
+}
+
+export function useUpdateUserPermissions() {
+  return useUserMutation(
+    ({ userId, permissions }: { userId: string; permissions: Permission[] | null }) =>
+      api.updateUserPermissions(userId, permissions),
+  )
+}
+
+export function useUpdateUserExpiry() {
+  return useUserMutation(({ userId, expiresAt }: { userId: string; expiresAt: string | null }) =>
+    api.updateUserExpiry(userId, expiresAt),
   )
 }
 

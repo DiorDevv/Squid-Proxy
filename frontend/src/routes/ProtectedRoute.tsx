@@ -3,7 +3,7 @@ import { Loader2 } from 'lucide-react'
 import { Navigate, Outlet } from 'react-router-dom'
 import { useAuthStore } from '@/lib/auth-store'
 import { useTranslation } from '@/i18n'
-import type { Role } from '@/types/auth'
+import type { Permission, Role } from '@/types/auth'
 
 const ForcePasswordChangePage = lazy(() => import('@/pages/ForcePasswordChangePage'))
 
@@ -11,12 +11,15 @@ interface ProtectedRouteProps {
   /** One role, or any-of a list. Omitted = any authenticated user. A super
    * admin passes wherever 'admin' is allowed (same as the backend). */
   requiredRole?: Role | Role[]
+  /** Any-of. Combined with requiredRole, either one is enough. */
+  requiredPermission?: Permission | Permission[]
 }
 
-export function ProtectedRoute({ requiredRole }: ProtectedRouteProps) {
+export function ProtectedRoute({ requiredRole, requiredPermission }: ProtectedRouteProps) {
   const { t } = useTranslation()
   const status = useAuthStore((state) => state.status)
   const role = useAuthStore((state) => state.role)
+  const permissions = useAuthStore((state) => state.permissions)
   const mustChangePassword = useAuthStore((state) => state.mustChangePassword)
 
   if (status === 'checking') {
@@ -38,10 +41,17 @@ export function ProtectedRoute({ requiredRole }: ProtectedRouteProps) {
     return <ForcePasswordChangePage />
   }
 
-  if (requiredRole) {
-    const allowed = Array.isArray(requiredRole) ? requiredRole : [requiredRole]
-    const effective = allowed.includes('admin') ? [...allowed, 'superadmin'] : allowed
-    if (!role || !effective.includes(role)) {
+  if (requiredRole || requiredPermission) {
+    const allowedRoles = requiredRole ? (Array.isArray(requiredRole) ? requiredRole : [requiredRole]) : []
+    const effective = allowedRoles.includes('admin') ? [...allowedRoles, 'superadmin'] : allowedRoles
+    const roleOk = role !== null && effective.includes(role)
+    const wanted = requiredPermission
+      ? Array.isArray(requiredPermission)
+        ? requiredPermission
+        : [requiredPermission]
+      : []
+    const permissionOk = wanted.some((p) => permissions.includes(p))
+    if (!roleOk && !permissionOk) {
       return <Navigate to="/" replace />
     }
   }

@@ -15,6 +15,10 @@ function makeUser(overrides: Partial<UserSummary>): UserSummary {
     note: null,
     role: 'superadmin',
     branch: null,
+    branches: null,
+    permissions: null,
+    effective_permissions: [],
+    expires_at: null,
     is_active: true,
     must_change_password: false,
     totp_enabled: false,
@@ -89,7 +93,9 @@ describe('useCreateUser', () => {
       note: null,
       email: null,
       role: 'viewer' as const,
-      branch: null,
+      branches: ['main', 'filial'],
+      permissions: ['export' as const],
+      expires_at: null,
     }
 
     const { result } = renderHook(() => useCreateUser(), { wrapper })

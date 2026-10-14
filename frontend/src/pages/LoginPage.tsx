@@ -92,6 +92,8 @@ export default function LoginPage() {
       if (err instanceof ApiError && err.status === 429) {
         setRetryIn(RATE_LIMIT_COOLDOWN_SECONDS)
         setError(t('login.rateLimitedError'))
+      } else if (err instanceof ApiError && err.message === 'account_expired') {
+        setError(t('login.accountExpired'))
       } else {
         setError(err instanceof ApiError ? err.message : t('login.genericError'))
       }

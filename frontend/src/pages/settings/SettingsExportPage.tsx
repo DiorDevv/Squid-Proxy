@@ -21,6 +21,7 @@ import { downloadExportJob, ApiError } from '@/lib/api-client'
 import { useCancelExportJob, useCreateExportJob, useExportJob } from '@/hooks/useExportJob'
 import { useBranches } from '@/hooks/useBranches'
 import { useFiltersStore } from '@/lib/filters-store'
+import { isAdminRole, useAuthStore } from '@/lib/auth-store'
 import { formatNumber, toDatetimeLocalValue } from '@/lib/format'
 import { EXPORT_COLUMNS } from '@/lib/constants'
 import { CATEGORY_LABEL_KEYS, CATEGORY_OPTIONS } from '@/lib/categories'
@@ -54,6 +55,7 @@ const EXPORT_COLUMN_LABEL_KEYS: Record<(typeof EXPORT_COLUMNS)[number], Translat
 
 export default function SettingsExportPage() {
   const { t } = useTranslation()
+  const isAdmin = isAdminRole(useAuthStore((state) => state.role))
   // Initialized from (not bound to) the same global range/branch filter the
   // Dashboard/Domains/Clients/Blocked pages all share (useFiltersStore) --
   // otherwise this defaulted to a flat 24h regardless of what the admin was
@@ -431,11 +433,15 @@ export default function SettingsExportPage() {
         </PanelErrorBoundary>
       </Panel>
 
-      <Panel title={t('settings.exportCleanupSettings')}>
-        <PanelErrorBoundary panelLabel={t('settings.exportCleanupSettings')}>
-          <ExportSettingsPanel />
-        </PanelErrorBoundary>
-      </Panel>
+      {/* Storage/cleanup policy is system administration, not a
+          per-user permission (backend: require_admin). */}
+      {isAdmin && (
+        <Panel title={t('settings.exportCleanupSettings')}>
+          <PanelErrorBoundary panelLabel={t('settings.exportCleanupSettings')}>
+            <ExportSettingsPanel />
+          </PanelErrorBoundary>
+        </Panel>
+      )}
     </div>
   )
 }

@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { toast } from 'sonner'
+import { useSearchParams } from 'react-router-dom'
 import { ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, Download } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Panel } from '@/components/common/Panel'
@@ -118,7 +119,32 @@ export default function AnalyticsWhoPage() {
   const role = useAuthStore((state) => state.role)
   const canExport = isAdminRole(role) || role === 'auditor'
   const [sort, setSort] = useState('requests')
-  const [selected, setSelected] = useState<ActorRow | null>(null)
+  // ?actor=<value>&is_user=1|0 opens that actor's panel straight away (the
+  // client detail page links a login here); closing the panel drops it.
+  const [searchParams, setSearchParams] = useSearchParams()
+  const [selected, setSelectedState] = useState<ActorRow | null>(() => {
+    const linked = searchParams.get('actor')
+    if (!linked) return null
+    return {
+      actor: linked,
+      is_user: searchParams.get('is_user') !== '0',
+      request_count: 0,
+      blocked_count: 0,
+      blocked_ratio: 0,
+      total_bytes: 0,
+      bytes_received: 0,
+      top_category: null,
+    }
+  })
+  function setSelected(row: ActorRow | null) {
+    setSelectedState(row)
+    if (row === null && searchParams.has('actor')) {
+      const next = new URLSearchParams(searchParams)
+      next.delete('actor')
+      next.delete('is_user')
+      setSearchParams(next, { replace: true })
+    }
+  }
   const [search, setSearch] = useState('')
   const [kind, setKind] = useState<ActorKindFilter>('all')
   const [limit, setLimit] = useState(50)

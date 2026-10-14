@@ -232,6 +232,7 @@ export const ru = {
   'clientDetail.methodFilter': 'Метод',
   'clientDetail.allMethods': 'Все методы',
   'clientDetail.matchingEvents': 'Найдено {{count}} записей за этот период',
+  'clientDetail.openUserAnalysis': 'Открыть анализ этого логина (все его IP)',
 
   'blocked.title': 'Заблокированные попытки',
   'blocked.filterPlaceholder': 'Фильтр по IP, домену, пользователю…',

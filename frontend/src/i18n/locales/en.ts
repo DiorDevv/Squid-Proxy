@@ -244,6 +244,7 @@ export const en = {
   'clientDetail.methodFilter': 'Method',
   'clientDetail.allMethods': 'All methods',
   'clientDetail.matchingEvents': '{{count}} matching events in this range',
+  'clientDetail.openUserAnalysis': 'Open this login\'s analysis (all its IPs)',
 
   // --- Blocked page ---
   'blocked.title': 'Blocked attempts',

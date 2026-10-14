@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
-import { ArrowLeft, Activity, Database, Info, ShieldX } from 'lucide-react'
+import { ArrowLeft, Info, UserRound } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import {
   Select,
@@ -17,12 +17,12 @@ import { RangeSelector } from '@/components/common/RangeSelector'
 import { ClientActivityTimeline } from '@/components/clients/ClientActivityTimeline'
 import { TimeSpentByDomain } from '@/components/clients/TimeSpentByDomain'
 import { TimeSpentByCategory } from '@/components/clients/TimeSpentByCategory'
-import { SummaryCard } from '@/components/dashboard/SummaryCard'
+import { ActorActions, ActorInsights } from '@/components/analytics/ActorInsights'
 import { EventDetailSheet } from '@/components/blocked/EventDetailSheet'
 import { useClientActivity } from '@/hooks/useClients'
 import { useClientSummary } from '@/hooks/useClientSummary'
 import { useRangeSearchParams } from '@/lib/filters-store'
-import { formatBytes, formatNumber } from '@/lib/format'
+import { formatNumber } from '@/lib/format'
 import { cn } from '@/lib/utils'
 import { useTranslation } from '@/i18n'
 import type { LiveEvent } from '@/types/events'
@@ -88,8 +88,23 @@ export default function ClientDetailPage() {
               {summary.branch}
             </span>
           )}
+          {/* The login behind this IP -- opens that user's own Who analysis
+              (one login can span several IPs, which this page can't show). */}
+          {summary?.user && (
+            <Link
+              to={`/analytics/who?actor=${encodeURIComponent(summary.user)}&is_user=1`}
+              title={t('clientDetail.openUserAnalysis')}
+              className="font-data flex items-center gap-1 rounded bg-info/10 px-1.5 py-0.5 text-xs text-info hover:bg-info/20"
+            >
+              <UserRound className="h-3 w-3" aria-hidden="true" />
+              {summary.user}
+            </Link>
+          )}
         </div>
-        <RangeSelector />
+        <div className="flex flex-wrap items-center gap-2">
+          {clientIp && <ActorActions actor={clientIp} isUser={false} branch={rangeParams.branch} />}
+          <RangeSelector />
+        </div>
       </div>
 
       {isEmptyRange && (
@@ -99,33 +114,13 @@ export default function ClientDetailPage() {
         </div>
       )}
 
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-        <SummaryCard
-          label={t('clientDetail.totalRequests')}
-          value={summary?.total_requests ?? 0}
-          icon={Activity}
-          tone="info"
-          loading={summaryQuery.isLoading}
-          updating={summaryQuery.isFetching && !summaryQuery.isLoading}
-        />
-        <SummaryCard
-          label={t('clientDetail.totalBlocked')}
-          value={summary?.blocked_requests ?? 0}
-          icon={ShieldX}
-          tone="warning"
-          loading={summaryQuery.isLoading}
-          updating={summaryQuery.isFetching && !summaryQuery.isLoading}
-        />
-        <SummaryCard
-          label={t('clientDetail.totalData')}
-          value={summary?.total_bytes ?? 0}
-          icon={Database}
-          tone="purple"
-          loading={summaryQuery.isLoading}
-          updating={summaryQuery.isFetching && !summaryQuery.isLoading}
-          formatValue={formatBytes}
-        />
-      </div>
+      {/* Same investigation view as the Who page's side panel, laid out
+          for a full page. */}
+      {clientIp && (
+        <PanelErrorBoundary panelLabel={t('analytics.who.title')}>
+          <ActorInsights actor={clientIp} isUser={false} rangeParams={rangeParams} layout="page" />
+        </PanelErrorBoundary>
+      )}
 
       <div className="grid grid-cols-1 gap-4 xl:grid-cols-3">
         <Panel

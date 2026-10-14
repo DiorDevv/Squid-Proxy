@@ -235,6 +235,7 @@ export const uz = {
   'clientDetail.methodFilter': 'Metod',
   'clientDetail.allMethods': 'Barcha metodlar',
   'clientDetail.matchingEvents': 'Ushbu davrda {{count}} ta mos yozuv topildi',
+  'clientDetail.openUserAnalysis': 'Shu login tahlilini ochish (barcha IPʼlari)',
 
   'blocked.title': 'Bloklangan urinishlar',
   'blocked.filterPlaceholder': 'IP, domen, foydalanuvchi boʻyicha filtrlash…',

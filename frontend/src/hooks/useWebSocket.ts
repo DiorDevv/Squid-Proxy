@@ -33,7 +33,10 @@ const LIVE_INVALIDATED_QUERY_KEYS = [
 
 // Throttled (not debounced): a continuous event stream must still refetch
 // periodically, not defer forever waiting for a gap between events.
-const INVALIDATE_THROTTLE_MS = 3_000
+// 15 s, not faster: each tick refetches every key above (a 24h /api/summary
+// alone is ~1 s of database time), and with proxy traffic the stream never
+// pauses -- at 3 s one open dashboard kept the database busy nonstop.
+const INVALIDATE_THROTTLE_MS = 15_000
 
 /**
  * Maintains a /ws/live connection with capped exponential-backoff
@@ -53,16 +56,37 @@ export function useWebSocket(enabled: boolean, maxBuffered = 50): UseWebSocketRe
     let dispose: (() => void) | null = null
     let reconnectTimer: ReturnType<typeof setTimeout> | null = null
     let invalidateTimer: ReturnType<typeof setTimeout> | null = null
+    // invalidateQueries refetches mounted queries even in a background tab,
+    // so a forgotten dashboard tab would keep hammering the API. While the
+    // tab is hidden, only remember that data went stale; catch up once on
+    // return.
+    let missedWhileHidden = false
+
+    function invalidateAll() {
+      for (const queryKey of LIVE_INVALIDATED_QUERY_KEYS) {
+        queryClient.invalidateQueries({ queryKey })
+      }
+    }
 
     function scheduleInvalidate() {
       if (invalidateTimer) return
       invalidateTimer = setTimeout(() => {
         invalidateTimer = null
-        for (const queryKey of LIVE_INVALIDATED_QUERY_KEYS) {
-          queryClient.invalidateQueries({ queryKey })
+        if (document.hidden) {
+          missedWhileHidden = true
+          return
         }
+        invalidateAll()
       }, INVALIDATE_THROTTLE_MS)
     }
+
+    function handleVisibilityChange() {
+      if (!document.hidden && missedWhileHidden) {
+        missedWhileHidden = false
+        invalidateAll()
+      }
+    }
+    document.addEventListener('visibilitychange', handleVisibilityChange)
 
     function start() {
       dispose = connectLiveEvents({
@@ -98,6 +122,7 @@ export function useWebSocket(enabled: boolean, maxBuffered = 50): UseWebSocketRe
 
     return () => {
       disposed = true
+      document.removeEventListener('visibilitychange', handleVisibilityChange)
       if (reconnectTimer) clearTimeout(reconnectTimer)
       if (invalidateTimer) clearTimeout(invalidateTimer)
       dispose?.()

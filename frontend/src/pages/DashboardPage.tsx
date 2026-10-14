@@ -19,7 +19,7 @@ import { BranchBlockedDomainsGrid } from '@/components/analytics/BranchBlockedDo
 import { Toggle } from '@/components/analytics/Toggle'
 import { useFiltersStore, useRangeSearchParams } from '@/lib/filters-store'
 import { getPercentChange, getPreviousPeriodParams } from '@/lib/compare-period'
-import { useCacheEfficiency, useSummary } from '@/hooks/useSummary'
+import { useCacheEfficiency, usePreviousSummary, useSummary } from '@/hooks/useSummary'
 import { useTimeseries } from '@/hooks/useTimeseries'
 import { useTopBlocked } from '@/hooks/useTopDomains'
 import { useRecentInsights } from '@/hooks/useInsights'
@@ -125,11 +125,7 @@ export default function DashboardPage() {
   const previousPeriodParams = summary
     ? getPreviousPeriodParams(summary.since, summary.until, branch)
     : null
-  const previousSummaryQuery = useSummary(
-    previousPeriodParams ?? {},
-    false,
-    previousPeriodParams !== null,
-  )
+  const previousSummaryQuery = usePreviousSummary(previousPeriodParams)
   const previousSummary = previousSummaryQuery.data
 
   const points = timeseriesQuery.data?.points

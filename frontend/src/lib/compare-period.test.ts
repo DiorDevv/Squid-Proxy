@@ -26,6 +26,16 @@ describe('getPreviousPeriodParams', () => {
       to_ts: '2026-01-02T10:00:00.000Z',
     })
   })
+
+  it('snaps a rolling window to whole minutes so seconds-apart refetches share one key', () => {
+    const a = getPreviousPeriodParams('2026-01-02T10:00:05.123Z', '2026-01-03T10:00:05.123Z', null)
+    const b = getPreviousPeriodParams('2026-01-02T10:00:41.900Z', '2026-01-03T10:00:41.900Z', null)
+    expect(a).toEqual({
+      from_ts: '2026-01-01T10:00:00.000Z',
+      to_ts: '2026-01-02T10:00:00.000Z',
+    })
+    expect(b).toEqual(a)
+  })
 })
 
 describe('getPercentChange', () => {
